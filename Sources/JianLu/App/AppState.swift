@@ -12,20 +12,18 @@ final class AppState: ObservableObject {
 
     let captureService = CaptureService()
     let cameraCaptureService = CameraCaptureService()
+    let overlayService = OverlayService()
+    private let hotkeyService = HotkeyService()
 
     private var activeScreenRecordingURL: URL?
     private var activeCameraRecordingURL: URL?
     private var recordingStartedAt: Date?
-    private var pendingEvents: [EffectEvent] = [
-        .cameraLayout(
-            CameraLayoutEvent(
-                time: 0,
-                frame: .defaultCameraFrame,
-                shape: .circle,
-                isVisible: true
-            )
-        )
-    ]
+
+    init() {
+        hotkeyService.start { [weak self] action in
+            self?.handleHotkey(action)
+        }
+    }
 
     func toggleRecordingIntent() {
         Task {
@@ -40,16 +38,9 @@ final class AppState: ObservableObject {
     func toggleCameraIntent() {
         cameraEnabled.toggle()
         statusMessage = cameraEnabled ? "摄像头头像框已开启" : "摄像头头像框已关闭"
-        pendingEvents.append(
-            .cameraLayout(
-                CameraLayoutEvent(
-                    time: currentRecordingTime,
-                    frame: .defaultCameraFrame,
-                    shape: .circle,
-                    isVisible: cameraEnabled
-                )
-            )
-        )
+        if isRecording {
+            overlayService.toggleCameraVisibility()
+        }
     }
 
     func requestPermissions() {
@@ -80,12 +71,23 @@ final class AppState: ObservableObject {
                 activeCameraRecordingURL = try cameraCaptureService.startRecording()
             }
 
+            overlayService.beginRecording(
+                cameraSession: cameraCaptureService.previewSession,
+                cameraEnabled: cameraEnabled
+            )
             activeScreenRecordingURL = try await captureService.startDisplayRecording()
             recordingStartedAt = Date()
             isRecording = true
             lastErrorMessage = nil
             statusMessage = "录制中：缩放、标注和摄像头头像框会写入成片"
         } catch {
+            if cameraCaptureService.isRecording {
+                try? cameraCaptureService.stopRecording()
+            }
+            overlayService.endRecording()
+            activeScreenRecordingURL = nil
+            activeCameraRecordingURL = nil
+            recordingStartedAt = nil
             lastErrorMessage = error.localizedDescription
             statusMessage = "启动录制失败：\(error.localizedDescription)"
             isRecording = false
@@ -104,7 +106,7 @@ final class AppState: ObservableObject {
                 let project = RecordingProject(
                     screenRecordingURL: screenURL,
                     cameraRecordingURL: activeCameraRecordingURL,
-                    events: pendingEvents,
+                    events: overlayService.events,
                     timeline: .fullLength(duration: duration)
                 )
                 recentProjects.insert(project, at: 0)
@@ -113,12 +115,41 @@ final class AppState: ObservableObject {
             activeScreenRecordingURL = nil
             activeCameraRecordingURL = nil
             recordingStartedAt = nil
-            pendingEvents = []
+            overlayService.endRecording()
             isRecording = false
             statusMessage = "录制已停止，可以进入剪辑和导出"
         } catch {
             lastErrorMessage = error.localizedDescription
             statusMessage = "停止录制失败：\(error.localizedDescription)"
+        }
+    }
+
+    private func handleHotkey(_ action: HotkeyAction) {
+        switch action {
+        case .toggleZoom:
+            overlayService.toggleZoom()
+            statusMessage = "已切换缩放效果"
+        case .zoomIn:
+            overlayService.adjustZoom(by: 0.2)
+            statusMessage = "缩放倍率 \(String(format: "%.1f", overlayService.zoomMagnification))x"
+        case .zoomOut:
+            overlayService.adjustZoom(by: -0.2)
+            statusMessage = "缩放倍率 \(String(format: "%.1f", overlayService.zoomMagnification))x"
+        case .selectTool(let tool):
+            overlayService.selectTool(tool)
+            statusMessage = "标注工具：\(tool.displayName)"
+        case .undo:
+            overlayService.undoLastAnnotation()
+            statusMessage = "已撤销上一笔标注"
+        case .toggleCamera:
+            toggleCameraIntent()
+        case .toggleCameraShape:
+            overlayService.toggleCameraShape()
+            statusMessage = "摄像头形状：\(overlayService.cameraShape.displayName)"
+        case .stopRecording:
+            if isRecording {
+                toggleRecordingIntent()
+            }
         }
     }
 
