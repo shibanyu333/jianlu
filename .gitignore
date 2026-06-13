@@ -1,0 +1,11 @@
+.DS_Store
+/.build/
+/dist/
+/DerivedData/
+*.xcuserstate
+*.swiftpm/
+*.mov
+*.mp4
+*.m4v
+*.log
+/.codex/.tmp/
