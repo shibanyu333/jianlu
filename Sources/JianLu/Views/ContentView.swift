@@ -93,6 +93,9 @@ private struct MainDashboardView: View {
             }
 
             PermissionPanel(snapshot: appState.permissionSnapshot)
+            if let selectedProject = appState.selectedProject {
+                EditorView(project: selectedProject)
+            }
             RecentProjectsView(projects: appState.recentProjects)
 
             Spacer()
@@ -158,6 +161,7 @@ private struct PermissionBadge: View {
 }
 
 private struct RecentProjectsView: View {
+    @EnvironmentObject private var appState: AppState
     let projects: [RecordingProject]
 
     var body: some View {
@@ -171,19 +175,25 @@ private struct RecentProjectsView: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(projects.prefix(3)) { project in
-                    HStack {
-                        Image(systemName: "movieclapper")
-                            .foregroundStyle(.tint)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(project.screenRecordingURL.lastPathComponent)
-                                .font(.callout.weight(.medium))
-                                .lineLimit(1)
-                            Text("时长 \(Int(project.duration.rounded())) 秒")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                    Button {
+                        appState.selectProject(project.id)
+                    } label: {
+                        HStack {
+                            Image(systemName: "movieclapper")
+                                .foregroundStyle(.tint)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(project.screenRecordingURL.lastPathComponent)
+                                    .font(.callout.weight(.medium))
+                                    .lineLimit(1)
+                                Text("时长 \(Int(project.duration.rounded())) 秒")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
                         }
-                        Spacer()
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                     .padding(10)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
                 }

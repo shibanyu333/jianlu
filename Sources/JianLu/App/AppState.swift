@@ -9,10 +9,14 @@ final class AppState: ObservableObject {
     @Published var permissionSnapshot = PermissionService.snapshot()
     @Published var recentProjects: [RecordingProject] = []
     @Published var lastErrorMessage: String?
+    @Published var selectedProjectID: UUID?
+    @Published var exportMessage: String?
+    @Published var isExporting = false
 
     let captureService = CaptureService()
     let cameraCaptureService = CameraCaptureService()
     let overlayService = OverlayService()
+    private let exportService = ExportService()
     private let hotkeyService = HotkeyService()
 
     private var activeScreenRecordingURL: URL?
@@ -110,6 +114,7 @@ final class AppState: ObservableObject {
                     timeline: .fullLength(duration: duration)
                 )
                 recentProjects.insert(project, at: 0)
+                selectedProjectID = project.id
             }
 
             activeScreenRecordingURL = nil
@@ -156,5 +161,59 @@ final class AppState: ObservableObject {
     private var currentRecordingTime: TimeInterval {
         guard let recordingStartedAt else { return 0 }
         return Date().timeIntervalSince(recordingStartedAt)
+    }
+
+    var selectedProject: RecordingProject? {
+        guard let selectedProjectID else { return recentProjects.first }
+        return recentProjects.first { $0.id == selectedProjectID }
+    }
+
+    func selectProject(_ id: UUID) {
+        selectedProjectID = id
+    }
+
+    func splitProject(_ id: UUID, atExportRatio ratio: Double) {
+        guard let index = recentProjects.firstIndex(where: { $0.id == id }) else { return }
+        let clampedRatio = min(max(0, ratio), 1)
+        let exportTime = recentProjects[index].timeline.totalExportDuration * clampedRatio
+        guard let sourceTime = recentProjects[index].timeline.sourceTime(forExportTime: exportTime) else {
+            return
+        }
+
+        if recentProjects[index].timeline.split(at: sourceTime) {
+            recentProjects = recentProjects
+            statusMessage = "已在 \(Int(sourceTime)) 秒处分割"
+        }
+    }
+
+    func deleteLastSegment(_ id: UUID) {
+        guard let index = recentProjects.firstIndex(where: { $0.id == id }),
+              let lastSegment = recentProjects[index].timeline.segments.last,
+              recentProjects[index].timeline.segments.count > 1 else {
+            statusMessage = "至少保留一个片段"
+            return
+        }
+
+        if recentProjects[index].timeline.deleteSegment(id: lastSegment.id) {
+            recentProjects = recentProjects
+            statusMessage = "已删除最后一个片段"
+        }
+    }
+
+    func exportProject(_ id: UUID) {
+        guard let project = recentProjects.first(where: { $0.id == id }) else { return }
+        Task {
+            isExporting = true
+            exportMessage = "正在导出..."
+            do {
+                let outputURL = try await exportService.export(project: project)
+                exportMessage = "导出完成：\(outputURL.path)"
+                statusMessage = "导出完成"
+            } catch {
+                exportMessage = error.localizedDescription
+                statusMessage = "导出失败"
+            }
+            isExporting = false
+        }
     }
 }
