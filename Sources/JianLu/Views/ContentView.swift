@@ -1,4 +1,5 @@
 import SwiftUI
+import JianLuCore
 
 struct ContentView: View {
     @EnvironmentObject private var appState: AppState
@@ -12,6 +13,9 @@ struct ContentView: View {
                 Divider()
                 MainDashboardView()
             }
+        }
+        .onAppear {
+            appState.refreshPermissions()
         }
     }
 }
@@ -30,6 +34,12 @@ private struct HeaderView: View {
             }
 
             Spacer()
+
+            Button {
+                appState.requestPermissions()
+            } label: {
+                Label("检查权限", systemImage: "checkmark.shield")
+            }
 
             Button {
                 appState.toggleCameraIntent()
@@ -82,6 +92,9 @@ private struct MainDashboardView: View {
                 FeatureCard(title: "录后剪辑", detail: "裁头尾、分割删除片段、预览并导出。", symbol: "timeline.selection")
             }
 
+            PermissionPanel(snapshot: appState.permissionSnapshot)
+            RecentProjectsView(projects: appState.recentProjects)
+
             Spacer()
         }
         .padding(28)
@@ -111,5 +124,70 @@ private struct FeatureCard: View {
         }
         .padding(16)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+private struct PermissionPanel: View {
+    let snapshot: PermissionSnapshot
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("权限状态")
+                .font(.headline)
+            HStack(spacing: 12) {
+                PermissionBadge(title: "屏幕录制", isGranted: snapshot.screenRecordingGranted)
+                PermissionBadge(title: "摄像头", isGranted: snapshot.cameraGranted)
+                PermissionBadge(title: "麦克风", isGranted: snapshot.microphoneGranted)
+                PermissionBadge(title: "快捷键监听", isGranted: true)
+            }
+        }
+        .padding(16)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+private struct PermissionBadge: View {
+    let title: String
+    let isGranted: Bool
+
+    var body: some View {
+        Label(title, systemImage: isGranted ? "checkmark.circle.fill" : "exclamationmark.circle")
+            .foregroundStyle(isGranted ? .green : .orange)
+            .font(.callout)
+    }
+}
+
+private struct RecentProjectsView: View {
+    let projects: [RecordingProject]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("最近录制")
+                .font(.headline)
+
+            if projects.isEmpty {
+                Text("录制完成后会出现在这里。")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(projects.prefix(3)) { project in
+                    HStack {
+                        Image(systemName: "movieclapper")
+                            .foregroundStyle(.tint)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(project.screenRecordingURL.lastPathComponent)
+                                .font(.callout.weight(.medium))
+                                .lineLimit(1)
+                            Text("时长 \(Int(project.duration.rounded())) 秒")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                    }
+                    .padding(10)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                }
+            }
+        }
     }
 }
