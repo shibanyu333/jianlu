@@ -54,6 +54,7 @@ private struct HeaderView: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(appState.isRecording ? .red : .accentColor)
+            .help(appState.permissionSnapshot.screenRecordingGranted ? "开始录制" : "点击后会请求屏幕录制权限")
         }
         .padding(20)
     }
@@ -93,6 +94,28 @@ private struct MainDashboardView: View {
             }
 
             PermissionPanel(snapshot: appState.permissionSnapshot)
+            if !appState.permissionSnapshot.screenRecordingGranted {
+                HStack {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text("屏幕录制授权后，通常需要退出并重新打开简录。")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        appState.openScreenRecordingSettings()
+                    } label: {
+                        Label("打开系统设置", systemImage: "gear")
+                    }
+                }
+                .padding(12)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+            }
+            if let lastErrorMessage = appState.lastErrorMessage {
+                Text(lastErrorMessage)
+                    .font(.callout)
+                    .foregroundStyle(.orange)
+            }
             if let selectedProject = appState.selectedProject {
                 EditorView(project: selectedProject)
             }

@@ -1,6 +1,8 @@
+import AppKit
 import AVFoundation
 import CoreGraphics
 import Foundation
+import JianLuCore
 
 struct PermissionSnapshot {
     var screenRecordingGranted: Bool
@@ -13,6 +15,14 @@ struct PermissionSnapshot {
         if !cameraGranted { missing.append("摄像头") }
         if !microphoneGranted { missing.append("麦克风") }
         return missing
+    }
+
+    var recordingState: RecordingPermissionState {
+        RecordingPermissionState(
+            screenRecordingGranted: screenRecordingGranted,
+            cameraGranted: cameraGranted,
+            microphoneGranted: microphoneGranted
+        )
     }
 }
 
@@ -38,6 +48,13 @@ enum PermissionService {
     static func requestScreenRecordingAccess() {
         if !CGPreflightScreenCaptureAccess() {
             _ = CGRequestScreenCaptureAccess()
+        }
+    }
+
+    static func openScreenRecordingSettings() {
+        let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+        if let url {
+            NSWorkspace.shared.open(url)
         }
     }
 }

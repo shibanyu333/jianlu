@@ -48,7 +48,12 @@ final class AppState: ObservableObject {
     }
 
     func requestPermissions() {
-        PermissionService.requestScreenRecordingAccess()
+        let snapshotBeforeRequest = PermissionService.snapshot()
+        if !snapshotBeforeRequest.screenRecordingGranted {
+            PermissionService.requestScreenRecordingAccess()
+            statusMessage = "请在系统设置中允许“简录”屏幕录制权限，然后重新打开 App"
+        }
+
         Task {
             permissionSnapshot = await PermissionService.requestMediaAccess()
             if permissionSnapshot.missingDescriptions.isEmpty {
@@ -63,10 +68,38 @@ final class AppState: ObservableObject {
         permissionSnapshot = PermissionService.snapshot()
     }
 
+    func openScreenRecordingSettings() {
+        PermissionService.openScreenRecordingSettings()
+    }
+
     private func startRecording() async {
         refreshPermissions()
         if !permissionSnapshot.screenRecordingGranted {
             PermissionService.requestScreenRecordingAccess()
+            refreshPermissions()
+            statusMessage = "请在系统设置中允许“简录”屏幕录制权限，然后重新打开 App 再开始录制"
+            lastErrorMessage = "屏幕录制权限尚未就绪。macOS 授权后通常需要重新打开 App。"
+            isRecording = false
+            return
+        }
+
+        permissionSnapshot = await PermissionService.requestMediaAccess()
+
+        switch RecordingPermissionGate.decision(for: permissionSnapshot.recordingState, cameraEnabled: cameraEnabled) {
+        case .allowed:
+            break
+        case .needsScreenRecordingPermission:
+            PermissionService.requestScreenRecordingAccess()
+            refreshPermissions()
+            statusMessage = "请在系统设置中允许“简录”屏幕录制权限，然后重新打开 App 再开始录制"
+            lastErrorMessage = "屏幕录制权限尚未就绪。macOS 授权后通常需要重新打开 App。"
+            isRecording = false
+            return
+        case .missingMediaPermissions(let missing):
+            statusMessage = "请先允许权限：\(missing.joined(separator: "、"))"
+            lastErrorMessage = "缺少权限：\(missing.joined(separator: "、"))"
+            isRecording = false
+            return
         }
 
         do {

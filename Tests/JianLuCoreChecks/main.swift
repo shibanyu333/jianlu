@@ -10,6 +10,7 @@ func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
 
 expect(CoreVersion.name == "JianLuCore", "core module exposes its name")
 runTimelineChecks()
+runPermissionGateChecks()
 print("JianLuCoreChecks passed")
 
 private func runTimelineChecks() {
@@ -41,4 +42,30 @@ private func runTimelineChecks() {
 
     expect(project.duration == 5, "project duration follows edit timeline")
     expect(project.events.count == 1, "project stores camera layout events")
+}
+
+private func runPermissionGateChecks() {
+    let noScreen = RecordingPermissionState(
+        screenRecordingGranted: false,
+        cameraGranted: true,
+        microphoneGranted: true
+    )
+    expect(
+        RecordingPermissionGate.decision(for: noScreen, cameraEnabled: true) == .needsScreenRecordingPermission,
+        "screen recording permission blocks recording startup"
+    )
+
+    let noCamera = RecordingPermissionState(
+        screenRecordingGranted: true,
+        cameraGranted: false,
+        microphoneGranted: true
+    )
+    expect(
+        RecordingPermissionGate.decision(for: noCamera, cameraEnabled: true) == .missingMediaPermissions(["摄像头"]),
+        "enabled camera requires camera permission"
+    )
+    expect(
+        RecordingPermissionGate.decision(for: noCamera, cameraEnabled: false) == .allowed,
+        "disabled camera does not block recording"
+    )
 }
