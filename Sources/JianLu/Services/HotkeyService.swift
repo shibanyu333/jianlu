@@ -1,6 +1,8 @@
 import AppKit
+@preconcurrency import ApplicationServices
 import Foundation
 import JianLuCore
+import os
 
 enum HotkeyAction {
     case beginHoldZoom
@@ -18,9 +20,12 @@ enum HotkeyAction {
 }
 
 @MainActor
-final class HotkeyService {
+final class HotkeyService: @unchecked Sendable {
+    private let logger = Logger(subsystem: "com.local.JianLu", category: "Hotkeys")
     private var globalMonitor: Any?
     private var localMonitor: Any?
+    private var eventTap: CFMachPort?
+    private var eventTapSource: CFRunLoopSource?
     private var handler: ((HotkeyAction) -> Void)?
     private var zoomShortcutProvider: (() -> ZoomShortcut)?
 
@@ -31,6 +36,10 @@ final class HotkeyService {
         self.zoomShortcutProvider = zoomShortcutProvider
         self.handler = handler
         stopMonitoring()
+
+        if startEventTap() {
+            return
+        }
 
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged, .leftMouseDown, .leftMouseUp]) { [weak self] event in
             Task { @MainActor in
@@ -47,6 +56,12 @@ final class HotkeyService {
     }
 
     func stopMonitoring() {
+        if let eventTapSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), eventTapSource, .commonModes)
+        }
+        if let eventTap {
+            CFMachPortInvalidate(eventTap)
+        }
         if let globalMonitor {
             NSEvent.removeMonitor(globalMonitor)
         }
@@ -55,36 +70,51 @@ final class HotkeyService {
         }
         globalMonitor = nil
         localMonitor = nil
+        eventTap = nil
+        eventTapSource = nil
     }
 
     private func handle(_ event: NSEvent) {
+        handle(
+            HotkeyEvent(
+                type: HotkeyEventType(event.type),
+                keyCode: event.keyCode,
+                modifierFlagsRawValue: event.modifierFlags.rawValue,
+                isRepeat: event.isARepeat
+            )
+        )
+    }
+
+    fileprivate func handle(_ event: HotkeyEvent) {
+        guard let eventType = event.type else { return }
         let zoomShortcut = zoomShortcutProvider?() ?? .controlOptionCommandZ
 
-        if event.type == .leftMouseDown {
+        if eventType == .leftMouseDown {
             handler?(.beginClickZoom)
             return
         }
-        if event.type == .leftMouseUp {
+        if eventType == .leftMouseUp {
             handler?(.endClickZoom)
             return
         }
 
-        if event.type == .keyUp, event.keyCode == zoomShortcut.keyCode {
+        if eventType == .keyUp, event.keyCode == zoomShortcut.keyCode {
             handler?(.endHoldZoom)
             return
         }
-        if event.type == .flagsChanged, !zoomShortcut.matchesModifiers(event.modifierFlags) {
+        let modifierFlags = NSEvent.ModifierFlags(rawValue: event.modifierFlagsRawValue)
+        if eventType == .flagsChanged, !zoomShortcut.matchesModifiers(modifierFlags) {
             handler?(.endHoldZoom)
             return
         }
 
-        guard event.type == .keyDown, !event.isARepeat else { return }
-        if zoomShortcut.matches(event) {
+        guard eventType == .keyDown, !event.isRepeat else { return }
+        if zoomShortcut.matches(keyCode: event.keyCode, modifierFlags: modifierFlags) {
             handler?(.beginHoldZoom)
             return
         }
 
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let flags = modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard flags.contains(.control), flags.contains(.option), flags.contains(.command) else {
             return
         }
@@ -120,6 +150,45 @@ final class HotkeyService {
             break
         }
     }
+
+    private func startEventTap() -> Bool {
+        let eventMask =
+            CGEventMask(1 << CGEventType.keyDown.rawValue) |
+            CGEventMask(1 << CGEventType.keyUp.rawValue) |
+            CGEventMask(1 << CGEventType.flagsChanged.rawValue) |
+            CGEventMask(1 << CGEventType.leftMouseDown.rawValue) |
+            CGEventMask(1 << CGEventType.leftMouseUp.rawValue)
+        let refcon = Unmanaged.passUnretained(self).toOpaque()
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .listenOnly,
+            eventsOfInterest: eventMask,
+            callback: hotkeyEventTapCallback,
+            userInfo: refcon
+        ) else {
+            logger.warning("System event tap is unavailable; falling back to NSEvent monitors")
+            return false
+        }
+
+        guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
+            CFMachPortInvalidate(tap)
+            logger.warning("System event tap source could not be created")
+            return false
+        }
+
+        eventTap = tap
+        eventTapSource = source
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
+        logger.info("System event tap started")
+        return true
+    }
+
+    fileprivate func restartEventTapAfterTimeout() {
+        guard let eventTap else { return }
+        CGEvent.tapEnable(tap: eventTap, enable: true)
+    }
 }
 
 private extension ZoomShortcut {
@@ -141,8 +210,8 @@ private extension ZoomShortcut {
         }
     }
 
-    func matches(_ event: NSEvent) -> Bool {
-        event.keyCode == keyCode && matchesModifiers(event.modifierFlags)
+    func matches(keyCode: UInt16, modifierFlags: NSEvent.ModifierFlags) -> Bool {
+        keyCode == self.keyCode && matchesModifiers(modifierFlags)
     }
 
     func matchesModifiers(_ modifierFlags: NSEvent.ModifierFlags) -> Bool {
@@ -152,4 +221,83 @@ private extension ZoomShortcut {
         }
         return flags.contains(.command) == requiresCommand
     }
+}
+
+private struct HotkeyEvent: Sendable {
+    var type: HotkeyEventType?
+    var keyCode: UInt16
+    var modifierFlagsRawValue: NSEvent.ModifierFlags.RawValue
+    var isRepeat: Bool
+}
+
+private enum HotkeyEventType: Sendable {
+    case keyDown
+    case keyUp
+    case flagsChanged
+    case leftMouseDown
+    case leftMouseUp
+
+    init?(_ eventType: NSEvent.EventType) {
+        switch eventType {
+        case .keyDown:
+            self = .keyDown
+        case .keyUp:
+            self = .keyUp
+        case .flagsChanged:
+            self = .flagsChanged
+        case .leftMouseDown:
+            self = .leftMouseDown
+        case .leftMouseUp:
+            self = .leftMouseUp
+        default:
+            return nil
+        }
+    }
+
+    init?(_ eventType: CGEventType) {
+        switch eventType {
+        case .keyDown:
+            self = .keyDown
+        case .keyUp:
+            self = .keyUp
+        case .flagsChanged:
+            self = .flagsChanged
+        case .leftMouseDown:
+            self = .leftMouseDown
+        case .leftMouseUp:
+            self = .leftMouseUp
+        default:
+            return nil
+        }
+    }
+}
+
+private func hotkeyEventTapCallback(
+    proxy: CGEventTapProxy,
+    type: CGEventType,
+    event: CGEvent,
+    refcon: UnsafeMutableRawPointer?
+) -> Unmanaged<CGEvent>? {
+    guard let refcon else {
+        return Unmanaged.passUnretained(event)
+    }
+
+    let service = Unmanaged<HotkeyService>.fromOpaque(refcon).takeUnretainedValue()
+    if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+        Task { @MainActor in
+            service.restartEventTapAfterTimeout()
+        }
+        return Unmanaged.passUnretained(event)
+    }
+
+    let hotkeyEvent = HotkeyEvent(
+        type: HotkeyEventType(type),
+        keyCode: UInt16(event.getIntegerValueField(.keyboardEventKeycode)),
+        modifierFlagsRawValue: NSEvent.ModifierFlags(rawValue: UInt(event.flags.rawValue)).rawValue,
+        isRepeat: event.getIntegerValueField(.keyboardEventAutorepeat) != 0
+    )
+    Task { @MainActor in
+        service.handle(hotkeyEvent)
+    }
+    return Unmanaged.passUnretained(event)
 }
