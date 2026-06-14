@@ -67,6 +67,44 @@ public struct EditTimeline: Codable, Equatable, Sendable {
         EditTimeline(segments: [EditSegment(sourceStart: 0, sourceEnd: max(0, duration))])
     }
 
+    public static func excluding(sourceDuration: TimeInterval, ranges: [EditSegment]) -> EditTimeline {
+        let sourceDuration = max(0, sourceDuration)
+        guard sourceDuration > 0 else {
+            return EditTimeline(segments: [])
+        }
+
+        var keptSegments = [EditSegment(sourceStart: 0, sourceEnd: sourceDuration)]
+        let exclusionRanges = ranges
+            .map { range in
+                EditSegment(
+                    sourceStart: min(max(0, range.sourceStart), sourceDuration),
+                    sourceEnd: min(max(0, range.sourceEnd), sourceDuration)
+                )
+            }
+            .filter { $0.duration > 0 }
+            .sorted { $0.sourceStart < $1.sourceStart }
+
+        for range in exclusionRanges {
+            var nextSegments: [EditSegment] = []
+            for segment in keptSegments {
+                if range.sourceEnd <= segment.sourceStart || range.sourceStart >= segment.sourceEnd {
+                    nextSegments.append(segment)
+                    continue
+                }
+
+                if range.sourceStart > segment.sourceStart {
+                    nextSegments.append(EditSegment(sourceStart: segment.sourceStart, sourceEnd: range.sourceStart))
+                }
+                if range.sourceEnd < segment.sourceEnd {
+                    nextSegments.append(EditSegment(sourceStart: range.sourceEnd, sourceEnd: segment.sourceEnd))
+                }
+            }
+            keptSegments = nextSegments
+        }
+
+        return EditTimeline(segments: keptSegments)
+    }
+
     @discardableResult
     public mutating func split(at sourceTime: TimeInterval) -> Bool {
         guard let index = segments.firstIndex(where: { $0.canSplit(at: sourceTime) }),

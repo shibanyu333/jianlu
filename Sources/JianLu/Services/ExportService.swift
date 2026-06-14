@@ -6,6 +6,7 @@ import QuartzCore
 
 enum ExportServiceError: LocalizedError {
     case missingVideoTrack
+    case emptyTimeline
     case cannotCreateExportSession
     case exportFailed(String)
 
@@ -13,6 +14,8 @@ enum ExportServiceError: LocalizedError {
         switch self {
         case .missingVideoTrack:
             "录屏文件里没有找到视频轨道。"
+        case .emptyTimeline:
+            "没有可导出的录制片段。"
         case .cannotCreateExportSession:
             "无法创建导出任务。"
         case .exportFailed(let message):
@@ -40,6 +43,9 @@ final class ExportService: ObservableObject {
         )
         if FileManager.default.fileExists(atPath: outputURL.path) {
             try FileManager.default.removeItem(at: outputURL)
+        }
+        guard !project.timeline.segments.isEmpty else {
+            throw ExportServiceError.emptyTimeline
         }
 
         let screenAsset = AVURLAsset(url: project.screenRecordingURL)

@@ -290,6 +290,7 @@ final class AppState: ObservableObject {
             closeActivePauseIfNeeded()
             try await captureService.stopDisplayRecording()
             var stopWarnings: [String] = []
+            var noExportableSegmentMessage: String?
             if cameraCaptureService.hasActiveRecording {
                 do {
                     try await cameraCaptureService.stopRecording()
@@ -309,18 +310,23 @@ final class AppState: ObservableObject {
 
             if let screenURL = activeScreenRecordingURL {
                 let duration = max(0.1, Date().timeIntervalSince(recordingStartedAt ?? Date()))
-                let project = RecordingProject(
-                    screenRecordingURL: screenURL,
-                    cameraRecordingURL: activeCameraRecordingURL,
-                    microphoneRecordingURL: activeMicrophoneRecordingURL,
-                    sourceDuration: duration,
-                    preferences: preferences,
-                    events: overlayService.events,
-                    timeline: timelineExcludingPausedRanges(duration: duration)
-                )
-                recentProjects.insert(project, at: 0)
-                selectedProjectID = project.id
-                refreshRenderedPreview(for: project)
+                let timeline = timelineExcludingPausedRanges(duration: duration)
+                if timeline.segments.isEmpty {
+                    noExportableSegmentMessage = "录制内容全部处于暂停状态，未生成剪辑项目。原始录屏已保存：\(screenURL.path)"
+                } else {
+                    let project = RecordingProject(
+                        screenRecordingURL: screenURL,
+                        cameraRecordingURL: activeCameraRecordingURL,
+                        microphoneRecordingURL: activeMicrophoneRecordingURL,
+                        sourceDuration: duration,
+                        preferences: preferences,
+                        events: overlayService.events,
+                        timeline: timeline
+                    )
+                    recentProjects.insert(project, at: 0)
+                    selectedProjectID = project.id
+                    refreshRenderedPreview(for: project)
+                }
             }
 
             activeScreenRecordingURL = nil
@@ -332,8 +338,13 @@ final class AppState: ObservableObject {
             overlayService.endRecording()
             isRecording = false
             isPaused = false
-            lastErrorMessage = stopWarnings.isEmpty ? nil : stopWarnings.joined(separator: "\n")
-            statusMessage = stopWarnings.isEmpty ? "录制已停止，可以进入剪辑和导出" : "录制已停止，部分附加轨道已跳过"
+            let messages = stopWarnings + [noExportableSegmentMessage].compactMap { $0 }
+            lastErrorMessage = messages.isEmpty ? nil : messages.joined(separator: "\n")
+            if noExportableSegmentMessage != nil {
+                statusMessage = "录制已停止，没有可导出的片段"
+            } else {
+                statusMessage = stopWarnings.isEmpty ? "录制已停止，可以进入剪辑和导出" : "录制已停止，部分附加轨道已跳过"
+            }
             AppWindowUtility.restoreMainWindows()
         } catch {
             if cameraCaptureService.hasActiveRecording {
@@ -406,27 +417,10 @@ final class AppState: ObservableObject {
     }
 
     private func timelineExcludingPausedRanges(duration: TimeInterval) -> EditTimeline {
-        var segments = [EditSegment(sourceStart: 0, sourceEnd: duration)]
-
-        for range in pausedRanges where range.end > range.start {
-            var nextSegments: [EditSegment] = []
-            for segment in segments {
-                if range.end <= segment.sourceStart || range.start >= segment.sourceEnd {
-                    nextSegments.append(segment)
-                    continue
-                }
-
-                if range.start > segment.sourceStart {
-                    nextSegments.append(EditSegment(sourceStart: segment.sourceStart, sourceEnd: range.start))
-                }
-                if range.end < segment.sourceEnd {
-                    nextSegments.append(EditSegment(sourceStart: range.end, sourceEnd: segment.sourceEnd))
-                }
-            }
-            segments = nextSegments
-        }
-
-        return EditTimeline(segments: segments.isEmpty ? [EditSegment(sourceStart: 0, sourceEnd: duration)] : segments)
+        EditTimeline.excluding(
+            sourceDuration: duration,
+            ranges: pausedRanges.map { EditSegment(sourceStart: $0.start, sourceEnd: $0.end) }
+        )
     }
 
     private func handleHotkey(_ action: HotkeyAction) {

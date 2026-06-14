@@ -50,6 +50,25 @@ private func runTimelineChecks() {
     expect(timeline.segments.count == 1, "timeline keeps one segment after refusing final deletion")
     expect(timeline.totalExportDuration == 5, "timeline duration is unchanged after refused final deletion")
 
+    let pauseTrimmedTimeline = EditTimeline.excluding(
+        sourceDuration: 12,
+        ranges: [
+            EditSegment(sourceStart: 2, sourceEnd: 5),
+            EditSegment(sourceStart: 8, sourceEnd: 10)
+        ]
+    )
+    expect(
+        pauseTrimmedTimeline.segments.map { [$0.sourceStart, $0.sourceEnd] } == [[0, 2], [5, 8], [10, 12]],
+        "pause ranges are removed from the source timeline"
+    )
+    expect(pauseTrimmedTimeline.totalExportDuration == 7, "pause removal shortens export duration")
+
+    let allPausedTimeline = EditTimeline.excluding(
+        sourceDuration: 6,
+        ranges: [EditSegment(sourceStart: -1, sourceEnd: 8)]
+    )
+    expect(allPausedTimeline.segments.isEmpty, "an entirely paused recording has no exportable segments")
+
     let cameraLayout = CameraLayoutEvent(
         time: 3,
         frame: NormalizedRect(x: 0.72, y: 0.62, width: 0.22, height: 0.22),
