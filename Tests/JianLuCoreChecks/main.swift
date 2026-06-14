@@ -113,6 +113,13 @@ private func runTimelineChecks() {
         from: Data(legacyProjectJSON.utf8)
     )
     expect(legacyProject?.sourceDuration == 4, "legacy projects derive source duration from the timeline")
+
+    let roundTrippedData = try? JSONEncoder().encode(trimmedTailProject)
+    let roundTrippedProject = roundTrippedData.flatMap {
+        try? JSONDecoder().decode(RecordingProject.self, from: $0)
+    }
+    expect(roundTrippedProject?.sourceDuration == 12, "project round trip preserves source duration")
+    expect(roundTrippedProject?.needsRenderedPreview == true, "project round trip preserves rendered preview requirements")
 }
 
 private func runPreferenceChecks() {
