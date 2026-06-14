@@ -82,7 +82,8 @@ let appSourceURL = projectRoot.appendingPathComponent("Sources/JianLu/App/JianLu
 let appSource = (try? String(contentsOf: appSourceURL, encoding: .utf8)) ?? ""
 expect(appSource.contains("applicationShouldHandleReopen"), "Dock reopen restores the main JianLu window")
 expect(appSource.contains("AppState.shared"), "WindowGroup and fallback AppKit window share one app state")
-expect(appSource.contains("init()"), "JianLu schedules fallback window creation during app initialization")
+expect(!appSource.contains("init()"), "JianLu lets SwiftUI create its WindowGroup before fallback checks")
+expect(appSource.contains("asyncAfter(deadline: .now() + 0.15)"), "JianLu delays fallback checks until after launch window restoration")
 expect(appSource.contains("AppWindowUtility.restoreOrCreateMainWindow()"), "app activation paths bring the main window forward")
 
 let appWindowUtilitySourceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/AppWindowUtility.swift")
@@ -92,12 +93,17 @@ expect(appWindowUtilitySource.contains("NSHostingView"), "fallback main window h
 expect(appWindowUtilitySource.contains("ContentView()\n            .environmentObject(AppState.shared)"), "fallback main window shows the normal JianLu content")
 expect(appWindowUtilitySource.contains("window.isReleasedWhenClosed = false"), "fallback main window can be shown again after close")
 expect(appWindowUtilitySource.contains("restoreOrCreateMainWindow"), "main window utility restores or creates the main window")
+expect(appWindowUtilitySource.contains("let hasVisibleMainWindow = restoreMainWindows()"), "main window utility checks restored visibility before creating fallback")
 expect(
-    appWindowUtilitySource.contains("""
+    appWindowUtilitySource.contains("Existing main window restored; skipping fallback main window"),
+    "main window utility skips fallback creation when a visible main window already exists"
+)
+expect(
+    !appWindowUtilitySource.contains("""
         _ = restoreMainWindows()
         showFallbackMainWindow()
 """),
-    "main window utility always ensures the fallback main window exists"
+    "main window utility avoids opening a duplicate fallback window"
 )
 expect(
     appWindowUtilitySource.contains("""

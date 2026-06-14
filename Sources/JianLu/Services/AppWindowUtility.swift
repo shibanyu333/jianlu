@@ -15,7 +15,12 @@ enum AppWindowUtility {
 
     static func restoreOrCreateMainWindow() {
         logger.info("Restoring or creating main window")
-        _ = restoreMainWindows()
+        let hasVisibleMainWindow = restoreMainWindows()
+        if hasVisibleMainWindow {
+            logger.info("Existing main window restored; skipping fallback main window")
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
         showFallbackMainWindow()
         NSApp.activate(ignoringOtherApps: true)
     }

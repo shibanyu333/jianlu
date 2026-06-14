@@ -6,13 +6,6 @@ struct JianLuApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var appState = AppState.shared
 
-    init() {
-        DispatchQueue.main.async {
-            NSApp.setActivationPolicy(.regular)
-            AppWindowUtility.restoreOrCreateMainWindow()
-        }
-    }
-
     var body: some Scene {
         WindowGroup {
             ContentView()
@@ -50,7 +43,7 @@ struct JianLuApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
-        DispatchQueue.main.async {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
             NSApp.activate(ignoringOtherApps: true)
             AppWindowUtility.restoreOrCreateMainWindow()
         }
