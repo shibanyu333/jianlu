@@ -147,6 +147,19 @@ expect(appStateSource.contains("activeCameraRecordingOffset"), "recording projec
 expect(appStateSource.contains("activeMicrophoneRecordingOffset"), "recording projects store microphone track alignment offset")
 expect(appStateSource.contains("return recentProjects.first { $0.id == selectedProjectID } ?? recentProjects.first"), "stale selected project IDs fall back to the first available project")
 expect(appStateSource.contains("deleteUnusedSidecarRecordings()"), "recordings with no exportable segments clean unreferenced sidecar files")
+expect(
+    appStateSource.contains("""
+        } catch {
+            if cameraCaptureService.hasActiveRecording {
+                try? await cameraCaptureService.stopRecording()
+            }
+            if microphoneCaptureService.hasActiveRecording {
+                try? microphoneCaptureService.stopRecording()
+            }
+            deleteUnusedSidecarRecordings()
+"""),
+    "stop recording failures also clean unreferenced sidecar files"
+)
 expect(appStateSource.contains("try? FileManager.default.removeItem(at: activeCameraRecordingURL)"), "no-export cleanup removes unused camera sidecars")
 expect(appStateSource.contains("try? FileManager.default.removeItem(at: activeMicrophoneRecordingURL)"), "no-export cleanup removes unused microphone sidecars")
 expectOrder(

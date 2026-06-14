@@ -414,6 +414,7 @@ final class AppState: ObservableObject {
             if microphoneCaptureService.hasActiveRecording {
                 try? microphoneCaptureService.stopRecording()
             }
+            deleteUnusedSidecarRecordings()
             activeScreenRecordingURL = nil
             activeCameraRecordingURL = nil
             activeMicrophoneRecordingURL = nil
