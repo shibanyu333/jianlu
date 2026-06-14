@@ -186,7 +186,7 @@ final class CameraCaptureService: NSObject, ObservableObject {
     }
 }
 
-private final class CameraSampleWriter {
+private final class CameraSampleWriter: @unchecked Sendable {
     private let outputURL: URL
     private let preferences: RecordingPreferences
     private let ciContext = CIContext(options: [.cacheIntermediates: false])
@@ -266,7 +266,7 @@ private final class CameraSampleWriter {
         }
     }
 
-    func finish(_ completion: @escaping (Result<Void, Error>) -> Void) {
+    func finish(_ completion: @escaping @Sendable (Result<Void, Error>) -> Void) {
         isFinishing = true
 
         if let lastError {
@@ -288,8 +288,8 @@ private final class CameraSampleWriter {
         }
 
         writerInput.markAsFinished()
-        let finishingWriter = assetWriter
-        finishingWriter.finishWriting {
+        nonisolated(unsafe) let finishingWriter = assetWriter
+        finishingWriter.finishWriting { [completion] in
             if finishingWriter.status == .completed {
                 completion(.success(()))
             } else {
