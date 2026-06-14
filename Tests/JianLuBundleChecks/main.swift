@@ -188,5 +188,7 @@ expect(cameraCaptureServiceSource.contains("cleanupAfterFailedStart"), "camera s
 expect(cameraCaptureServiceSource.contains("delegateProxy.sampleHandler = { _ in }"), "camera startup cleanup resets sample handling")
 expect(cameraCaptureServiceSource.contains("await stopSessionIfRunning()"), "camera startup cleanup stops the camera session")
 expect(cameraCaptureServiceSource.contains("try? FileManager.default.removeItem(at: outputURL)"), "camera startup cleanup removes incomplete video files")
+expect(cameraCaptureServiceSource.contains("let failedOutputURL = currentOutputURL"), "camera stop failures remember the incomplete output file")
+expect(cameraCaptureServiceSource.contains("try? FileManager.default.removeItem(at: failedOutputURL)"), "camera stop failures remove incomplete video files")
 
 print("JianLuBundleChecks passed")

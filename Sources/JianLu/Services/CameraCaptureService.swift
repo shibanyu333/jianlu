@@ -153,6 +153,7 @@ final class CameraCaptureService: NSObject, ObservableObject {
         guard let writer = sampleWriter else {
             throw CameraCaptureError.notRecording
         }
+        let failedOutputURL = currentOutputURL
 
         isRecording = false
         delegateProxy.sampleHandler = { _ in }
@@ -168,6 +169,9 @@ final class CameraCaptureService: NSObject, ObservableObject {
             currentOutputURL = nil
             lastErrorMessage = error.localizedDescription
             await stopSessionIfRunning()
+            if let failedOutputURL {
+                try? FileManager.default.removeItem(at: failedOutputURL)
+            }
             throw error
         }
     }
