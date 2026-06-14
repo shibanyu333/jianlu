@@ -9,6 +9,7 @@ let package = Package(
     products: [
         .library(name: "JianLuCore", targets: ["JianLuCore"]),
         .executable(name: "JianLuCoreChecks", targets: ["JianLuCoreChecks"]),
+        .executable(name: "JianLuBundleChecks", targets: ["JianLuBundleChecks"]),
         .executable(name: "JianLu", targets: ["JianLu"])
     ],
     targets: [
@@ -25,6 +26,10 @@ let package = Package(
             name: "JianLuCoreChecks",
             dependencies: ["JianLuCore"],
             path: "Tests/JianLuCoreChecks"
+        ),
+        .executableTarget(
+            name: "JianLuBundleChecks",
+            path: "Tests/JianLuBundleChecks"
         )
     ]
 )

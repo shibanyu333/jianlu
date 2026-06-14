@@ -123,6 +123,14 @@ case "$MODE" in
     sleep 1
     pgrep -x "$APP_NAME" >/dev/null
     ;;
+  --doctor|doctor)
+    swift run --package-path "$ROOT_DIR" JianLuCoreChecks
+    swift run --package-path "$ROOT_DIR" JianLuBundleChecks "$APP_BUNDLE"
+    open_app
+    sleep 1
+    pgrep -x "$APP_NAME" >/dev/null
+    echo "JianLu doctor passed"
+    ;;
   --screen-permission|screen-permission)
     echo "current app requirement:"
     codesign -dr - "$APP_BUNDLE" 2>&1 | sed 's/^/# /'
@@ -135,7 +143,7 @@ case "$MODE" in
     echo "opened $APP_BUNDLE; click 开始录制, then allow screen recording, camera, and microphone for $DISPLAY_NAME"
     ;;
   *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--screen-permission|--repair-screen-permission]" >&2
+    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--doctor|--screen-permission|--repair-screen-permission]" >&2
     exit 2
     ;;
 esac
