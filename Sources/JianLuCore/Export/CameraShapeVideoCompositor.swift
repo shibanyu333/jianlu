@@ -141,7 +141,7 @@ public final class CameraShapeVideoCompositor: NSObject, AVVideoCompositing {
         states: [ZoomEvent],
         renderSize: CGSize
     ) -> CIImage {
-        let state = zoomState(at: time, in: states)
+        let state = interpolatedZoomState(at: time, in: states)
         let scale = CGFloat(min(max(state.magnification, 1), 3))
         guard scale > 1.001 else {
             return image
@@ -154,8 +154,8 @@ public final class CameraShapeVideoCompositor: NSObject, AVVideoCompositing {
             b: 0,
             c: 0,
             d: scale,
-            tx: focusX * (1 - scale),
-            ty: focusY * (1 - scale)
+            tx: renderSize.width / 2 - focusX * scale,
+            ty: renderSize.height / 2 - focusY * scale
         )
         return image
             .transformed(by: transform)
@@ -250,12 +250,37 @@ public final class CameraShapeVideoCompositor: NSObject, AVVideoCompositing {
         )
     }
 
-    private func zoomState(at time: TimeInterval, in states: [ZoomEvent]) -> ZoomEvent {
-        states.last { $0.time <= time } ?? ZoomEvent(
-            time: 0,
-            magnification: 1,
-            focus: NormalizedPoint(x: 0.5, y: 0.5)
-        )
+    private func interpolatedZoomState(at time: TimeInterval, in states: [ZoomEvent]) -> ZoomEvent {
+        let sortedStates = states.sorted { $0.time < $1.time }
+        guard var previous = sortedStates.first else {
+            return ZoomEvent(
+                time: 0,
+                magnification: 1,
+                focus: NormalizedPoint(x: 0.5, y: 0.5)
+            )
+        }
+
+        guard time > previous.time else {
+            return previous
+        }
+
+        for state in sortedStates.dropFirst() {
+            if time <= state.time {
+                let duration = max(0.001, state.time - previous.time)
+                let progress = min(max((time - previous.time) / duration, 0), 1)
+                return ZoomEvent(
+                    time: time,
+                    magnification: previous.magnification + (state.magnification - previous.magnification) * progress,
+                    focus: NormalizedPoint(
+                        x: previous.focus.x + (state.focus.x - previous.focus.x) * progress,
+                        y: previous.focus.y + (state.focus.y - previous.focus.y) * progress
+                    )
+                )
+            }
+            previous = state
+        }
+
+        return previous
     }
 
     private func state(at time: TimeInterval, in states: [CameraLayoutEvent]) -> CameraLayoutEvent? {

@@ -148,7 +148,7 @@ private struct MainDashboardView: View {
                 HStack {
                     Image(systemName: "keyboard")
                         .foregroundStyle(.orange)
-                    Text("按住缩放和点击缩放需要“辅助功能”和“输入监控”权限，否则录制时收不到快捷键和鼠标点击。")
+                    Text("按住快捷键缩放需要“辅助功能”和“输入监控”权限；顶部栏“鼠标放大”可作为兜底。")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                     Spacer()

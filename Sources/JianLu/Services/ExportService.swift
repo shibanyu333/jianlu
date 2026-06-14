@@ -403,16 +403,42 @@ final class ExportService: ObservableObject {
             return
         }
 
-        instruction.setTransform(
-            zoomTransform(magnification: first.magnification, focus: first.focus, renderSize: renderSize),
-            at: .zero
+        let firstTransform = zoomTransform(
+            magnification: first.magnification,
+            focus: first.focus,
+            renderSize: renderSize
         )
+        instruction.setTransform(firstTransform, at: .zero)
 
+        var previous = first
         for state in states.dropFirst() {
-            instruction.setTransform(
-                zoomTransform(magnification: state.magnification, focus: state.focus, renderSize: renderSize),
-                at: CMTime(seconds: state.time, preferredTimescale: 600)
+            let start = CMTime(seconds: previous.time, preferredTimescale: 600)
+            let duration = max(0, state.time - previous.time)
+            let endTransform = zoomTransform(
+                magnification: state.magnification,
+                focus: state.focus,
+                renderSize: renderSize
             )
+            if duration > 0.001 {
+                instruction.setTransformRamp(
+                    fromStart: zoomTransform(
+                        magnification: previous.magnification,
+                        focus: previous.focus,
+                        renderSize: renderSize
+                    ),
+                    toEnd: endTransform,
+                    timeRange: CMTimeRange(
+                        start: start,
+                        duration: CMTime(seconds: duration, preferredTimescale: 600)
+                    )
+                )
+            } else {
+                instruction.setTransform(
+                    endTransform,
+                    at: CMTime(seconds: state.time, preferredTimescale: 600)
+                )
+            }
+            previous = state
         }
     }
 
@@ -429,7 +455,7 @@ final class ExportService: ObservableObject {
         let animation = CAKeyframeAnimation(keyPath: "transform")
         animation.beginTime = AVCoreAnimationBeginTimeAtZero
         animation.duration = duration
-        animation.calculationMode = .discrete
+        animation.calculationMode = .linear
         animation.values = states.map {
             CATransform3DMakeAffineTransform(
                 zoomTransform(magnification: $0.magnification, focus: $0.focus, renderSize: renderSize)
@@ -443,6 +469,9 @@ final class ExportService: ObservableObject {
 
     private func zoomTransform(magnification: Double, focus: NormalizedPoint, renderSize: CGSize) -> CGAffineTransform {
         let scale = CGFloat(min(max(magnification, 1), 3))
+        guard scale > 1.001 else {
+            return .identity
+        }
         let focusX = CGFloat(focus.x) * renderSize.width
         let focusY = CGFloat(focus.y) * renderSize.height
         return CGAffineTransform(
@@ -450,8 +479,8 @@ final class ExportService: ObservableObject {
             b: 0,
             c: 0,
             d: scale,
-            tx: focusX * (1 - scale),
-            ty: focusY * (1 - scale)
+            tx: renderSize.width / 2 - focusX * scale,
+            ty: renderSize.height / 2 - focusY * scale
         )
     }
 

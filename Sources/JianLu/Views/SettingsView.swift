@@ -64,7 +64,7 @@ struct SettingsView: View {
                         Text(shortcut.displayName).tag(shortcut)
                     }
                 }
-                ShortcutRow(title: "点击放大模式", shortcut: "顶部栏按钮")
+                ShortcutRow(title: "鼠标放大模式", shortcut: "顶部栏按钮")
                 ShortcutRow(title: "画笔/高亮/直线/箭头", shortcut: "^ + ⌥ + ⌘ + P/H/L/A")
                 ShortcutRow(title: "方框/圆框", shortcut: "^ + ⌥ + ⌘ + B/O")
                 ShortcutRow(title: "清除全部标注", shortcut: "^ + ⌥ + ⌘ + X")

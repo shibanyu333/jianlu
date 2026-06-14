@@ -57,7 +57,7 @@ final class OverlayWindowController {
             .sink { _ in refreshPointerCapture() }
             .store(in: &cancellables)
 
-        let timer = Timer(timeInterval: 0.04, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 0.016, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.refreshPointerCapture()
             }
@@ -122,6 +122,10 @@ final class OverlayWindowController {
 
         let captureRect = captureRectInScreenCoordinates()
         if !overlayService.isPaused, overlayService.selectedTool != nil, captureRect.contains(screenPoint) {
+            return true
+        }
+
+        if !overlayService.isPaused, overlayService.zoomClickModeEnabled, captureRect.contains(screenPoint) {
             return true
         }
 

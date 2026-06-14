@@ -12,7 +12,7 @@ struct RecordingOverlayView: View {
 
             ZStack(alignment: .topLeading) {
                 if overlay.isTransientZoomActive {
-                    LiveZoomRegionView(overlay: overlay, captureRect: captureRect)
+                    LiveZoomViewportView(overlay: overlay, captureRect: captureRect)
                 }
 
                 AnnotationCanvasView(overlay: overlay, captureRect: captureRect)
@@ -30,21 +30,17 @@ struct RecordingOverlayView: View {
     }
 }
 
-private struct LiveZoomRegionView: View {
+private struct LiveZoomViewportView: View {
     @ObservedObject var overlay: OverlayService
     let captureRect: CGRect
 
     var body: some View {
         let captureSize = captureRect.size
         let geometry = ZoomLensGeometry(lensSize: captureSize)
-        let imageFrame = geometry.zoomedRegionImageFrame(
+        let imageFrame = geometry.zoomedImageFrame(
             captureSize: captureSize,
             focus: overlay.currentZoomFocus,
             magnification: overlay.zoomMagnification
-        )
-        let focusPoint = geometry.focusPoint(
-            in: CGRect(origin: .zero, size: captureSize),
-            focus: overlay.currentZoomFocus
         )
 
         ZStack(alignment: .topLeading) {
@@ -56,23 +52,38 @@ private struct LiveZoomRegionView: View {
                     .offset(x: imageFrame.minX, y: imageFrame.minY)
             } else {
                 Color.blue.opacity(0.20)
-                Image(systemName: "plus.magnifyingglass")
-                    .font(.system(size: 34, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .position(focusPoint)
+                VStack(spacing: 8) {
+                    Image(systemName: "plus.magnifyingglass")
+                        .font(.system(size: 32, weight: .semibold))
+                    Text("放大中")
+                        .font(.callout.weight(.semibold))
+                }
+                .foregroundStyle(.white)
             }
 
             FocusMarker()
                 .frame(width: 34, height: 34)
-                .position(focusPoint)
+                .position(
+                    x: captureSize.width / 2,
+                    y: captureSize.height / 2
+                )
         }
         .frame(width: captureRect.width, height: captureRect.height)
+        .overlay(alignment: .topTrailing) {
+            Text("\(String(format: "%.1f", overlay.zoomMagnification))x")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(.black.opacity(0.45), in: Capsule())
+                .padding(10)
+        }
         .overlay {
             Rectangle()
-                .stroke(.white.opacity(0.95), lineWidth: 3)
+                .stroke(.white.opacity(0.92), lineWidth: 3)
             Rectangle()
-                .stroke(.blue.opacity(0.95), lineWidth: 4)
-                .padding(3)
+                .stroke(.blue.opacity(0.92), lineWidth: 4)
+                .padding(4)
         }
         .clipped()
         .position(x: captureRect.midX, y: captureRect.midY)

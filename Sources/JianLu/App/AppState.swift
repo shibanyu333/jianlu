@@ -239,10 +239,10 @@ final class AppState: ObservableObject {
         if !permissionSnapshot.shortcutMonitoringGranted {
             PermissionService.requestShortcutMonitoringAccess()
             refreshPermissions()
-            statusMessage = "请在系统设置中允许“简录”辅助功能和输入监控权限，然后再开始录制"
-            lastErrorMessage = "缩放快捷键和点击缩放需要“辅助功能”和“输入监控”权限；未授权时全局鼠标/键盘事件收不到。"
-            isRecording = false
-            return false
+            if !permissionSnapshot.shortcutMonitoringGranted {
+                statusMessage = "快捷键权限未完全就绪，仍可录屏；按住缩放快捷键可能无效"
+                lastErrorMessage = "快捷键权限未完全就绪，仍可录屏；按住缩放快捷键可能无效，请使用顶部栏“鼠标放大”。"
+            }
         }
 
         permissionSnapshot = await PermissionService.requestMediaAccess(
@@ -291,6 +291,10 @@ final class AppState: ObservableObject {
         var microphoneRecordingStartedAt: Date?
 
         do {
+            if !PermissionService.snapshot().shortcutMonitoringGranted {
+                startupWarnings.append("快捷键权限未完全就绪，仍可录屏；按住缩放快捷键可能无效，可使用顶部栏“鼠标放大”。")
+            }
+
             if cameraEnabled {
                 do {
                     activeCameraRecordingURL = try await cameraCaptureService.startRecording(preferences: recordingPreferences)
@@ -517,14 +521,14 @@ final class AppState: ObservableObject {
         guard isRecording, !isStoppingRecording else { return }
         guard !isPaused else {
             overlayService.toggleClickZoomMode()
-            statusMessage = "录制已暂停，继续后可使用点击放大"
+            statusMessage = "录制已暂停，继续后可使用鼠标放大"
             return
         }
 
         overlayService.toggleClickZoomMode()
         statusMessage = overlayService.zoomClickModeEnabled
-            ? "点击放大已开启，按住鼠标左键即可放大重点区域"
-            : "点击放大已关闭"
+            ? "鼠标放大已开启，按住鼠标左键即可放大重点区域"
+            : "鼠标放大已关闭"
     }
 
     func chooseRecordingDirectory() {

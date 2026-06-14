@@ -133,9 +133,12 @@ expect(controlBarSource.contains("screenFrame.width - horizontalInset * 2"), "re
 expect(!controlBarSource.contains("max(560"), "recording control bar avoids a hard minimum width that can exceed small screens")
 expect(controlBarViewSource.contains("ScrollView(.horizontal, showsIndicators: false)"), "recording control bar keeps all named controls reachable on narrow screens")
 expect(controlBarViewSource.contains("fixedSize(horizontal: true, vertical: false)"), "recording control bar does not squeeze button labels until they disappear")
-expect(controlBarViewSource.contains("overlay.toggleFollowZoomMode()"), "main zoom toolbar button directly toggles visible follow zoom")
-expect(controlBarViewSource.contains("overlay.requestToggleClickZoomMode()"), "click zoom toolbar action goes through the app intent feedback path")
-expect(!controlBarViewSource.contains("overlay.toggleClickZoomMode()"), "click zoom toolbar action is not a silent direct state toggle")
+expect(controlBarViewSource.contains("鼠标放大已开"), "main zoom toolbar button names the enabled mouse zoom mode")
+expect(controlBarViewSource.contains("鼠标放大"), "main zoom toolbar button uses a simple Chinese label")
+expect(controlBarViewSource.contains("overlay.requestToggleClickZoomMode()"), "main zoom toolbar action goes through the app intent feedback path")
+expect(!controlBarViewSource.contains("overlay.toggleFollowZoomMode()"), "toolbar no longer exposes a confusing always-on zoom mode")
+expect(!controlBarViewSource.contains("点击模式"), "toolbar does not keep a second zoom button")
+expect(!controlBarViewSource.contains("overlay.toggleClickZoomMode()"), "zoom toolbar action is not a silent direct state toggle")
 expect(settingsViewSource.contains("Picker(\"默认头像形状\", selection: $appState.preferences.cameraShape)"), "settings expose the default camera avatar shape")
 expect(settingsViewSource.contains("ForEach(CameraFrameShape.allCases"), "default camera avatar shape picker lists all supported shapes")
 
@@ -161,15 +164,23 @@ expect(overlayWindowSource.contains("recordingRegion.displayID"), "recording ove
 expect(overlayWindowSource.contains("handleClickZoomPolling"), "click zoom mode has a mouse-state polling fallback")
 expect(overlayWindowSource.contains("overlayService.beginClickZoom()"), "click zoom polling can start transient zoom")
 expect(overlayWindowSource.contains("overlayService.endClickZoom()"), "click zoom polling can end transient zoom")
+expect(overlayWindowSource.contains("0.016"), "click zoom polling is frequent enough to catch ordinary mouse presses")
+expect(
+    overlayWindowSource.contains("overlayService.zoomClickModeEnabled, captureRect.contains(screenPoint)"),
+    "mouse zoom mode captures clicks inside the recording region as a no-permission fallback"
+)
 
 expect(controlBarSource.contains("recordingRegion.displayID"), "recording control bar follows the selected display")
 
 let recordingOverlayViewURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/RecordingOverlayView.swift")
 let recordingOverlayViewSource = (try? String(contentsOf: recordingOverlayViewURL, encoding: .utf8)) ?? ""
-expect(recordingOverlayViewSource.contains("zoomedRegionImageFrame"), "live zoom enlarges the whole recording region around the mouse")
+expect(recordingOverlayViewSource.contains("LiveZoomViewportView"), "live zoom uses an openscreen-style full viewport zoom")
+expect(recordingOverlayViewSource.contains("ZoomLensGeometry(lensSize: captureSize)"), "live zoom treats the whole recording region as the zoom viewport")
+expect(recordingOverlayViewSource.contains("zoomedImageFrame"), "live zoom pans the enlarged screen content so the cursor focus moves to center")
 expect(recordingOverlayViewSource.contains(".frame(width: captureRect.width, height: captureRect.height)"), "live zoom covers the selected recording region")
 expect(recordingOverlayViewSource.contains(".position(x: captureRect.midX, y: captureRect.midY)"), "live zoom stays aligned with the selected recording region")
-expect(!recordingOverlayViewSource.contains(".clipShape(Circle())"), "live zoom is not hidden in a small circular lens")
+expect(!recordingOverlayViewSource.contains("LiveZoomLensView"), "live zoom is not a small magnifier window")
+expect(!recordingOverlayViewSource.contains("zoomedRegionImageFrame"), "live zoom does not keep the focus pinned under the cursor")
 
 let cameraPreviewViewURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/CameraPreviewView.swift")
 let cameraPreviewViewSource = (try? String(contentsOf: cameraPreviewViewURL, encoding: .utf8)) ?? ""
@@ -238,6 +249,18 @@ expect(captureServiceSource.contains("frameOutput.reset()"), "screen startup cle
 expect(captureServiceSource.contains("waitForFirstScreenFrame"), "screen recording warms the first frame before zoom hotkeys become useful")
 expect(captureServiceSource.contains("Live zoom first frame"), "screen recording logs whether live zoom has a warm frame")
 expect(captureServiceSource.contains("try? FileManager.default.removeItem(at: outputURL)"), "screen startup cleanup removes incomplete screen files")
+
+let zoomExportServiceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/ExportService.swift")
+let zoomExportServiceSource = (try? String(contentsOf: zoomExportServiceURL, encoding: .utf8)) ?? ""
+expect(zoomExportServiceSource.contains("setTransformRamp"), "non-camera exports ease between zoom states instead of snapping")
+expect(zoomExportServiceSource.contains("renderSize.width / 2 - focusX * scale"), "export zoom pans horizontally so the focus moves to center")
+expect(zoomExportServiceSource.contains("renderSize.height / 2 - focusY * scale"), "export zoom pans vertically so the focus moves to center")
+
+let cameraCompositorURL = projectRoot.appendingPathComponent("Sources/JianLuCore/Export/CameraShapeVideoCompositor.swift")
+let cameraCompositorSource = (try? String(contentsOf: cameraCompositorURL, encoding: .utf8)) ?? ""
+expect(cameraCompositorSource.contains("interpolatedZoomState"), "camera compositor interpolates zoom states for smooth exports")
+expect(cameraCompositorSource.contains("renderSize.width / 2 - focusX * scale"), "camera compositor pans zoom horizontally toward center")
+expect(cameraCompositorSource.contains("renderSize.height / 2 - focusY * scale"), "camera compositor pans zoom vertically toward center")
 expect(captureServiceSource.contains("defer {\n            cleanupAfterStop()"), "screen stop cleanup runs even when stop capture reports an error")
 expect(captureServiceSource.contains("private func cleanupAfterStop()"), "screen stop cleanup is centralized")
 expect(captureServiceSource.contains("stream = nil\n        recordingOutput = nil"), "screen stop cleanup clears stale stream and output references")
@@ -280,9 +303,9 @@ expect(!appStateSource.contains("overlayService.toggleCameraVisibility()"), "rec
 expect(appStateSource.contains("摄像头头像框已显示"), "recording camera toggle confirms when the avatar is visible")
 expect(appStateSource.contains("摄像头头像框已隐藏"), "recording camera toggle confirms when the avatar is hidden")
 expect(appStateSource.contains("func toggleClickZoomModeIntent()"), "app state owns click zoom feedback")
-expect(appStateSource.contains("点击放大已开启"), "click zoom enable action has visible Chinese feedback")
-expect(appStateSource.contains("点击放大已关闭"), "click zoom disable action has visible Chinese feedback")
-expect(appStateSource.contains("录制已暂停，继续后可使用点击放大"), "paused click zoom action has visible Chinese feedback")
+expect(appStateSource.contains("鼠标放大已开启"), "mouse zoom enable action has visible Chinese feedback")
+expect(appStateSource.contains("鼠标放大已关闭"), "mouse zoom disable action has visible Chinese feedback")
+expect(appStateSource.contains("录制已暂停，继续后可使用鼠标放大"), "paused mouse zoom action has visible Chinese feedback")
 expect(appStateSource.contains("onToggleClickZoomMode:"), "recording overlay receives a click zoom intent callback")
 expect(appStateSource.contains("onCameraLayoutChanged:"), "recording overlay reports avatar layout changes for persistence")
 expect(appStateSource.contains("private var activeRecordingPreferences"), "recording stores a snapshot of preferences used for the active capture")
@@ -311,6 +334,8 @@ expect(appStateSource.contains("preferences: projectPreferences"), "recording pr
 expect(occurrenceCount(of: "restartHotkeyMonitoringIfAuthorized()", in: appStateSource) >= 3, "hotkey event tap is restarted after Accessibility permission changes")
 expect(occurrenceCount(of: "startHotkeyMonitoring()", in: appStateSource) >= 2, "hotkey monitoring startup is reusable after permissions are granted")
 expect(appStateSource.contains("输入监控"), "recording startup explains that zoom hotkeys also need Input Monitoring permission")
+expect(appStateSource.contains("快捷键权限未完全就绪，仍可录屏"), "recording can start without shortcut monitoring permission")
+expect(!appStateSource.contains("然后再开始录制\"\n            lastErrorMessage = \"缩放快捷键"), "shortcut monitoring is not a hard recording blocker")
 expect(appStateSource.contains("overlayService.prewarmZoomPreview()"), "recording startup primes live zoom after screen capture is ready")
 expectOrder(
     "isRecording = true",
