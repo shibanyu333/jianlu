@@ -510,6 +510,10 @@ final class AppState: ObservableObject {
     }
 
     func splitProject(_ id: UUID, atExportRatio ratio: Double) {
+        guard !isExporting else {
+            statusMessage = "正在导出，完成后再剪辑"
+            return
+        }
         guard let index = recentProjects.firstIndex(where: { $0.id == id }) else { return }
         let clampedRatio = min(max(0, ratio), 1)
         let exportTime = recentProjects[index].timeline.totalExportDuration * clampedRatio
@@ -530,6 +534,10 @@ final class AppState: ObservableObject {
     }
 
     func deleteLastSegment(_ id: UUID) {
+        guard !isExporting else {
+            statusMessage = "正在导出，完成后再剪辑"
+            return
+        }
         guard let index = recentProjects.firstIndex(where: { $0.id == id }),
               let lastSegment = recentProjects[index].timeline.segments.last,
               recentProjects[index].timeline.segments.count > 1 else {
@@ -546,14 +554,23 @@ final class AppState: ObservableObject {
     }
 
     func exportProject(_ id: UUID) {
+        guard !isExporting else {
+            statusMessage = "已有导出任务正在进行"
+            return
+        }
         guard let project = recentProjects.first(where: { $0.id == id }) else { return }
         Task {
             isExporting = true
             exportMessages[id] = "正在导出..."
             do {
                 let outputURL = try await exportService.export(project: project)
-                exportMessages[id] = "导出完成：\(outputURL.path)"
-                statusMessage = "导出完成"
+                if recentProjects.first(where: { $0.id == id }) == project {
+                    exportMessages[id] = "导出完成：\(outputURL.path)"
+                    statusMessage = "导出完成"
+                } else {
+                    exportMessages[id] = "旧版本导出完成：\(outputURL.path)。当前剪辑已修改，请重新导出最新版。"
+                    statusMessage = "旧版本导出完成"
+                }
             } catch {
                 exportMessages[id] = error.localizedDescription
                 statusMessage = "导出失败"

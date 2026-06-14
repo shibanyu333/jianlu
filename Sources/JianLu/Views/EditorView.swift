@@ -56,13 +56,13 @@ struct EditorView: View {
                     } label: {
                         Label("分割", systemImage: "scissors")
                     }
-                    .disabled(!project.timeline.canSplit(atExportRatio: playheadRatio))
+                    .disabled(appState.isExporting || !project.timeline.canSplit(atExportRatio: playheadRatio))
                     Button {
                         appState.deleteLastSegment(project.id)
                     } label: {
                         Label("删除末段", systemImage: "trash")
                     }
-                    .disabled(project.timeline.segments.count <= 1)
+                    .disabled(appState.isExporting || project.timeline.segments.count <= 1)
                 }
             }
 
