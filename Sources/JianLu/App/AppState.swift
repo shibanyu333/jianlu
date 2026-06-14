@@ -551,7 +551,7 @@ final class AppState: ObservableObject {
 
     var selectedProject: RecordingProject? {
         guard let selectedProjectID else { return recentProjects.first }
-        return recentProjects.first { $0.id == selectedProjectID }
+        return recentProjects.first { $0.id == selectedProjectID } ?? recentProjects.first
     }
 
     func selectProject(_ id: UUID) {

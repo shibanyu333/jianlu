@@ -144,6 +144,7 @@ expect(appStateSource.contains("microphoneNoiseReductionEnabledForRecording = fa
 expect(appStateSource.contains("microphoneNoiseReductionEnabled: microphoneNoiseReductionEnabledForRecording"), "screen capture uses the noise reduction startup fallback state")
 expect(appStateSource.contains("activeCameraRecordingOffset"), "recording projects store camera track alignment offset")
 expect(appStateSource.contains("activeMicrophoneRecordingOffset"), "recording projects store microphone track alignment offset")
+expect(appStateSource.contains("return recentProjects.first { $0.id == selectedProjectID } ?? recentProjects.first"), "stale selected project IDs fall back to the first available project")
 expect(appStateSource.contains("renderedPreviewURLs[id] = outputURL"), "successful exports become the current editor preview")
 expect(appStateSource.contains("renderedPreviewMessages[id] = \"导出完成，下面播放的是最新成片。\""), "successful exports explain that the preview is the final movie")
 expect(appStateSource.contains("if let currentProject = recentProjects.first(where: { $0.id == id }) {\n                    ensureRenderedPreview(for: currentProject)\n                }"), "failed exports restart the rendered preview that export cancelled")
