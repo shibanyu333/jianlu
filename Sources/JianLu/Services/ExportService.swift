@@ -133,6 +133,7 @@ final class ExportService: ObservableObject {
             try await exportSession.export(to: outputURL, as: .mov)
             return outputURL
         } catch {
+            try? FileManager.default.removeItem(at: outputURL)
             throw ExportServiceError.exportFailed(error.localizedDescription)
         }
     }

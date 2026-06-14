@@ -165,6 +165,13 @@ expect(exportServiceSource.contains("activeExportSession?.cancelExport()"), "exp
 expect(exportServiceSource.contains("addScreenAudioTracks("), "screen audio export uses a helper that can handle multiple source tracks")
 expect(exportServiceSource.contains("for screenAudioTrack in screenAudioTracks"), "screen audio export iterates each source track separately")
 expect(exportServiceSource.contains("composition.addMutableTrack(withMediaType: .audio"), "screen audio export creates composition tracks for audio")
+expect(exportServiceSource.contains("try? FileManager.default.removeItem(at: outputURL)"), "failed exports remove incomplete output files")
+expectOrder(
+    "try? FileManager.default.removeItem(at: outputURL)",
+    before: "throw ExportServiceError.exportFailed",
+    in: exportServiceSource,
+    "failed exports remove the incomplete file before reporting the error"
+)
 
 let permissionServiceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/PermissionService.swift")
 let permissionServiceSource = (try? String(contentsOf: permissionServiceURL, encoding: .utf8)) ?? ""
