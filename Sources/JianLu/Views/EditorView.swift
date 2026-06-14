@@ -40,7 +40,7 @@ struct EditorView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            if appState.isExporting {
+            if appState.activeExportProjectID == project.id {
                 HStack(spacing: 10) {
                     ProgressView(value: appState.exportProgress)
                         .frame(width: 180)
