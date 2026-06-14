@@ -23,6 +23,12 @@ func expectOrder(_ firstNeedle: String, before secondNeedle: String, in haystack
     expect(firstRange.lowerBound < secondRange.lowerBound, message)
 }
 
+func containsStandaloneAssignment(to variableName: String, value: String, in haystack: String) -> Bool {
+    haystack.split(whereSeparator: \.isNewline).contains { line in
+        line.trimmingCharacters(in: .whitespacesAndNewlines) == "\(variableName) = \(value)"
+    }
+}
+
 let arguments = CommandLine.arguments
 guard arguments.count >= 2 else {
     fail("usage: JianLuBundleChecks /path/to/app.bundle")
@@ -205,7 +211,10 @@ expect(appStateSource.contains("guard !isStartingRecording else"), "recording in
 expect(appStateSource.contains("isStartingRecording = true"), "recording startup state is set before devices and overlay are started")
 expect(appStateSource.contains("isStartingRecording = false"), "recording startup state is cleared after success or failure")
 expect(appStateSource.contains("func toggleCameraIntent() {\n        guard !isStartingRecording else"), "camera toggle is ignored while recording startup is in progress")
-expect(!appStateSource.contains("cameraEnabled = false"), "camera startup degradation does not rewrite the user's camera preference")
+expect(
+    !containsStandaloneAssignment(to: "cameraEnabled", value: "false", in: appStateSource),
+    "camera startup degradation does not rewrite the user's camera preference"
+)
 expect(appStateSource.contains("cameraCaptureService.hasActiveRecording"), "recording camera toggle checks that a camera track is actually being recorded")
 expect(appStateSource.contains("overlayService.setCameraVisibility"), "recording camera toggle sets overlay visibility explicitly")
 expect(!appStateSource.contains("overlayService.toggleCameraVisibility()"), "recording camera toggle does not blindly invert overlay state")
@@ -216,6 +225,16 @@ expectOrder(
     before: "let recordingPreferences = preferences",
     in: appStateSource,
     "recording preference snapshot includes the confirmed capture region"
+)
+expect(appStateSource.contains("var actualRecordingPreferences = recordingPreferences"), "recording tracks actual preferences after startup downgrades")
+expect(appStateSource.contains("actualRecordingPreferences.cameraEnabled = false"), "camera startup downgrade is reflected in the recorded project preferences")
+expect(appStateSource.contains("actualRecordingPreferences.microphoneNoiseReductionEnabled = false"), "noise reduction downgrade is reflected in the recorded project preferences")
+expect(appStateSource.contains("activeRecordingPreferences = actualRecordingPreferences"), "recording stores downgraded preferences before project creation")
+expectOrder(
+    "actualRecordingPreferences.cameraEnabled = false",
+    before: "activeRecordingPreferences = actualRecordingPreferences",
+    in: appStateSource,
+    "camera downgrade is applied before active recording preferences are refreshed"
 )
 expect(appStateSource.contains("cameraCaptureService.startRecording(preferences: recordingPreferences)"), "camera recording uses the frozen recording preferences")
 expect(appStateSource.contains("microphoneCaptureService.startRecording(preferences: recordingPreferences)"), "noise-reduced microphone recording uses the frozen recording preferences")

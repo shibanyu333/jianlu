@@ -266,6 +266,7 @@ final class AppState: ObservableObject {
         AppWindowUtility.minimizeMainWindows()
         activeCameraRecordingOffset = 0
         activeMicrophoneRecordingOffset = 0
+        var actualRecordingPreferences = recordingPreferences
         var startupWarnings: [String] = []
         var cameraEnabledForRecording = cameraEnabled
         var microphoneNoiseReductionEnabledForRecording = recordingPreferences.microphoneNoiseReductionEnabled
@@ -279,6 +280,7 @@ final class AppState: ObservableObject {
                     cameraRecordingStartedAt = Date()
                 } catch {
                     cameraEnabledForRecording = false
+                    actualRecordingPreferences.cameraEnabled = false
                     activeCameraRecordingURL = nil
                     startupWarnings.append("摄像头不可用，已继续只录屏幕：\(error.localizedDescription)")
                 }
@@ -294,9 +296,12 @@ final class AppState: ObservableObject {
                 } catch {
                     activeMicrophoneRecordingURL = nil
                     microphoneNoiseReductionEnabledForRecording = false
+                    actualRecordingPreferences.microphoneNoiseReductionEnabled = false
                     startupWarnings.append("麦克风降噪不可用，已改用普通麦克风录制：\(error.localizedDescription)")
                 }
             }
+
+            activeRecordingPreferences = actualRecordingPreferences
 
             overlayService.beginRecording(
                 cameraSession: cameraCaptureService.previewSession,
