@@ -60,7 +60,7 @@ private struct HeaderView: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(appState.isRecording ? .red : .accentColor)
-            .disabled(appState.isStoppingRecording)
+            .disabled(appState.isStoppingRecording || appState.isPreparingRegionSelection)
             .help(appState.permissionSnapshot.screenRecordingGranted ? "选择录制区域" : "点击后会请求屏幕录制权限")
         }
         .padding(20)
@@ -68,12 +68,14 @@ private struct HeaderView: View {
 
     private var recordingButtonTitle: String {
         if appState.isStoppingRecording { return "正在停止" }
+        if appState.isPreparingRegionSelection { return "准备中" }
         if appState.isRecording { return "停止录制" }
         if appState.isSelectingRegion { return "确认区域" }
         return "选择区域"
     }
 
     private var recordingButtonSymbol: String {
+        if appState.isPreparingRegionSelection { return "hourglass" }
         if appState.isRecording { return "stop.circle.fill" }
         if appState.isSelectingRegion { return "record.circle" }
         return "viewfinder"

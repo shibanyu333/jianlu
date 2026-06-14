@@ -23,6 +23,7 @@ final class AppState: ObservableObject {
     @Published var exportMessages: [UUID: String] = [:]
     @Published var isExporting = false
     @Published var isStoppingRecording = false
+    @Published var isPreparingRegionSelection = false
     @Published var isSelectingRegion = false
     @Published var isPaused = false
     @Published var renderedPreviewURLs: [UUID: URL] = [:]
@@ -75,13 +76,21 @@ final class AppState: ObservableObject {
             statusMessage = "正在停止录制，请稍候"
             return
         }
+        guard !isPreparingRegionSelection else {
+            statusMessage = "正在准备选择区域，请稍候"
+            return
+        }
 
-        Task {
-            if isRecording {
+        if isRecording {
+            Task {
                 await stopRecording()
-            } else if isSelectingRegion {
-                regionSelectionController.confirmSelection()
-            } else {
+            }
+        } else if isSelectingRegion {
+            regionSelectionController.confirmSelection()
+        } else {
+            isPreparingRegionSelection = true
+            statusMessage = "正在检查权限并准备选择区域..."
+            Task {
                 await beginRegionSelection()
             }
         }
@@ -132,8 +141,12 @@ final class AppState: ObservableObject {
     }
 
     private func beginRegionSelection() async {
-        guard await ensureRecordingPermissions() else { return }
+        guard await ensureRecordingPermissions() else {
+            isPreparingRegionSelection = false
+            return
+        }
 
+        isPreparingRegionSelection = false
         isSelectingRegion = true
         lastErrorMessage = nil
         statusMessage = "拖拽选择录制区域，然后点击“开始录制”"
