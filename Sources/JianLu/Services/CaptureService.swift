@@ -148,6 +148,9 @@ final class CaptureService: NSObject, ObservableObject {
         guard let stream else {
             throw CaptureServiceError.notRecording
         }
+        defer {
+            cleanupAfterStop()
+        }
 
         try await withCheckedThrowingContinuation { continuation in
             stopContinuation = continuation
@@ -165,14 +168,18 @@ final class CaptureService: NSObject, ObservableObject {
                 }
             }
         }
-        self.stream = nil
-        self.recordingOutput = nil
-        frameOutput.reset()
-        isRecording = false
     }
 
     func latestScreenFrame() -> CGImage? {
         frameOutput.latestImage()
+    }
+
+    private func cleanupAfterStop() {
+        stream = nil
+        recordingOutput = nil
+        frameOutput.reset()
+        stopContinuation = nil
+        isRecording = false
     }
 
     private func cleanupAfterFailedStart(stream: SCStream?, outputURL: URL) async {

@@ -130,6 +130,9 @@ expect(captureServiceSource.contains("try? await stream.stopCapture()"), "screen
 expect(captureServiceSource.contains("recordingOutput = nil"), "screen startup cleanup clears recording output")
 expect(captureServiceSource.contains("frameOutput.reset()"), "screen startup cleanup clears cached live zoom frames")
 expect(captureServiceSource.contains("try? FileManager.default.removeItem(at: outputURL)"), "screen startup cleanup removes incomplete screen files")
+expect(captureServiceSource.contains("defer {\n            cleanupAfterStop()"), "screen stop cleanup runs even when stop capture reports an error")
+expect(captureServiceSource.contains("private func cleanupAfterStop()"), "screen stop cleanup is centralized")
+expect(captureServiceSource.contains("stream = nil\n        recordingOutput = nil"), "screen stop cleanup clears stale stream and output references")
 
 let appStateSourceURL = projectRoot.appendingPathComponent("Sources/JianLu/App/AppState.swift")
 let appStateSource = (try? String(contentsOf: appStateSourceURL, encoding: .utf8)) ?? ""
