@@ -205,6 +205,7 @@ final class OverlayService: ObservableObject {
     }
 
     func undoLastAnnotation() {
+        guard !isPaused else { return }
         guard let removed = annotations.popLast() else { return }
         events.removeAll { event in
             if case .annotation(let annotation) = event {

@@ -136,6 +136,7 @@ private struct MoreControlMenu: View {
             } label: {
                 Label("撤销上一笔", systemImage: "arrow.uturn.backward")
             }
+            .disabled(overlay.isPaused)
         } label: {
             Label("更多", systemImage: "ellipsis.circle")
                 .labelStyle(.titleAndIcon)

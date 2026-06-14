@@ -470,6 +470,10 @@ final class AppState: ObservableObject {
                 statusMessage = "标注工具：\(tool.displayName)，再次选择可关闭"
             }
         case .undo:
+            guard !isPaused else {
+                statusMessage = "录制已暂停，继续后再撤销标注"
+                return
+            }
             overlayService.undoLastAnnotation()
             statusMessage = "已撤销上一笔标注"
         case .clearAnnotations:
