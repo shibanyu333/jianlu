@@ -508,6 +508,7 @@ private func runPreferenceChecks() {
     expect(AnnotationTool.rectangle.isShapeTool, "rectangle annotation is a shape tool")
     expect(AnnotationTool.ellipse.isShapeTool, "ellipse annotation is a shape tool")
     expect(CameraBackgroundStyle.allCases.contains(.office), "real office background is available")
+    expect(CameraBackgroundBlur.strong.displayName == "重度", "strong background blur uses natural Chinese wording")
 
     let invalidCameraFramePreferences = RecordingPreferences(
         includeAppInterface: false,

@@ -74,7 +74,7 @@ public enum CameraBackgroundBlur: String, Codable, CaseIterable, Sendable {
         case .medium:
             "中度"
         case .strong:
-            "强度"
+            "重度"
         }
     }
 

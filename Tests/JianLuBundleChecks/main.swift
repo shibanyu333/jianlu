@@ -171,6 +171,11 @@ expect(recordingOverlayViewSource.contains(".frame(width: captureRect.width, hei
 expect(recordingOverlayViewSource.contains(".position(x: captureRect.midX, y: captureRect.midY)"), "live zoom stays aligned with the selected recording region")
 expect(!recordingOverlayViewSource.contains(".clipShape(Circle())"), "live zoom is not hidden in a small circular lens")
 
+let cameraPreviewViewURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/CameraPreviewView.swift")
+let cameraPreviewViewSource = (try? String(contentsOf: cameraPreviewViewURL, encoding: .utf8)) ?? ""
+expect(!cameraPreviewViewSource.contains("fatalError"), "camera preview view does not keep a latent crash path")
+expect(cameraPreviewViewSource.contains("private func configurePreviewLayer()"), "camera preview view shares setup across code and coder initializers")
+
 let overlayServiceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/OverlayService.swift")
 let overlayServiceSource = (try? String(contentsOf: overlayServiceURL, encoding: .utf8)) ?? ""
 expect(overlayServiceSource.contains("func setCameraVisibility(_ isVisible: Bool)"), "overlay can set camera visibility without relying on toggle state")
