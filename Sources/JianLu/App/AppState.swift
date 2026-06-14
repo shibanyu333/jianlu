@@ -761,6 +761,10 @@ final class AppState: ObservableObject {
         exportMessages[project.id]
     }
 
+    func openCurrentVideo(for project: RecordingProject) {
+        NSWorkspace.shared.open(previewURL(for: project))
+    }
+
     func previewURL(for project: RecordingProject) -> URL {
         renderedPreviewURLs[project.id] ?? project.screenRecordingURL
     }

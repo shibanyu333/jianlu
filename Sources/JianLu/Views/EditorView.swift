@@ -22,6 +22,11 @@ struct EditorView: View {
                 }
                 Spacer()
                 Button {
+                    appState.openCurrentVideo(for: project)
+                } label: {
+                    Label("打开当前视频", systemImage: "play.rectangle")
+                }
+                Button {
                     appState.exportProject(project.id)
                 } label: {
                     Label("导出成片", systemImage: "square.and.arrow.up")

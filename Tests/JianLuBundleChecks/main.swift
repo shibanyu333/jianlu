@@ -348,6 +348,8 @@ expectOrder(
     "recording startup failures clean unreferenced camera and microphone sidecars"
 )
 expect(appStateSource.contains("renderedPreviewURLs[id] = outputURL"), "successful exports become the current editor preview")
+expect(appStateSource.contains("func openCurrentVideo(for project: RecordingProject)"), "app state can open the current editor video")
+expect(appStateSource.contains("NSWorkspace.shared.open(previewURL(for: project))"), "current editor video opens through the workspace")
 expect(appStateSource.contains("@Published var activeExportProjectID"), "app state tracks which project owns the active export")
 expect(appStateSource.contains("@Published var exportProgress"), "app state exposes export progress for the editor")
 expect(appStateSource.contains("@Published var isCancellingExport"), "app state exposes export cancellation state")
@@ -427,6 +429,8 @@ expect(!contentViewSource.contains("projects.prefix(3)"), "recent recordings are
 let editorViewURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/EditorView.swift")
 let editorViewSource = (try? String(contentsOf: editorViewURL, encoding: .utf8)) ?? ""
 expect(editorViewSource.contains("@State private var selectedSegmentID"), "editor tracks the selected clip segment")
+expect(editorViewSource.contains("appState.openCurrentVideo(for: project)"), "editor exposes an action to open the current preview or exported video")
+expect(editorViewSource.contains("打开当前视频"), "editor labels current-video opening clearly")
 expect(editorViewSource.contains("appState.activeExportProjectID == project.id"), "editor only shows export progress on the project being exported")
 expect(editorViewSource.contains("ProgressView(value: appState.exportProgress)"), "editor shows formal export progress")
 expect(editorViewSource.contains("正在导出成片"), "editor labels export progress clearly")
