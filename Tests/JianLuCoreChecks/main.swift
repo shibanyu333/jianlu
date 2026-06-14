@@ -1,6 +1,7 @@
 import Foundation
 import CoreGraphics
 @preconcurrency import AVFoundation
+import QuartzCore
 import JianLuCore
 
 func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
@@ -250,15 +251,21 @@ private func runVideoCompositorChecks() {
         let screenURL = directory.appendingPathComponent("screen.mov")
         let cameraURL = directory.appendingPathComponent("camera.mov")
         let outputURL = directory.appendingPathComponent("composited.mov")
+        let annotatedOutputURL = directory.appendingPathComponent("composited-annotated.mov")
         try makeSolidColorMovie(url: screenURL, size: CGSize(width: 200, height: 200), color: (r: 20, g: 70, b: 220))
         try makeSolidColorMovie(url: cameraURL, size: CGSize(width: 120, height: 120), color: (r: 230, g: 40, b: 30))
-        try exportSyntheticCompositorMovie(screenURL: screenURL, cameraURL: cameraURL, outputURL: outputURL)
+        try exportSyntheticCompositorMovie(screenURL: screenURL, cameraURL: cameraURL, outputURL: outputURL, overlaysAnnotation: false)
 
         let frame = try firstFrameImage(from: outputURL)
         let center = pixelColor(in: frame, x: 100, y: 100)
         let maskedCorner = pixelColor(in: frame, x: 52, y: 52)
         expect(center.r > 170 && center.g < 90 && center.b < 90, "circle camera compositor keeps camera visible at the center")
         expect(maskedCorner.b > 150 && maskedCorner.r < 100, "circle camera compositor masks the camera corners")
+
+        try exportSyntheticCompositorMovie(screenURL: screenURL, cameraURL: cameraURL, outputURL: annotatedOutputURL, overlaysAnnotation: true)
+        let annotatedFrame = try firstFrameImage(from: annotatedOutputURL)
+        let annotatedCenter = pixelColor(in: annotatedFrame, x: 100, y: 100)
+        expect(annotatedCenter.g > 150 && annotatedCenter.r < 120, "camera compositor still renders annotation overlays")
     } catch {
         fputs("Video compositor check failed: \(error.localizedDescription)\n", stderr)
         exit(1)
@@ -358,7 +365,7 @@ private func fill(
     }
 }
 
-private func exportSyntheticCompositorMovie(screenURL: URL, cameraURL: URL, outputURL: URL) throws {
+private func exportSyntheticCompositorMovie(screenURL: URL, cameraURL: URL, outputURL: URL, overlaysAnnotation: Bool) throws {
     let screenAsset = AVURLAsset(url: screenURL)
     let cameraAsset = AVURLAsset(url: cameraURL)
     guard let screenTrack = screenAsset.tracks(withMediaType: .video).first,
@@ -398,6 +405,9 @@ private func exportSyntheticCompositorMovie(screenURL: URL, cameraURL: URL, outp
             ]
         )
     ]
+    if overlaysAnnotation {
+        videoComposition.animationTool = annotationAnimationTool(renderSize: CGSize(width: 200, height: 200))
+    }
 
     guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
         throw CheckError("cannot create synthetic export session")
@@ -414,6 +424,23 @@ private func exportSyntheticCompositorMovie(screenURL: URL, cameraURL: URL, outp
     guard export.status == .completed else {
         throw export.error ?? CheckError("synthetic export did not complete")
     }
+}
+
+private func annotationAnimationTool(renderSize: CGSize) -> AVVideoCompositionCoreAnimationTool {
+    let parentLayer = CALayer()
+    parentLayer.frame = CGRect(origin: .zero, size: renderSize)
+    parentLayer.isGeometryFlipped = true
+
+    let videoLayer = CALayer()
+    videoLayer.frame = parentLayer.bounds
+    parentLayer.addSublayer(videoLayer)
+
+    let marker = CALayer()
+    marker.frame = CGRect(x: 88, y: 88, width: 24, height: 24)
+    marker.backgroundColor = CGColor(red: 0.08, green: 0.90, blue: 0.18, alpha: 1)
+    parentLayer.addSublayer(marker)
+
+    return AVVideoCompositionCoreAnimationTool(postProcessingAsVideoLayer: videoLayer, in: parentLayer)
 }
 
 private func firstFrameImage(from url: URL) throws -> CGImage {
