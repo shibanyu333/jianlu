@@ -216,14 +216,23 @@ expect(appStateSource.contains("guard !isStartingRecording else"), "recording in
 expect(appStateSource.contains("isStartingRecording = true"), "recording startup state is set before devices and overlay are started")
 expect(appStateSource.contains("isStartingRecording = false"), "recording startup state is cleared after success or failure")
 expect(appStateSource.contains("func toggleCameraIntent() {\n        guard !isStartingRecording else"), "camera toggle is ignored while recording startup is in progress")
+expect(appStateSource.contains("private func toggleRecordingCameraVisibility()"), "recording camera toggle is separated from the default camera preference")
+expectOrder(
+    "if isRecording {\n            toggleRecordingCameraVisibility()\n            return\n        }",
+    before: "cameraEnabled.toggle()",
+    in: appStateSource,
+    "recording camera visibility changes do not rewrite the next-recording default"
+)
 expect(
     !containsStandaloneAssignment(to: "cameraEnabled", value: "false", in: appStateSource),
     "camera startup degradation does not rewrite the user's camera preference"
 )
 expect(appStateSource.contains("cameraCaptureService.hasActiveRecording"), "recording camera toggle checks that a camera track is actually being recorded")
+expect(appStateSource.contains("let nextVisibility = !overlayService.cameraVisible"), "recording camera toggle flips the live overlay visibility")
 expect(appStateSource.contains("overlayService.setCameraVisibility"), "recording camera toggle sets overlay visibility explicitly")
 expect(!appStateSource.contains("overlayService.toggleCameraVisibility()"), "recording camera toggle does not blindly invert overlay state")
-expect(appStateSource.contains("下一次录制会开启摄像头"), "recording camera toggle explains when enabling applies only to the next recording")
+expect(appStateSource.contains("摄像头头像框已显示"), "recording camera toggle confirms when the avatar is visible")
+expect(appStateSource.contains("摄像头头像框已隐藏"), "recording camera toggle confirms when the avatar is hidden")
 expect(appStateSource.contains("func toggleClickZoomModeIntent()"), "app state owns click zoom feedback")
 expect(appStateSource.contains("点击放大已开启"), "click zoom enable action has visible Chinese feedback")
 expect(appStateSource.contains("点击放大已关闭"), "click zoom disable action has visible Chinese feedback")
