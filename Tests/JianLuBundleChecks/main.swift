@@ -66,4 +66,9 @@ let environment = (try? String(contentsOf: environmentURL, encoding: .utf8)) ?? 
 expect(environment.contains("name = \"Run\""), "Codex Run action exists")
 expect(environment.contains("command = \"./script/build_and_run.sh\""), "Codex Run action points at build_and_run.sh")
 
+let controlBarSourceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/RecordingControlBarWindowController.swift")
+let controlBarSource = (try? String(contentsOf: controlBarSourceURL, encoding: .utf8)) ?? ""
+expect(controlBarSource.contains(".nonactivatingPanel"), "recording control bar does not activate JianLu while recording")
+expect(controlBarSource.contains("panel.orderFrontRegardless()"), "recording control bar is shown without becoming key")
+
 print("JianLuBundleChecks passed")

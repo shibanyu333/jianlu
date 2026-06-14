@@ -18,7 +18,7 @@ final class RecordingControlBarWindowController {
 
         panel = ControlBarPanel(
             contentRect: rect,
-            styleMask: [.borderless],
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
@@ -42,7 +42,7 @@ final class RecordingControlBarWindowController {
     }
 
     func show() {
-        panel.makeKeyAndOrderFront(nil)
+        panel.orderFrontRegardless()
     }
 
     func hide() {
@@ -62,5 +62,5 @@ final class RecordingControlBarWindowController {
 
 private final class ControlBarPanel: NSPanel {
     override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { true }
+    override var canBecomeMain: Bool { false }
 }
