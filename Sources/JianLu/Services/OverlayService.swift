@@ -203,12 +203,7 @@ final class OverlayService: ObservableObject {
     func clearAllAnnotations() {
         annotations = []
         currentStrokePoints = []
-        events.removeAll { event in
-            if case .annotation = event {
-                return true
-            }
-            return false
-        }
+        events.append(.annotationClear(AnnotationClearEvent(time: currentRecordingTime)))
     }
 
     func beginStroke(at point: NormalizedPoint) {

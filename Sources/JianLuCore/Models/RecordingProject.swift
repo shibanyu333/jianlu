@@ -323,10 +323,19 @@ public struct AnnotationEvent: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
+public struct AnnotationClearEvent: Codable, Equatable, Sendable {
+    public var time: TimeInterval
+
+    public init(time: TimeInterval) {
+        self.time = time
+    }
+}
+
 public enum EffectEvent: Codable, Equatable, Sendable {
     case cameraLayout(CameraLayoutEvent)
     case zoom(ZoomEvent)
     case annotation(AnnotationEvent)
+    case annotationClear(AnnotationClearEvent)
 
     public var time: TimeInterval {
         switch self {
@@ -335,6 +344,8 @@ public enum EffectEvent: Codable, Equatable, Sendable {
         case .zoom(let event):
             event.time
         case .annotation(let event):
+            event.time
+        case .annotationClear(let event):
             event.time
         }
     }
@@ -376,6 +387,8 @@ public struct RecordingProject: Codable, Identifiable, Equatable, Sendable {
             switch event {
             case .annotation:
                 return true
+            case .annotationClear:
+                break
             case .zoom(let zoom) where zoom.magnification > 1.001:
                 return true
             case .cameraLayout(let layout) where layout.isVisible:
@@ -509,6 +522,59 @@ public extension RecordingProject {
         return coalescedZoomStates(exported)
     }
 
+    func exportedAnnotationEvents() -> [EffectEvent] {
+        let sourceAnnotationEvents = annotationTimelineEvents()
+        var exported: [EffectEvent] = []
+        var exportCursor: TimeInterval = 0
+
+        for segment in timeline.segments {
+            let activeAtStart = activeAnnotations(at: segment.sourceStart, in: sourceAnnotationEvents)
+            for annotation in activeAtStart {
+                exported.append(
+                    .annotation(
+                        remappedAnnotation(
+                            annotation,
+                            time: exportCursor,
+                            sourceStart: segment.sourceStart,
+                            exportCursor: exportCursor,
+                            forcePointTimeToEventTime: true
+                        )
+                    )
+                )
+            }
+
+            for event in sourceAnnotationEvents where event.time > segment.sourceStart && event.time < segment.sourceEnd {
+                switch event {
+                case .annotation(let annotation):
+                    let exportTime = exportCursor + annotation.time - segment.sourceStart
+                    exported.append(
+                        .annotation(
+                            remappedAnnotation(
+                                annotation,
+                                time: exportTime,
+                                sourceStart: segment.sourceStart,
+                                exportCursor: exportCursor,
+                                forcePointTimeToEventTime: false
+                            )
+                        )
+                    )
+                case .annotationClear:
+                    exported.append(
+                        .annotationClear(
+                            AnnotationClearEvent(time: exportCursor + event.time - segment.sourceStart)
+                        )
+                    )
+                default:
+                    break
+                }
+            }
+
+            exportCursor += segment.duration
+        }
+
+        return exported.sorted { $0.time < $1.time }
+    }
+
     private func latestCameraLayoutState(at sourceTime: TimeInterval, in events: [CameraLayoutEvent]) -> CameraLayoutEvent {
         events.last { $0.time <= sourceTime } ?? CameraLayoutEvent(
             time: sourceTime,
@@ -540,6 +606,58 @@ public extension RecordingProject {
             time: sourceTime,
             magnification: 1,
             focus: NormalizedPoint(x: 0.5, y: 0.5)
+        )
+    }
+
+    private func annotationTimelineEvents() -> [EffectEvent] {
+        events.compactMap { event -> EffectEvent? in
+            switch event {
+            case .annotation, .annotationClear:
+                event
+            default:
+                nil
+            }
+        }
+        .sorted { $0.time < $1.time }
+    }
+
+    private func activeAnnotations(at sourceTime: TimeInterval, in events: [EffectEvent]) -> [AnnotationEvent] {
+        var active: [AnnotationEvent] = []
+        for event in events where event.time <= sourceTime {
+            switch event {
+            case .annotation(let annotation):
+                active.removeAll { $0.id == annotation.id }
+                active.append(annotation)
+            case .annotationClear:
+                active.removeAll()
+            default:
+                break
+            }
+        }
+        return active.sorted { $0.time < $1.time }
+    }
+
+    private func remappedAnnotation(
+        _ annotation: AnnotationEvent,
+        time: TimeInterval,
+        sourceStart: TimeInterval,
+        exportCursor: TimeInterval,
+        forcePointTimeToEventTime: Bool
+    ) -> AnnotationEvent {
+        let delta = exportCursor - sourceStart
+        let points = annotation.points.map { point in
+            StrokePoint(
+                time: forcePointTimeToEventTime ? time : max(time, point.time + delta),
+                point: point.point
+            )
+        }
+        return AnnotationEvent(
+            id: annotation.id,
+            time: time,
+            tool: annotation.tool,
+            points: points,
+            colorHex: annotation.colorHex,
+            lineWidth: annotation.lineWidth
         )
     }
 

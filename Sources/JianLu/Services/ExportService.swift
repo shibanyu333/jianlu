@@ -202,13 +202,100 @@ final class ExportService: ObservableObject {
         applyZoomAnimation(to: annotationContainer, project: project, renderSize: renderSize, duration: duration)
         parentLayer.addSublayer(annotationContainer)
 
-        for event in project.events {
-            if case .annotation(let annotation) = event {
-                annotationContainer.addSublayer(annotationLayer(annotation, renderSize: renderSize))
-            }
+        for timedAnnotation in timedAnnotations(project: project, duration: duration) {
+            let layer = annotationLayer(timedAnnotation.annotation, renderSize: renderSize)
+            applyVisibility(
+                to: layer,
+                start: timedAnnotation.annotation.time,
+                end: timedAnnotation.visibleUntil,
+                duration: duration
+            )
+            annotationContainer.addSublayer(layer)
         }
 
         return AVVideoCompositionCoreAnimationTool(postProcessingAsVideoLayer: videoLayer, in: parentLayer)
+    }
+
+    private struct TimedAnnotation {
+        var annotation: AnnotationEvent
+        var visibleUntil: TimeInterval
+    }
+
+    private func timedAnnotations(project: RecordingProject, duration: TimeInterval) -> [TimedAnnotation] {
+        guard duration > 0 else { return [] }
+
+        var annotations: [TimedAnnotation] = []
+        var activeIndicesByID: [UUID: Int] = [:]
+
+        for event in project.exportedAnnotationEvents().sorted(by: { $0.time < $1.time }) {
+            let eventTime = min(max(event.time, 0), duration)
+            switch event {
+            case .annotation(var annotation):
+                if let activeIndex = activeIndicesByID[annotation.id] {
+                    annotations[activeIndex].visibleUntil = min(annotations[activeIndex].visibleUntil, eventTime)
+                }
+                annotation.time = eventTime
+                annotations.append(TimedAnnotation(annotation: annotation, visibleUntil: duration))
+                activeIndicesByID[annotation.id] = annotations.count - 1
+            case .annotationClear:
+                for index in activeIndicesByID.values {
+                    annotations[index].visibleUntil = min(annotations[index].visibleUntil, eventTime)
+                }
+                activeIndicesByID.removeAll()
+            default:
+                break
+            }
+        }
+
+        return annotations.filter { $0.visibleUntil - $0.annotation.time > 0.001 }
+    }
+
+    private func applyVisibility(to layer: CALayer, start: TimeInterval, end: TimeInterval, duration: TimeInterval) {
+        let start = min(max(start, 0), duration)
+        let end = min(max(end, start), duration)
+        guard duration > 0, start > 0.001 || end < duration - 0.001 else {
+            layer.opacity = 1
+            return
+        }
+
+        let animation = CAKeyframeAnimation(keyPath: "opacity")
+        animation.beginTime = AVCoreAnimationBeginTimeAtZero
+        animation.duration = duration
+        animation.calculationMode = .discrete
+        var values: [NSNumber] = []
+        var keyTimes: [NSNumber] = []
+        appendOpacityKey(time: 0, opacity: start <= 0.001 ? 1 : 0, values: &values, keyTimes: &keyTimes)
+        if start > 0.001 {
+            appendOpacityKey(time: start / duration, opacity: 1, values: &values, keyTimes: &keyTimes)
+        }
+        let endTime = min(max(end / duration, 0), 1)
+        appendOpacityKey(time: endTime, opacity: 1, values: &values, keyTimes: &keyTimes)
+        if end < duration - 0.001 {
+            appendOpacityKey(time: min(1, endTime + 0.0001), opacity: 0, values: &values, keyTimes: &keyTimes)
+        }
+        appendOpacityKey(time: 1, opacity: end >= duration - 0.001 ? 1 : 0, values: &values, keyTimes: &keyTimes)
+        animation.values = values
+        animation.keyTimes = keyTimes
+        animation.isRemovedOnCompletion = false
+        animation.fillMode = .both
+        layer.opacity = 0
+        layer.add(animation, forKey: "annotationVisibility")
+    }
+
+    private func appendOpacityKey(
+        time: TimeInterval,
+        opacity: Float,
+        values: inout [NSNumber],
+        keyTimes: inout [NSNumber]
+    ) {
+        let normalizedTime = min(max(time, 0), 1)
+        if let last = keyTimes.last?.doubleValue, abs(last - normalizedTime) < 0.000001 {
+            values[values.count - 1] = NSNumber(value: opacity)
+            return
+        }
+
+        values.append(NSNumber(value: opacity))
+        keyTimes.append(NSNumber(value: normalizedTime))
     }
 
     private func applyZoomEvents(

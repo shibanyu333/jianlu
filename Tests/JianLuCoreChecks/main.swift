@@ -185,6 +185,58 @@ private func runTimelineChecks() {
     expect(cameraStates[2].isVisible == false, "camera hidden state in a trimmed gap carries into the next kept segment")
     expect(cameraStates[3].shape == .square, "camera shape changes are preserved for export")
     expect(cameraStates[3].frame == NormalizedRect(x: 0.60, y: 0.55, width: 0.24, height: 0.24), "camera frame changes are preserved for export")
+
+    let annotation = AnnotationEvent(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000010")!,
+        time: 1,
+        tool: .arrow,
+        points: [
+            StrokePoint(time: 1, point: NormalizedPoint(x: 0.1, y: 0.1)),
+            StrokePoint(time: 1.4, point: NormalizedPoint(x: 0.4, y: 0.4))
+        ],
+        colorHex: "#FF3B30",
+        lineWidth: 5
+    )
+    let laterAnnotation = AnnotationEvent(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000011")!,
+        time: 6,
+        tool: .highlight,
+        points: [
+            StrokePoint(time: 6, point: NormalizedPoint(x: 0.2, y: 0.2)),
+            StrokePoint(time: 6.2, point: NormalizedPoint(x: 0.8, y: 0.2))
+        ],
+        colorHex: "#FFD43B",
+        lineWidth: 18
+    )
+    let annotatedProject = RecordingProject(
+        screenRecordingURL: URL(fileURLWithPath: "/tmp/annotations.mov"),
+        cameraRecordingURL: nil,
+        events: [
+            .annotation(annotation),
+            .annotation(laterAnnotation),
+            .annotationClear(AnnotationClearEvent(time: 8))
+        ],
+        timeline: EditTimeline(
+            segments: [
+                EditSegment(sourceStart: 0, sourceEnd: 2),
+                EditSegment(sourceStart: 5, sourceEnd: 10)
+            ]
+        )
+    )
+    let exportedAnnotationEvents = annotatedProject.exportedAnnotationEvents()
+    expect(exportedAnnotationEvents.map(\.time) == [1, 2, 3, 5], "annotation and clear events are remapped through edited timeline")
+    expect(exportedAnnotationEvents[1] == .annotation(AnnotationEvent(
+        id: annotation.id,
+        time: 2,
+        tool: annotation.tool,
+        points: [
+            StrokePoint(time: 2, point: NormalizedPoint(x: 0.1, y: 0.1)),
+            StrokePoint(time: 2, point: NormalizedPoint(x: 0.4, y: 0.4))
+        ],
+        colorHex: annotation.colorHex,
+        lineWidth: annotation.lineWidth
+    )), "active annotations carry into later kept segments")
+    expect(exportedAnnotationEvents.last == .annotationClear(AnnotationClearEvent(time: 5)), "annotation clear events are remapped for export")
 }
 
 private func runPreferenceChecks() {
