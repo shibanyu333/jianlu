@@ -153,16 +153,64 @@ final class ExportService: ObservableObject {
         }
 
         let instruction = AVMutableVideoCompositionLayerInstruction(assetTrack: compositionCamera)
-        let frame = latestCameraLayout(in: project)?.frame ?? .defaultCameraFrame
         let renderSize = normalizedRenderSize(for: composition.tracks(withMediaType: .video).first ?? cameraTrack)
         let cameraSize = normalizedRenderSize(for: cameraTrack)
+        applyCameraLayoutStates(
+            project: project,
+            to: instruction,
+            cameraTrack: cameraTrack,
+            cameraSize: cameraSize,
+            renderSize: renderSize
+        )
+        layerInstructions.insert(instruction, at: 0)
+    }
+
+    private func applyCameraLayoutStates(
+        project: RecordingProject,
+        to instruction: AVMutableVideoCompositionLayerInstruction,
+        cameraTrack: AVAssetTrack,
+        cameraSize: CGSize,
+        renderSize: CGSize
+    ) {
+        let states = project.exportedCameraLayoutStates()
+        guard let first = states.first else {
+            instruction.setTransform(
+                cameraTransform(frame: .defaultCameraFrame, cameraTrack: cameraTrack, cameraSize: cameraSize, renderSize: renderSize),
+                at: .zero
+            )
+            instruction.setOpacity(project.cameraRecordingURL == nil ? 0 : 1, at: .zero)
+            return
+        }
+
+        instruction.setTransform(
+            cameraTransform(frame: first.frame, cameraTrack: cameraTrack, cameraSize: cameraSize, renderSize: renderSize),
+            at: .zero
+        )
+        instruction.setOpacity(first.isVisible ? 1 : 0, at: .zero)
+
+        for state in states.dropFirst() {
+            let time = CMTime(seconds: state.time, preferredTimescale: 600)
+            instruction.setTransform(
+                cameraTransform(frame: state.frame, cameraTrack: cameraTrack, cameraSize: cameraSize, renderSize: renderSize),
+                at: time
+            )
+            instruction.setOpacity(state.isVisible ? 1 : 0, at: time)
+        }
+    }
+
+    private func cameraTransform(
+        frame: NormalizedRect,
+        cameraTrack: AVAssetTrack,
+        cameraSize: CGSize,
+        renderSize: CGSize
+    ) -> CGAffineTransform {
         let targetWidth = renderSize.width * frame.width
         let targetHeight = renderSize.height * frame.height
         let scale = min(targetWidth / max(1, cameraSize.width), targetHeight / max(1, cameraSize.height))
         let translation = CGAffineTransform(translationX: renderSize.width * frame.x, y: renderSize.height * frame.y)
-        let transform = cameraTrack.preferredTransform.concatenating(CGAffineTransform(scaleX: scale, y: scale)).concatenating(translation)
-        instruction.setTransform(transform, at: .zero)
-        layerInstructions.insert(instruction, at: 0)
+        return cameraTrack.preferredTransform
+            .concatenating(CGAffineTransform(scaleX: scale, y: scale))
+            .concatenating(translation)
     }
 
     private func addMicrophoneTrack(
@@ -340,15 +388,6 @@ final class ExportService: ObservableObject {
 
     private func nsColor(for annotation: AnnotationEvent) -> NSColor {
         annotation.tool == .highlight ? NSColor.systemYellow.withAlphaComponent(0.35) : .systemRed
-    }
-
-    private func latestCameraLayout(in project: RecordingProject) -> CameraLayoutEvent? {
-        project.events.compactMap { event in
-            if case .cameraLayout(let layout) = event {
-                return layout
-            }
-            return nil
-        }.last
     }
 
     private func normalizedRenderSize(for track: AVAssetTrack) -> CGSize {

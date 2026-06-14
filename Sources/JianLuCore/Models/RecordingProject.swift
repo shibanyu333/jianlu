@@ -433,6 +433,45 @@ public struct RecordingProject: Codable, Identifiable, Equatable, Sendable {
 }
 
 public extension RecordingProject {
+    func exportedCameraLayoutStates() -> [CameraLayoutEvent] {
+        let sourceLayoutEvents = events.compactMap { event -> CameraLayoutEvent? in
+            if case .cameraLayout(let layout) = event {
+                return layout
+            }
+            return nil
+        }.sorted { $0.time < $1.time }
+
+        var exported: [CameraLayoutEvent] = []
+        var exportCursor: TimeInterval = 0
+
+        for segment in timeline.segments {
+            let stateAtStart = latestCameraLayoutState(at: segment.sourceStart, in: sourceLayoutEvents)
+            exported.append(
+                CameraLayoutEvent(
+                    time: exportCursor,
+                    frame: stateAtStart.frame,
+                    shape: stateAtStart.shape,
+                    isVisible: stateAtStart.isVisible
+                )
+            )
+
+            for event in sourceLayoutEvents where event.time > segment.sourceStart && event.time < segment.sourceEnd {
+                exported.append(
+                    CameraLayoutEvent(
+                        time: exportCursor + event.time - segment.sourceStart,
+                        frame: event.frame,
+                        shape: event.shape,
+                        isVisible: event.isVisible
+                    )
+                )
+            }
+
+            exportCursor += segment.duration
+        }
+
+        return coalescedCameraLayoutStates(exported)
+    }
+
     func exportedZoomStates() -> [ZoomEvent] {
         let sourceZoomEvents = events.compactMap { event -> ZoomEvent? in
             if case .zoom(let zoom) = event {
@@ -468,6 +507,32 @@ public extension RecordingProject {
         }
 
         return coalescedZoomStates(exported)
+    }
+
+    private func latestCameraLayoutState(at sourceTime: TimeInterval, in events: [CameraLayoutEvent]) -> CameraLayoutEvent {
+        events.last { $0.time <= sourceTime } ?? CameraLayoutEvent(
+            time: sourceTime,
+            frame: .defaultCameraFrame,
+            shape: .circle,
+            isVisible: cameraRecordingURL != nil
+        )
+    }
+
+    private func coalescedCameraLayoutStates(_ states: [CameraLayoutEvent]) -> [CameraLayoutEvent] {
+        var result: [CameraLayoutEvent] = []
+        for state in states.sorted(by: { $0.time < $1.time }) {
+            if let last = result.last, abs(last.time - state.time) < 0.001 {
+                result[result.count - 1] = state
+            } else if let last = result.last,
+                      last.frame == state.frame,
+                      last.shape == state.shape,
+                      last.isVisible == state.isVisible {
+                continue
+            } else {
+                result.append(state)
+            }
+        }
+        return result
     }
 
     private func latestZoomState(at sourceTime: TimeInterval, in events: [ZoomEvent]) -> ZoomEvent {

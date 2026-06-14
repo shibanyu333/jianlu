@@ -147,6 +147,28 @@ private func runTimelineChecks() {
     expect(zoomStates.map(\.time) == [0, 0.5, 2, 5, 7], "zoom states are remapped through edited timeline")
     expect(zoomStates[1].magnification == 1.8, "hold zoom records the enlarged state")
     expect(zoomStates[3].focus == NormalizedPoint(x: 0.75, y: 0.4), "zoom focus is preserved after trimming")
+
+    let cameraTimelineProject = RecordingProject(
+        screenRecordingURL: URL(fileURLWithPath: "/tmp/camera-layout.mov"),
+        cameraRecordingURL: URL(fileURLWithPath: "/tmp/camera-layout-camera.mov"),
+        events: [
+            .cameraLayout(CameraLayoutEvent(time: 0, frame: .defaultCameraFrame, shape: .circle, isVisible: true)),
+            .cameraLayout(CameraLayoutEvent(time: 2, frame: NormalizedRect(x: 0.08, y: 0.10, width: 0.20, height: 0.20), shape: .circle, isVisible: true)),
+            .cameraLayout(CameraLayoutEvent(time: 5, frame: NormalizedRect(x: 0.08, y: 0.10, width: 0.20, height: 0.20), shape: .circle, isVisible: false)),
+            .cameraLayout(CameraLayoutEvent(time: 8, frame: NormalizedRect(x: 0.60, y: 0.55, width: 0.24, height: 0.24), shape: .square, isVisible: true))
+        ],
+        timeline: EditTimeline(
+            segments: [
+                EditSegment(sourceStart: 0, sourceEnd: 4),
+                EditSegment(sourceStart: 7, sourceEnd: 10)
+            ]
+        )
+    )
+    let cameraStates = cameraTimelineProject.exportedCameraLayoutStates()
+    expect(cameraStates.map(\.time) == [0, 2, 4, 5], "camera layout states are remapped through edited timeline")
+    expect(cameraStates[2].isVisible == false, "camera hidden state in a trimmed gap carries into the next kept segment")
+    expect(cameraStates[3].shape == .square, "camera shape changes are preserved for export")
+    expect(cameraStates[3].frame == NormalizedRect(x: 0.60, y: 0.55, width: 0.24, height: 0.24), "camera frame changes are preserved for export")
 }
 
 private func runPreferenceChecks() {
