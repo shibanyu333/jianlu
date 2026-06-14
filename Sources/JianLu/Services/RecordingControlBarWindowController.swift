@@ -8,14 +8,7 @@ final class RecordingControlBarWindowController {
 
     init(overlayService: OverlayService) {
         let screenFrame = Self.screenFrame(for: overlayService.recordingRegion)
-        let width: CGFloat = min(780, max(560, screenFrame.width - 80))
-        let height: CGFloat = 58
-        let rect = NSRect(
-            x: screenFrame.midX - width / 2,
-            y: screenFrame.maxY - height - 58,
-            width: width,
-            height: height
-        )
+        let rect = Self.controlBarFrame(in: screenFrame)
 
         panel = ControlBarPanel(
             contentRect: rect,
@@ -58,6 +51,24 @@ final class RecordingControlBarWindowController {
         frame.origin.x = min(max(screenFrame.minX + 12, frame.origin.x), screenFrame.maxX - frame.width - 12)
         frame.origin.y = min(max(screenFrame.minY + 12, frame.origin.y), screenFrame.maxY - frame.height - 12)
         panel.setFrame(frame, display: true)
+    }
+
+    private static func controlBarFrame(in screenFrame: NSRect) -> NSRect {
+        let horizontalInset: CGFloat = 12
+        let topInset: CGFloat = 58
+        let height: CGFloat = 58
+        let availableWidth = max(1, screenFrame.width - horizontalInset * 2)
+        let width = min(780, availableWidth)
+        let edgeInset = min(horizontalInset, max(0, (screenFrame.width - width) / 2))
+        let x = min(
+            max(screenFrame.minX + edgeInset, screenFrame.midX - width / 2),
+            screenFrame.maxX - width - edgeInset
+        )
+        let y = min(
+            max(screenFrame.minY + edgeInset, screenFrame.maxY - height - topInset),
+            screenFrame.maxY - height - edgeInset
+        )
+        return NSRect(x: x, y: y, width: width, height: height)
     }
 
     private static func screenFrame(for recordingRegion: RecordingRegion?) -> NSRect {

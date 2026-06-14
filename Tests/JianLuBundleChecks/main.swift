@@ -118,6 +118,9 @@ let controlBarSourceURL = projectRoot.appendingPathComponent("Sources/JianLu/Ser
 let controlBarSource = (try? String(contentsOf: controlBarSourceURL, encoding: .utf8)) ?? ""
 expect(controlBarSource.contains(".nonactivatingPanel"), "recording control bar does not activate JianLu while recording")
 expect(controlBarSource.contains("panel.orderFrontRegardless()"), "recording control bar is shown without becoming key")
+expect(controlBarSource.contains("controlBarFrame(in:"), "recording control bar uses a reusable bounded layout helper")
+expect(controlBarSource.contains("screenFrame.width - horizontalInset * 2"), "recording control bar width is bounded by the screen")
+expect(!controlBarSource.contains("max(560"), "recording control bar avoids a hard minimum width that can exceed small screens")
 
 let regionSelectionSourceURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/CaptureRegionSelectionView.swift")
 let regionSelectionSource = (try? String(contentsOf: regionSelectionSourceURL, encoding: .utf8)) ?? ""
