@@ -657,6 +657,7 @@ final class AppState: ObservableObject {
 
     private func refreshRenderedPreview(for project: RecordingProject, force: Bool = false) {
         cancelRenderedPreview(for: project.id)
+        deleteGeneratedPreviewIfNeeded(renderedPreviewURLs[project.id])
         renderedPreviewURLs[project.id] = nil
 
         guard force || project.needsRenderedPreview else {
@@ -701,6 +702,11 @@ final class AppState: ObservableObject {
         if renderedPreviewURLs[projectID] == nil {
             renderedPreviewMessages[projectID] = nil
         }
+    }
+
+    private func deleteGeneratedPreviewIfNeeded(_ url: URL?) {
+        guard let url, url.lastPathComponent.hasPrefix("preview-") else { return }
+        try? FileManager.default.removeItem(at: url)
     }
 
     private static func loadPreferences() -> RecordingPreferences {
