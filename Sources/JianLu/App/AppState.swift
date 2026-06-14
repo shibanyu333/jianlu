@@ -621,6 +621,7 @@ final class AppState: ObservableObject {
             do {
                 let outputURL = try await exportService.export(project: project)
                 if recentProjects.first(where: { $0.id == id }) == project {
+                    deleteGeneratedPreviewIfNeeded(renderedPreviewURLs[id])
                     renderedPreviewURLs[id] = outputURL
                     renderedPreviewMessages[id] = "导出完成，下面播放的是最新成片。"
                     exportMessages[id] = "导出完成：\(outputURL.path)"

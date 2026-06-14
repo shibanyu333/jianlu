@@ -147,6 +147,12 @@ expect(appStateSource.contains("activeMicrophoneRecordingOffset"), "recording pr
 expect(appStateSource.contains("return recentProjects.first { $0.id == selectedProjectID } ?? recentProjects.first"), "stale selected project IDs fall back to the first available project")
 expect(appStateSource.contains("renderedPreviewURLs[id] = outputURL"), "successful exports become the current editor preview")
 expect(appStateSource.contains("renderedPreviewMessages[id] = \"导出完成，下面播放的是最新成片。\""), "successful exports explain that the preview is the final movie")
+expectOrder(
+    "deleteGeneratedPreviewIfNeeded(renderedPreviewURLs[id])",
+    before: "renderedPreviewURLs[id] = outputURL",
+    in: appStateSource,
+    "successful exports delete the stale generated preview before replacing it with the final movie"
+)
 expect(appStateSource.contains("if let currentProject = recentProjects.first(where: { $0.id == id }) {\n                    ensureRenderedPreview(for: currentProject)\n                }"), "failed exports restart the rendered preview that export cancelled")
 expect(appStateSource.contains("previewExportService.cancelCurrentExport()"), "cancelling rendered previews also cancels the export session")
 expect(appStateSource.contains("deleteGeneratedPreviewIfNeeded"), "stale rendered previews are cleaned from disk")
