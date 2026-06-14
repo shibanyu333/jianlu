@@ -439,6 +439,10 @@ final class AppState: ObservableObject {
         switch action {
         case .beginHoldZoom:
             guard isRecording else { return }
+            guard !isPaused else {
+                statusMessage = "录制已暂停，继续后可使用缩放"
+                return
+            }
             overlayService.beginHoldZoom()
             statusMessage = "按住缩放：以鼠标位置放大"
         case .endHoldZoom:
@@ -447,6 +451,7 @@ final class AppState: ObservableObject {
             statusMessage = "缩放已恢复"
         case .beginClickZoom:
             guard isRecording else { return }
+            guard !isPaused else { return }
             overlayService.beginClickZoom()
         case .endClickZoom:
             guard isRecording else { return }

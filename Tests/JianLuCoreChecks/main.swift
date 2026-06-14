@@ -229,11 +229,23 @@ private func runTimelineChecks() {
         colorHex: "#FFD43B",
         lineWidth: 18
     )
+    let removedGapAnnotation = AnnotationEvent(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000012")!,
+        time: 3,
+        tool: .rectangle,
+        points: [
+            StrokePoint(time: 3, point: NormalizedPoint(x: 0.12, y: 0.12)),
+            StrokePoint(time: 3.2, point: NormalizedPoint(x: 0.48, y: 0.48))
+        ],
+        colorHex: "#FF3B30",
+        lineWidth: 5
+    )
     let annotatedProject = RecordingProject(
         screenRecordingURL: URL(fileURLWithPath: "/tmp/annotations.mov"),
         cameraRecordingURL: nil,
         events: [
             .annotation(annotation),
+            .annotation(removedGapAnnotation),
             .annotation(laterAnnotation),
             .annotationClear(AnnotationClearEvent(time: 8))
         ],
@@ -246,6 +258,12 @@ private func runTimelineChecks() {
     )
     let exportedAnnotationEvents = annotatedProject.exportedAnnotationEvents()
     expect(exportedAnnotationEvents.map(\.time) == [1, 2, 3, 5], "annotation and clear events are remapped through edited timeline")
+    expect(!exportedAnnotationEvents.contains { event in
+        if case .annotation(let annotation) = event {
+            return annotation.id == removedGapAnnotation.id
+        }
+        return false
+    }, "annotations created inside removed ranges do not leak into later kept segments")
     expect(exportedAnnotationEvents[1] == .annotation(AnnotationEvent(
         id: annotation.id,
         time: 2,

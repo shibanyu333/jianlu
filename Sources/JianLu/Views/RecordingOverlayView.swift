@@ -227,7 +227,7 @@ private struct AnnotationCanvasView: View {
             }
             drawCurrentStroke(in: &context, captureRect: captureRect)
         }
-        .allowsHitTesting(overlay.selectedTool != nil)
+        .allowsHitTesting(overlay.selectedTool != nil && !overlay.isPaused)
         .contentShape(Rectangle())
         .gesture(strokeGesture(captureRect: captureRect))
     }
@@ -235,7 +235,7 @@ private struct AnnotationCanvasView: View {
     private func strokeGesture(captureRect: CGRect) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
-                guard overlay.selectedTool != nil else { return }
+                guard overlay.selectedTool != nil, !overlay.isPaused else { return }
                 guard captureRect.contains(value.location) else { return }
                 let point = normalizedPoint(value.location, captureRect: captureRect)
                 if overlay.currentStrokePoints.isEmpty {

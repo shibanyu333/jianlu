@@ -526,10 +526,10 @@ public extension RecordingProject {
         let sourceAnnotationEvents = annotationTimelineEvents()
         var exported: [EffectEvent] = []
         var exportCursor: TimeInterval = 0
+        var activeAnnotations: [AnnotationEvent] = []
 
         for segment in timeline.segments {
-            let activeAtStart = activeAnnotations(at: segment.sourceStart, in: sourceAnnotationEvents)
-            for annotation in activeAtStart {
+            for annotation in activeAnnotations.sorted(by: { $0.time < $1.time }) {
                 exported.append(
                     .annotation(
                         remappedAnnotation(
@@ -543,27 +543,31 @@ public extension RecordingProject {
                 )
             }
 
-            for event in sourceAnnotationEvents where event.time > segment.sourceStart && event.time < segment.sourceEnd {
+            for event in sourceAnnotationEvents where event.time >= segment.sourceStart && event.time < segment.sourceEnd {
                 switch event {
                 case .annotation(let annotation):
                     let exportTime = exportCursor + annotation.time - segment.sourceStart
+                    let remapped = remappedAnnotation(
+                        annotation,
+                        time: exportTime,
+                        sourceStart: segment.sourceStart,
+                        exportCursor: exportCursor,
+                        forcePointTimeToEventTime: false
+                    )
                     exported.append(
                         .annotation(
-                            remappedAnnotation(
-                                annotation,
-                                time: exportTime,
-                                sourceStart: segment.sourceStart,
-                                exportCursor: exportCursor,
-                                forcePointTimeToEventTime: false
-                            )
+                            remapped
                         )
                     )
+                    activeAnnotations.removeAll { $0.id == remapped.id }
+                    activeAnnotations.append(remapped)
                 case .annotationClear:
                     exported.append(
                         .annotationClear(
                             AnnotationClearEvent(time: exportCursor + event.time - segment.sourceStart)
                         )
                     )
+                    activeAnnotations.removeAll()
                 default:
                     break
                 }
@@ -619,22 +623,6 @@ public extension RecordingProject {
             }
         }
         .sorted { $0.time < $1.time }
-    }
-
-    private func activeAnnotations(at sourceTime: TimeInterval, in events: [EffectEvent]) -> [AnnotationEvent] {
-        var active: [AnnotationEvent] = []
-        for event in events where event.time <= sourceTime {
-            switch event {
-            case .annotation(let annotation):
-                active.removeAll { $0.id == annotation.id }
-                active.append(annotation)
-            case .annotationClear:
-                active.removeAll()
-            default:
-                break
-            }
-        }
-        return active.sorted { $0.time < $1.time }
     }
 
     private func remappedAnnotation(

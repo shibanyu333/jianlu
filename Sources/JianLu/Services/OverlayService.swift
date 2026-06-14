@@ -119,6 +119,10 @@ final class OverlayService: ObservableObject {
     }
 
     func setPaused(_ isPaused: Bool) {
+        if isPaused {
+            endTransientZoom()
+            currentStrokePoints = []
+        }
         self.isPaused = isPaused
     }
 
@@ -143,6 +147,11 @@ final class OverlayService: ObservableObject {
     }
 
     func toggleClickZoomMode() {
+        guard !isPaused else {
+            zoomClickModeEnabled = false
+            endTransientZoom()
+            return
+        }
         zoomClickModeEnabled.toggle()
         if !zoomClickModeEnabled {
             endTransientZoom()
@@ -168,7 +177,7 @@ final class OverlayService: ObservableObject {
     }
 
     private func beginTransientZoom() {
-        guard recordingStartedAt != nil, !isTransientZoomActive else { return }
+        guard recordingStartedAt != nil, !isPaused, !isTransientZoomActive else { return }
         isTransientZoomActive = true
         let focus = normalizedMouseFocus()
         currentZoomFocus = focus
@@ -212,16 +221,20 @@ final class OverlayService: ObservableObject {
     }
 
     func beginStroke(at point: NormalizedPoint) {
-        guard selectedTool != nil else { return }
+        guard selectedTool != nil, !isPaused else { return }
         currentStrokePoints = [StrokePoint(time: currentRecordingTime, point: point)]
     }
 
     func appendStrokePoint(_ point: NormalizedPoint) {
-        guard selectedTool != nil, !currentStrokePoints.isEmpty else { return }
+        guard selectedTool != nil, !isPaused, !currentStrokePoints.isEmpty else { return }
         currentStrokePoints.append(StrokePoint(time: currentRecordingTime, point: point))
     }
 
     func finishStroke() {
+        guard !isPaused else {
+            currentStrokePoints = []
+            return
+        }
         guard let selectedTool, currentStrokePoints.count >= 2 else {
             currentStrokePoints = []
             return
@@ -278,7 +291,7 @@ final class OverlayService: ObservableObject {
     }
 
     private func refreshZoomPreview() {
-        guard recordingStartedAt != nil, isTransientZoomActive else {
+        guard recordingStartedAt != nil, !isPaused, isTransientZoomActive else {
             zoomPreviewImage = nil
             return
         }

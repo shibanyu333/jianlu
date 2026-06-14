@@ -96,7 +96,7 @@ final class OverlayWindowController {
         guard let overlayService else { return false }
 
         let captureRect = captureRectInScreenCoordinates()
-        if overlayService.selectedTool != nil, captureRect.contains(screenPoint) {
+        if !overlayService.isPaused, overlayService.selectedTool != nil, captureRect.contains(screenPoint) {
             return true
         }
 
