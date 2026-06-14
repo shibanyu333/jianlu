@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 import JianLuCore
 
 func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
@@ -133,6 +134,22 @@ private func runPreferenceChecks() {
 
     let usableRegion = RecordingRegion(displayID: 1, x: 20, y: 30, width: 640, height: 360)
     expect(usableRegion.isUsable, "normal recording regions are usable")
+    let retinaSourceRect = usableRegion.sourceRect(
+        displayPixelWidth: 2880,
+        displayPixelHeight: 1800,
+        displayPointWidth: 1440,
+        displayPointHeight: 900
+    )
+    expect(retinaSourceRect == CGRect(x: 40, y: 60, width: 1280, height: 720), "retina source rect converts points to pixels")
+
+    let overflowingRegion = RecordingRegion(displayID: 1, x: 1400, y: 880, width: 200, height: 200)
+    let clampedSourceRect = overflowingRegion.sourceRect(
+        displayPixelWidth: 2880,
+        displayPixelHeight: 1800,
+        displayPointWidth: 1440,
+        displayPointHeight: 900
+    )
+    expect(clampedSourceRect == CGRect(x: 2480, y: 1400, width: 400, height: 400), "source rect clamps after scaling to pixels")
 
     let preferences = RecordingPreferences(
         includeAppInterface: false,

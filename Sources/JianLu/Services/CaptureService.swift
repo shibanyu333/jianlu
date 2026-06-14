@@ -1,4 +1,5 @@
 @preconcurrency import AVFoundation
+import AppKit
 import CoreMedia
 import Foundation
 import JianLuCore
@@ -97,11 +98,18 @@ final class CaptureService: NSObject, ObservableObject {
     private func sourceRect(for region: RecordingRegion?, display: SCDisplay) -> CGRect {
         guard let region, region.isUsable else { return .zero }
 
-        let width = min(max(80, region.width), Double(display.width))
-        let height = min(max(80, region.height), Double(display.height))
-        let x = min(max(0, region.x), max(0, Double(display.width) - width))
-        let y = min(max(0, region.y), max(0, Double(display.height) - height))
-        return CGRect(x: x, y: y, width: width, height: height)
+        let displayPointSize = pointSize(for: display)
+        return region.sourceRect(
+            displayPixelWidth: Double(display.width),
+            displayPixelHeight: Double(display.height),
+            displayPointWidth: displayPointSize.width,
+            displayPointHeight: displayPointSize.height
+        )
+    }
+
+    private func pointSize(for display: SCDisplay) -> CGSize {
+        let screen = NSScreen.screens.first { $0.displayID == display.displayID }
+        return screen?.frame.size ?? CGSize(width: display.width, height: display.height)
     }
 
     func stopDisplayRecording() async throws {
@@ -163,6 +171,12 @@ final class CaptureService: NSObject, ObservableObject {
         case .failure(let error):
             continuation.resume(throwing: error)
         }
+    }
+}
+
+private extension NSScreen {
+    var displayID: UInt32 {
+        deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32 ?? 0
     }
 }
 

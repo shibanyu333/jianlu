@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 public enum CameraFrameShape: String, Codable, CaseIterable, Sendable {
@@ -203,6 +204,21 @@ public struct RecordingRegion: Codable, Equatable, Sendable {
         self.y = y
         self.width = max(0, width)
         self.height = max(0, height)
+    }
+
+    public func sourceRect(
+        displayPixelWidth: Double,
+        displayPixelHeight: Double,
+        displayPointWidth: Double,
+        displayPointHeight: Double
+    ) -> CGRect {
+        let scaleX = displayPixelWidth / max(1, displayPointWidth)
+        let scaleY = displayPixelHeight / max(1, displayPointHeight)
+        let pixelWidth = min(max(80, width * scaleX), max(80, displayPixelWidth))
+        let pixelHeight = min(max(80, height * scaleY), max(80, displayPixelHeight))
+        let pixelX = min(max(0, x * scaleX), max(0, displayPixelWidth - pixelWidth))
+        let pixelY = min(max(0, y * scaleY), max(0, displayPixelHeight - pixelHeight))
+        return CGRect(x: pixelX, y: pixelY, width: pixelWidth, height: pixelHeight)
     }
 }
 
