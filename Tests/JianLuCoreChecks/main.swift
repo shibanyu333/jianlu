@@ -86,6 +86,8 @@ private func runTimelineChecks() {
         screenRecordingURL: URL(fileURLWithPath: "/tmp/screen.mov"),
         cameraRecordingURL: URL(fileURLWithPath: "/tmp/camera.mov"),
         microphoneRecordingURL: URL(fileURLWithPath: "/tmp/microphone.caf"),
+        cameraRecordingOffset: 0.25,
+        microphoneRecordingOffset: 0.4,
         events: [.cameraLayout(cameraLayout)],
         timeline: timeline
     )
@@ -93,6 +95,8 @@ private func runTimelineChecks() {
     expect(project.duration == 5, "project duration follows edit timeline")
     expect(project.events.count == 1, "project stores camera layout events")
     expect(project.microphoneRecordingURL?.lastPathComponent == "microphone.caf", "project stores independent microphone audio")
+    expect(project.cameraRecordingOffset == 0.25, "project stores camera alignment offset")
+    expect(project.microphoneRecordingOffset == 0.4, "project stores microphone alignment offset")
     expect(project.needsRenderedPreview, "projects with effects need a rendered preview")
 
     let rawProject = RecordingProject(
@@ -161,12 +165,16 @@ private func runTimelineChecks() {
         from: Data(legacyProjectJSON.utf8)
     )
     expect(legacyProject?.sourceDuration == 4, "legacy projects derive source duration from the timeline")
+    expect(legacyProject?.cameraRecordingOffset == 0, "legacy projects default camera offset to zero")
+    expect(legacyProject?.microphoneRecordingOffset == 0, "legacy projects default microphone offset to zero")
 
     let roundTrippedData = try? JSONEncoder().encode(trimmedTailProject)
     let roundTrippedProject = roundTrippedData.flatMap {
         try? JSONDecoder().decode(RecordingProject.self, from: $0)
     }
     expect(roundTrippedProject?.sourceDuration == 12, "project round trip preserves source duration")
+    expect(roundTrippedProject?.cameraRecordingOffset == 0, "project round trip preserves default camera offset")
+    expect(roundTrippedProject?.microphoneRecordingOffset == 0, "project round trip preserves default microphone offset")
     expect(roundTrippedProject?.needsRenderedPreview == true, "project round trip preserves rendered preview requirements")
 
     let zoomedProject = RecordingProject(

@@ -49,6 +49,8 @@ final class AppState: ObservableObject {
     private var activeScreenRecordingURL: URL?
     private var activeCameraRecordingURL: URL?
     private var activeMicrophoneRecordingURL: URL?
+    private var activeCameraRecordingOffset: TimeInterval = 0
+    private var activeMicrophoneRecordingOffset: TimeInterval = 0
     private var recordingStartedAt: Date?
     private var pauseStartedAt: TimeInterval?
     private var pausedRanges: [(start: TimeInterval, end: TimeInterval)] = []
@@ -235,17 +237,37 @@ final class AppState: ObservableObject {
         isSelectingRegion = false
         preferences.lastSelectedRegion = region
         AppWindowUtility.minimizeMainWindows()
+        activeCameraRecordingOffset = 0
+        activeMicrophoneRecordingOffset = 0
         var startupWarnings: [String] = []
         var cameraEnabledForRecording = cameraEnabled
+        var microphoneNoiseReductionEnabledForRecording = preferences.microphoneNoiseReductionEnabled
+        var cameraRecordingStartedAt: Date?
+        var microphoneRecordingStartedAt: Date?
 
         do {
             if cameraEnabled {
                 do {
                     activeCameraRecordingURL = try await cameraCaptureService.startRecording(preferences: preferences)
+                    cameraRecordingStartedAt = Date()
                 } catch {
                     cameraEnabledForRecording = false
                     activeCameraRecordingURL = nil
                     startupWarnings.append("摄像头不可用，已继续只录屏幕：\(error.localizedDescription)")
+                }
+            }
+
+            if preferences.microphoneEnabled && preferences.microphoneNoiseReductionEnabled {
+                do {
+                    activeMicrophoneRecordingURL = try microphoneCaptureService.startRecording(preferences: preferences)
+                    microphoneRecordingStartedAt = Date()
+                    if let microphoneWarning = microphoneCaptureService.lastErrorMessage {
+                        startupWarnings.append(microphoneWarning)
+                    }
+                } catch {
+                    activeMicrophoneRecordingURL = nil
+                    microphoneNoiseReductionEnabledForRecording = false
+                    startupWarnings.append("麦克风降噪不可用，已改用普通麦克风录制：\(error.localizedDescription)")
                 }
             }
 
@@ -266,20 +288,14 @@ final class AppState: ObservableObject {
             activeScreenRecordingURL = try await captureService.startDisplayRecording(
                 includeAppWindows: preferences.includeAppInterface,
                 microphoneEnabled: preferences.microphoneEnabled,
-                microphoneNoiseReductionEnabled: preferences.microphoneNoiseReductionEnabled,
+                microphoneNoiseReductionEnabled: microphoneNoiseReductionEnabledForRecording,
                 region: region,
                 directoryPath: preferences.recordingDirectoryPath
             )
-            if preferences.microphoneEnabled && preferences.microphoneNoiseReductionEnabled {
-                do {
-                    activeMicrophoneRecordingURL = try microphoneCaptureService.startRecording(preferences: preferences)
-                } catch {
-                    activeMicrophoneRecordingURL = nil
-                    startupWarnings.append("麦克风降噪不可用，已继续录制屏幕和系统声音：\(error.localizedDescription)")
-                }
-            }
             let startedAt = Date()
             recordingStartedAt = startedAt
+            activeCameraRecordingOffset = cameraRecordingStartedAt.map { startedAt.timeIntervalSince($0) } ?? 0
+            activeMicrophoneRecordingOffset = microphoneRecordingStartedAt.map { startedAt.timeIntervalSince($0) } ?? 0
             overlayService.alignRecordingClock(to: startedAt)
             pauseStartedAt = nil
             pausedRanges = []
@@ -303,6 +319,8 @@ final class AppState: ObservableObject {
             activeScreenRecordingURL = nil
             activeCameraRecordingURL = nil
             activeMicrophoneRecordingURL = nil
+            activeCameraRecordingOffset = 0
+            activeMicrophoneRecordingOffset = 0
             recordingStartedAt = nil
             pauseStartedAt = nil
             pausedRanges = []
@@ -354,6 +372,8 @@ final class AppState: ObservableObject {
                         screenRecordingURL: screenURL,
                         cameraRecordingURL: activeCameraRecordingURL,
                         microphoneRecordingURL: activeMicrophoneRecordingURL,
+                        cameraRecordingOffset: activeCameraRecordingOffset,
+                        microphoneRecordingOffset: activeMicrophoneRecordingOffset,
                         sourceDuration: duration,
                         preferences: preferences,
                         events: overlayService.events,
@@ -369,6 +389,8 @@ final class AppState: ObservableObject {
             activeScreenRecordingURL = nil
             activeCameraRecordingURL = nil
             activeMicrophoneRecordingURL = nil
+            activeCameraRecordingOffset = 0
+            activeMicrophoneRecordingOffset = 0
             recordingStartedAt = nil
             pauseStartedAt = nil
             pausedRanges = []
@@ -393,6 +415,8 @@ final class AppState: ObservableObject {
             activeScreenRecordingURL = nil
             activeCameraRecordingURL = nil
             activeMicrophoneRecordingURL = nil
+            activeCameraRecordingOffset = 0
+            activeMicrophoneRecordingOffset = 0
             recordingStartedAt = nil
             pauseStartedAt = nil
             pausedRanges = []

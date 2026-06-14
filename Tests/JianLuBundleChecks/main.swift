@@ -15,6 +15,14 @@ func occurrenceCount(of needle: String, in haystack: String) -> Int {
     haystack.components(separatedBy: needle).count - 1
 }
 
+func expectOrder(_ firstNeedle: String, before secondNeedle: String, in haystack: String, _ message: String) {
+    guard let firstRange = haystack.range(of: firstNeedle),
+          let secondRange = haystack.range(of: secondNeedle) else {
+        fail(message)
+    }
+    expect(firstRange.lowerBound < secondRange.lowerBound, message)
+}
+
 let arguments = CommandLine.arguments
 guard arguments.count >= 2 else {
     fail("usage: JianLuBundleChecks /path/to/app.bundle")
@@ -96,6 +104,22 @@ expect(!appStateSource.contains("cameraEnabled = false"), "camera startup degrad
 expect(occurrenceCount(of: "restartHotkeyMonitoringIfAuthorized()", in: appStateSource) >= 3, "hotkey event tap is restarted after Accessibility permission changes")
 expect(occurrenceCount(of: "startHotkeyMonitoring()", in: appStateSource) >= 2, "hotkey monitoring startup is reusable after permissions are granted")
 expect(appStateSource.contains("输入监控"), "recording startup explains that zoom hotkeys also need Input Monitoring permission")
+expect(appStateSource.contains("microphoneNoiseReductionEnabledForRecording = false"), "noise reduction startup failure falls back to ordinary microphone capture")
+expect(appStateSource.contains("microphoneNoiseReductionEnabled: microphoneNoiseReductionEnabledForRecording"), "screen capture uses the noise reduction startup fallback state")
+expect(appStateSource.contains("activeCameraRecordingOffset"), "recording projects store camera track alignment offset")
+expect(appStateSource.contains("activeMicrophoneRecordingOffset"), "recording projects store microphone track alignment offset")
+expectOrder(
+    "microphoneCaptureService.startRecording(preferences: preferences)",
+    before: "captureService.startDisplayRecording",
+    in: appStateSource,
+    "noise-reduced microphone starts before screen capture so failures can fall back to ordinary microphone"
+)
+
+let exportServiceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/ExportService.swift")
+let exportServiceSource = (try? String(contentsOf: exportServiceURL, encoding: .utf8)) ?? ""
+expect(exportServiceSource.contains("project.cameraRecordingOffset"), "camera export uses the stored alignment offset")
+expect(exportServiceSource.contains("project.microphoneRecordingOffset"), "microphone export uses the stored alignment offset")
+expect(exportServiceSource.contains("alignedMediaRange"), "separate media tracks share an offset-aware source range helper")
 
 let permissionServiceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/PermissionService.swift")
 let permissionServiceSource = (try? String(contentsOf: permissionServiceURL, encoding: .utf8)) ?? ""

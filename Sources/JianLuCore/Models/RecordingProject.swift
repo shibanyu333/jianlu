@@ -386,6 +386,8 @@ public struct RecordingProject: Codable, Identifiable, Equatable, Sendable {
     public var screenRecordingURL: URL
     public var cameraRecordingURL: URL?
     public var microphoneRecordingURL: URL?
+    public var cameraRecordingOffset: TimeInterval
+    public var microphoneRecordingOffset: TimeInterval
     public var sourceDuration: TimeInterval
     public var preferences: RecordingPreferences
     public var events: [EffectEvent]
@@ -397,6 +399,8 @@ public struct RecordingProject: Codable, Identifiable, Equatable, Sendable {
         case screenRecordingURL
         case cameraRecordingURL
         case microphoneRecordingURL
+        case cameraRecordingOffset
+        case microphoneRecordingOffset
         case sourceDuration
         case preferences
         case events
@@ -439,6 +443,8 @@ public struct RecordingProject: Codable, Identifiable, Equatable, Sendable {
         screenRecordingURL: URL,
         cameraRecordingURL: URL?,
         microphoneRecordingURL: URL? = nil,
+        cameraRecordingOffset: TimeInterval = 0,
+        microphoneRecordingOffset: TimeInterval = 0,
         sourceDuration: TimeInterval? = nil,
         preferences: RecordingPreferences = .defaults,
         events: [EffectEvent],
@@ -449,6 +455,8 @@ public struct RecordingProject: Codable, Identifiable, Equatable, Sendable {
         self.screenRecordingURL = screenRecordingURL
         self.cameraRecordingURL = cameraRecordingURL
         self.microphoneRecordingURL = microphoneRecordingURL
+        self.cameraRecordingOffset = max(0, cameraRecordingOffset)
+        self.microphoneRecordingOffset = max(0, microphoneRecordingOffset)
         self.sourceDuration = max(0, sourceDuration ?? timeline.sourceDurationEstimate)
         self.preferences = preferences
         self.events = events.sorted { $0.time < $1.time }
@@ -462,6 +470,8 @@ public struct RecordingProject: Codable, Identifiable, Equatable, Sendable {
         screenRecordingURL = try container.decode(URL.self, forKey: .screenRecordingURL)
         cameraRecordingURL = try container.decodeIfPresent(URL.self, forKey: .cameraRecordingURL)
         microphoneRecordingURL = try container.decodeIfPresent(URL.self, forKey: .microphoneRecordingURL)
+        cameraRecordingOffset = max(0, try container.decodeIfPresent(TimeInterval.self, forKey: .cameraRecordingOffset) ?? 0)
+        microphoneRecordingOffset = max(0, try container.decodeIfPresent(TimeInterval.self, forKey: .microphoneRecordingOffset) ?? 0)
         preferences = (try? container.decodeIfPresent(RecordingPreferences.self, forKey: .preferences)) ?? .defaults
         events = (try container.decodeIfPresent([EffectEvent].self, forKey: .events) ?? []).sorted { $0.time < $1.time }
         timeline = try container.decodeIfPresent(EditTimeline.self, forKey: .timeline) ?? .fullLength(duration: 0)

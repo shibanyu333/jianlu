@@ -145,17 +145,20 @@ final class ExportService: ObservableObject {
         var cursor = CMTime.zero
         var insertedCameraVideo = false
         for segment in project.timeline.segments {
-            let availableDuration = max(0, min(segment.duration, cameraDuration - segment.sourceStart))
-            guard availableDuration > 0 else {
+            guard let alignedRange = alignedMediaRange(
+                for: segment,
+                assetDuration: cameraDuration,
+                sourceOffset: project.cameraRecordingOffset
+            ) else {
                 cursor = cursor + CMTime(seconds: segment.duration, preferredTimescale: 600)
                 continue
             }
 
-            let sourceRange = CMTimeRange(
-                start: CMTime(seconds: segment.sourceStart, preferredTimescale: 600),
-                duration: CMTime(seconds: availableDuration, preferredTimescale: 600)
+            try compositionCamera.insertTimeRange(
+                alignedRange.sourceRange,
+                of: cameraTrack,
+                at: cursor + alignedRange.destinationOffset
             )
-            try compositionCamera.insertTimeRange(sourceRange, of: cameraTrack, at: cursor)
             insertedCameraVideo = true
             cursor = cursor + CMTime(seconds: segment.duration, preferredTimescale: 600)
         }
@@ -181,19 +184,47 @@ final class ExportService: ObservableObject {
         let microphoneDuration = CMTimeGetSeconds(try await microphoneAsset.load(.duration))
         var cursor = CMTime.zero
         for segment in project.timeline.segments {
-            let availableDuration = max(0, min(segment.duration, microphoneDuration - segment.sourceStart))
-            guard availableDuration > 0 else {
+            guard let alignedRange = alignedMediaRange(
+                for: segment,
+                assetDuration: microphoneDuration,
+                sourceOffset: project.microphoneRecordingOffset
+            ) else {
                 cursor = cursor + CMTime(seconds: segment.duration, preferredTimescale: 600)
                 continue
             }
 
-            let sourceRange = CMTimeRange(
-                start: CMTime(seconds: segment.sourceStart, preferredTimescale: 600),
-                duration: CMTime(seconds: availableDuration, preferredTimescale: 600)
+            try compositionMicrophone.insertTimeRange(
+                alignedRange.sourceRange,
+                of: microphoneTrack,
+                at: cursor + alignedRange.destinationOffset
             )
-            try compositionMicrophone.insertTimeRange(sourceRange, of: microphoneTrack, at: cursor)
             cursor = cursor + CMTime(seconds: segment.duration, preferredTimescale: 600)
         }
+    }
+
+    private struct AlignedMediaRange {
+        var sourceRange: CMTimeRange
+        var destinationOffset: CMTime
+    }
+
+    private func alignedMediaRange(
+        for segment: EditSegment,
+        assetDuration: TimeInterval,
+        sourceOffset: TimeInterval
+    ) -> AlignedMediaRange? {
+        let rawSourceStart = segment.sourceStart + sourceOffset
+        let destinationDelay = max(0, -rawSourceStart)
+        let sourceStart = max(0, rawSourceStart)
+        let duration = min(segment.duration - destinationDelay, assetDuration - sourceStart)
+        guard duration > 0 else { return nil }
+
+        return AlignedMediaRange(
+            sourceRange: CMTimeRange(
+                start: CMTime(seconds: sourceStart, preferredTimescale: 600),
+                duration: CMTime(seconds: duration, preferredTimescale: 600)
+            ),
+            destinationOffset: CMTime(seconds: destinationDelay, preferredTimescale: 600)
+        )
     }
 
     private func makeAnimationTool(project: RecordingProject, renderSize: CGSize, duration: TimeInterval) -> AVVideoCompositionCoreAnimationTool? {
