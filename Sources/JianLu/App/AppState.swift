@@ -219,6 +219,9 @@ final class AppState: ObservableObject {
                 cameraSession: cameraCaptureService.previewSession,
                 cameraEnabled: cameraEnabledForRecording,
                 recordingRegion: region,
+                screenFrameProvider: { [weak self] in
+                    self?.captureService.latestScreenFrame()
+                },
                 onStop: { [weak self] in
                     self?.toggleRecordingIntent()
                 },

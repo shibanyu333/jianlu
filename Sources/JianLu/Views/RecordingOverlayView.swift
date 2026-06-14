@@ -35,34 +35,54 @@ private struct LiveZoomMagnifierView: View {
     let captureRect: CGRect
 
     var body: some View {
-        let focus = CGPoint(
-            x: captureRect.minX + overlay.currentZoomFocus.x * captureRect.width,
-            y: captureRect.minY + overlay.currentZoomFocus.y * captureRect.height
-        )
-        let previewSize = CGSize(width: 260, height: 180)
-        let position = clampedPosition(
-            near: CGPoint(x: focus.x + 150, y: focus.y - 118),
-            previewSize: previewSize
+        let diameter = ZoomLensGeometry.lensDiameter(for: captureRect.size)
+        let lensSize = CGSize(width: diameter, height: diameter)
+        let geometry = ZoomLensGeometry(lensSize: lensSize)
+        let focus = geometry.focusPoint(in: captureRect, focus: overlay.currentZoomFocus)
+        let position = geometry.clampedLensCenter(in: captureRect, focus: overlay.currentZoomFocus)
+        let imageFrame = geometry.zoomedImageFrame(
+            captureSize: captureRect.size,
+            focus: overlay.currentZoomFocus,
+            magnification: overlay.zoomMagnification
         )
 
         ZStack(alignment: .topLeading) {
             ZStack {
                 if let image = overlay.zoomPreviewImage {
-                    Image(decorative: image, scale: 1, orientation: .up)
-                        .resizable()
-                        .interpolation(.high)
-                        .scaledToFill()
-                        .frame(width: previewSize.width, height: previewSize.height)
-                        .clipped()
+                    ZStack(alignment: .topLeading) {
+                        Image(decorative: image, scale: 1, orientation: .up)
+                            .resizable()
+                            .interpolation(.high)
+                            .frame(width: imageFrame.width, height: imageFrame.height)
+                            .offset(x: imageFrame.minX, y: imageFrame.minY)
+                    }
+                    .frame(width: lensSize.width, height: lensSize.height)
+                    .clipped()
                 } else {
-                    Color.black.opacity(0.58)
-                    ProgressView()
-                        .progressViewStyle(.circular)
-                        .tint(.white)
+                    RadialGradient(
+                        colors: [.blue.opacity(0.36), .black.opacity(0.62)],
+                        center: .center,
+                        startRadius: 8,
+                        endRadius: diameter / 2
+                    )
+                    Text("放大中")
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(.white)
                 }
 
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(.white.opacity(0.92), lineWidth: 2)
+                Circle()
+                    .stroke(.white.opacity(0.94), lineWidth: 3)
+                Circle()
+                    .stroke(.blue.opacity(0.85), lineWidth: 1)
+                    .padding(5)
+
+                Path { path in
+                    path.move(to: CGPoint(x: lensSize.width / 2 - 10, y: lensSize.height / 2))
+                    path.addLine(to: CGPoint(x: lensSize.width / 2 + 10, y: lensSize.height / 2))
+                    path.move(to: CGPoint(x: lensSize.width / 2, y: lensSize.height / 2 - 10))
+                    path.addLine(to: CGPoint(x: lensSize.width / 2, y: lensSize.height / 2 + 10))
+                }
+                .stroke(.white.opacity(0.88), lineWidth: 2)
 
                 VStack {
                     Spacer()
@@ -74,13 +94,13 @@ private struct LiveZoomMagnifierView: View {
                             .background(.blue.opacity(0.88), in: Capsule())
                         Spacer()
                     }
-                    .padding(8)
+                    .padding(14)
                 }
             }
             .foregroundStyle(.white)
-            .frame(width: previewSize.width, height: previewSize.height)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .shadow(color: .black.opacity(0.28), radius: 16, y: 8)
+            .frame(width: lensSize.width, height: lensSize.height)
+            .clipShape(Circle())
+            .shadow(color: .black.opacity(0.32), radius: 18, y: 8)
             .position(position)
 
             Circle()
@@ -92,17 +112,6 @@ private struct LiveZoomMagnifierView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .allowsHitTesting(false)
         .transition(.scale(scale: 0.96).combined(with: .opacity))
-    }
-
-    private func clampedPosition(near point: CGPoint, previewSize: CGSize) -> CGPoint {
-        let minX = captureRect.minX + previewSize.width / 2
-        let maxX = max(minX, captureRect.maxX - previewSize.width / 2)
-        let minY = captureRect.minY + previewSize.height / 2
-        let maxY = max(minY, captureRect.maxY - previewSize.height / 2)
-        return CGPoint(
-            x: min(max(minX, point.x), maxX),
-            y: min(max(minY, point.y), maxY)
-        )
     }
 }
 

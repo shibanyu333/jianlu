@@ -3,7 +3,7 @@ import AVFoundation
 import CoreGraphics
 import Foundation
 import JianLuCore
-@preconcurrency import ScreenCaptureKit
+import os
 import SwiftUI
 
 @MainActor
@@ -28,10 +28,12 @@ final class OverlayService: ObservableObject {
     private var controlBarWindow: RecordingControlBarWindowController?
     private var onStop: (() -> Void)?
     private var onTogglePause: (() -> Void)?
+    private var screenFrameProvider: (() -> CGImage?)?
     private var zoomPreviewTimer: Timer?
-    private var isCapturingZoomPreview = false
+    private var didLogMissingZoomFrame = false
     private var lastRecordedZoomFocus = NormalizedPoint(x: 0.5, y: 0.5)
     private var lastZoomFocusRecordTime: TimeInterval = 0
+    private let logger = Logger(subsystem: "com.local.JianLu", category: "Zoom")
 
     var currentRecordingTime: TimeInterval {
         guard let recordingStartedAt else { return 0 }
@@ -42,6 +44,7 @@ final class OverlayService: ObservableObject {
         cameraSession: AVCaptureSession,
         cameraEnabled: Bool,
         recordingRegion: RecordingRegion?,
+        screenFrameProvider: @escaping () -> CGImage?,
         onStop: @escaping () -> Void,
         onTogglePause: @escaping () -> Void
     ) {
@@ -58,6 +61,8 @@ final class OverlayService: ObservableObject {
         self.recordingRegion = recordingRegion
         self.onStop = onStop
         self.onTogglePause = onTogglePause
+        self.screenFrameProvider = screenFrameProvider
+        didLogMissingZoomFrame = false
         annotations = []
         currentStrokePoints = []
         events = []
@@ -75,6 +80,8 @@ final class OverlayService: ObservableObject {
         recordingRegion = nil
         onStop = nil
         onTogglePause = nil
+        screenFrameProvider = nil
+        didLogMissingZoomFrame = false
         hide()
     }
 
@@ -165,6 +172,7 @@ final class OverlayService: ObservableObject {
         appendZoomEvent(magnification: zoomMagnification, focus: focus)
         refreshZoomPreview()
         startZoomPreviewTimer()
+        logger.info("Live zoom began")
     }
 
     private func endTransientZoom() {
@@ -175,6 +183,7 @@ final class OverlayService: ObservableObject {
         currentZoomFocus = focus
         zoomPreviewImage = nil
         appendZoomEvent(magnification: 1, focus: focus)
+        logger.info("Live zoom ended")
     }
 
     func selectTool(_ tool: AnnotationTool?) {
@@ -287,39 +296,11 @@ final class OverlayService: ObservableObject {
     }
 
     private func requestZoomPreviewImage() {
-        guard !isCapturingZoomPreview, let rect = zoomPreviewSourceRect() else { return }
-        guard #available(macOS 15.2, *) else {
-            zoomPreviewImage = nil
-            return
+        zoomPreviewImage = screenFrameProvider?()
+        if zoomPreviewImage == nil, !didLogMissingZoomFrame {
+            didLogMissingZoomFrame = true
+            logger.warning("Live zoom has no screen frame yet")
         }
-
-        isCapturingZoomPreview = true
-        SCScreenshotManager.captureImage(in: rect) { [weak self] image, _ in
-            Task { @MainActor [weak self] in
-                self?.isCapturingZoomPreview = false
-                guard self?.isTransientZoomActive == true else { return }
-                self?.zoomPreviewImage = image
-            }
-        }
-    }
-
-    private func zoomPreviewSourceRect() -> CGRect? {
-        let mouse = NSEvent.mouseLocation
-        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(mouse) }) ?? NSScreen.main else {
-            return nil
-        }
-
-        let previewSize = CGSize(width: 260, height: 180)
-        let width = min(screen.frame.width, max(60, previewSize.width / max(1.2, CGFloat(zoomMagnification))))
-        let height = min(screen.frame.height, max(48, previewSize.height / max(1.2, CGFloat(zoomMagnification))))
-        let mouseX = mouse.x - screen.frame.minX
-        let mouseYFromTop = screen.frame.maxY - mouse.y
-        return CGRect(
-            x: screen.frame.minX + min(max(0, mouseX - width / 2), max(0, screen.frame.width - width)),
-            y: screen.frame.minY + min(max(0, mouseYFromTop - height / 2), max(0, screen.frame.height - height)),
-            width: width,
-            height: height
-        )
     }
 
     private func clamp(_ frame: NormalizedRect) -> NormalizedRect {
@@ -339,20 +320,10 @@ final class OverlayService: ObservableObject {
         let mouse = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main
         let screenFrame = screen?.frame ?? NSRect(x: 0, y: 0, width: 1280, height: 720)
-        let capture = recordingRegion?.isUsable == true
-            ? CGRect(
-                x: recordingRegion?.x ?? 0,
-                y: recordingRegion?.y ?? 0,
-                width: recordingRegion?.width ?? screenFrame.width,
-                height: recordingRegion?.height ?? screenFrame.height
-            )
-            : CGRect(origin: .zero, size: screenFrame.size)
-
-        let xInScreen = mouse.x - screenFrame.minX
-        let yFromTop = screenFrame.maxY - mouse.y
-        return NormalizedPoint(
-            x: min(max(0, (xInScreen - capture.minX) / max(1, capture.width)), 1),
-            y: min(max(0, (yFromTop - capture.minY) / max(1, capture.height)), 1)
+        return ZoomLensGeometry.normalizedFocus(
+            mouseLocation: mouse,
+            screenFrame: screenFrame,
+            recordingRegion: recordingRegion
         )
     }
 }

@@ -1,8 +1,10 @@
 @preconcurrency import AVFoundation
 import AppKit
+import CoreImage
 import CoreMedia
 import Foundation
 import JianLuCore
+import os
 @preconcurrency import ScreenCaptureKit
 
 enum CaptureServiceError: LocalizedError {
@@ -29,8 +31,11 @@ final class CaptureService: NSObject, ObservableObject {
 
     private var stream: SCStream?
     private var recordingOutput: SCRecordingOutput?
+    private let frameOutput = LatestScreenFrameOutput()
+    private let frameOutputQueue = DispatchQueue(label: "com.local.JianLu.capture.latestFrame")
     private let delegateProxy = CaptureServiceDelegateProxy()
     private var stopContinuation: CheckedContinuation<Void, Error>?
+    private let logger = Logger(subsystem: "com.local.JianLu", category: "Capture")
 
     override init() {
         super.init()
@@ -78,10 +83,16 @@ final class CaptureService: NSObject, ObservableObject {
 
         let recordingOutput = SCRecordingOutput(configuration: recordingConfiguration, delegate: delegateProxy)
         let stream = SCStream(filter: filter, configuration: configuration, delegate: delegateProxy)
+        do {
+            try stream.addStreamOutput(frameOutput, type: .screen, sampleHandlerQueue: frameOutputQueue)
+        } catch {
+            logger.warning("Live zoom frame output could not be attached: \(error.localizedDescription, privacy: .public)")
+        }
         try stream.addRecordingOutput(recordingOutput)
 
         self.stream = stream
         self.recordingOutput = recordingOutput
+        frameOutput.reset()
         try await stream.startCapture()
         isRecording = true
         lastErrorMessage = nil
@@ -135,7 +146,12 @@ final class CaptureService: NSObject, ObservableObject {
         }
         self.stream = nil
         self.recordingOutput = nil
+        frameOutput.reset()
         isRecording = false
+    }
+
+    func latestScreenFrame() -> CGImage? {
+        frameOutput.latestImage()
     }
 
     fileprivate func handleFailure(_ error: Error) {
@@ -171,6 +187,61 @@ final class CaptureService: NSObject, ObservableObject {
         case .failure(let error):
             continuation.resume(throwing: error)
         }
+    }
+}
+
+private final class LatestScreenFrameOutput: NSObject, SCStreamOutput {
+    private let lock = NSLock()
+    private let ciContext = CIContext()
+    private var image: CGImage?
+    private var lastFrameTime: CFTimeInterval = 0
+
+    func latestImage() -> CGImage? {
+        lock.lock()
+        defer { lock.unlock() }
+        return image
+    }
+
+    func reset() {
+        lock.lock()
+        image = nil
+        lastFrameTime = 0
+        lock.unlock()
+    }
+
+    nonisolated func stream(
+        _ stream: SCStream,
+        didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
+        of outputType: SCStreamOutputType
+    ) {
+        guard outputType == .screen,
+              sampleBuffer.isValid,
+              let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+            return
+        }
+
+        let now = CFAbsoluteTimeGetCurrent()
+        lock.lock()
+        let shouldSkip = now - lastFrameTime < 0.08
+        lock.unlock()
+        guard !shouldSkip else { return }
+
+        let width = CVPixelBufferGetWidth(pixelBuffer)
+        let height = CVPixelBufferGetHeight(pixelBuffer)
+        guard width > 0, height > 0 else { return }
+
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+        guard let cgImage = ciContext.createCGImage(
+            ciImage,
+            from: CGRect(x: 0, y: 0, width: width, height: height)
+        ) else {
+            return
+        }
+
+        lock.lock()
+        image = cgImage
+        lastFrameTime = now
+        lock.unlock()
     }
 }
 

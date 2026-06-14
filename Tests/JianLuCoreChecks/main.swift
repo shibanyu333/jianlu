@@ -15,6 +15,7 @@ expect(CoreVersion.name == "JianLuCore", "core module exposes its name")
 runTimelineChecks()
 runPermissionGateChecks()
 runPreferenceChecks()
+runZoomLensGeometryChecks()
 runVideoCompositorChecks()
 print("JianLuCoreChecks passed")
 
@@ -239,6 +240,48 @@ private func runPreferenceChecks() {
     expect(legacyPreferences?.zoomShortcut == .controlOptionCommandZ, "legacy preferences get the default zoom shortcut")
     expect(legacyPreferences?.cameraEnabled == true, "legacy preferences keep camera enabled by default")
     expect(legacyPreferences?.recordingDirectoryPath == "/tmp/legacy-jianlu", "legacy preferences keep the recording path")
+}
+
+private func runZoomLensGeometryChecks() {
+    let screenFrame = CGRect(x: 0, y: 0, width: 1440, height: 900)
+    let region = RecordingRegion(displayID: 1, x: 100, y: 120, width: 600, height: 400)
+    let focus = ZoomLensGeometry.normalizedFocus(
+        mouseLocation: CGPoint(x: 400, y: 580),
+        screenFrame: screenFrame,
+        recordingRegion: region
+    )
+    expect(abs(focus.x - 0.5) < 0.001, "zoom focus uses the recording region x coordinate")
+    expect(abs(focus.y - 0.5) < 0.001, "zoom focus uses top-origin recording region y coordinate")
+
+    let fullScreenFocus = ZoomLensGeometry.normalizedFocus(
+        mouseLocation: CGPoint(x: 720, y: 450),
+        screenFrame: screenFrame,
+        recordingRegion: nil
+    )
+    expect(abs(fullScreenFocus.x - 0.5) < 0.001, "full-screen zoom focus maps x into normalized space")
+    expect(abs(fullScreenFocus.y - 0.5) < 0.001, "full-screen zoom focus maps y into normalized space")
+
+    let lens = ZoomLensGeometry(lensSize: CGSize(width: 200, height: 200))
+    let imageFrame = lens.zoomedImageFrame(
+        captureSize: CGSize(width: 1000, height: 500),
+        focus: NormalizedPoint(x: 0.25, y: 0.6),
+        magnification: 2
+    )
+    expect(imageFrame.width == 2000, "zoom lens scales captured frame width by magnification")
+    expect(imageFrame.height == 1000, "zoom lens scales captured frame height by magnification")
+    expect(imageFrame.minX == -400, "zoom lens keeps the focus under the center horizontally")
+    expect(imageFrame.minY == -500, "zoom lens keeps the focus under the center vertically")
+
+    let clampedCenter = lens.clampedLensCenter(
+        in: CGRect(x: 10, y: 20, width: 800, height: 400),
+        focus: NormalizedPoint(x: 0.02, y: 0.03)
+    )
+    expect(clampedCenter == CGPoint(x: 110, y: 120), "zoom lens center is clamped inside the capture rect")
+
+    let smallDiameter = ZoomLensGeometry.lensDiameter(for: CGSize(width: 80, height: 90))
+    expect(smallDiameter == 72, "zoom lens stays visible for tiny recording regions")
+    let largeDiameter = ZoomLensGeometry.lensDiameter(for: CGSize(width: 1920, height: 1080))
+    expect(largeDiameter == 280, "zoom lens has a stable maximum size")
 }
 
 private func runVideoCompositorChecks() {
