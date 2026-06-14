@@ -195,6 +195,14 @@ final class AppState: ObservableObject {
         PermissionService.openShortcutMonitoringSettings()
     }
 
+    func openAccessibilitySettings() {
+        PermissionService.openAccessibilitySettings()
+    }
+
+    func openInputMonitoringSettings() {
+        PermissionService.openInputMonitoringSettings()
+    }
+
     private func beginRegionSelection() async {
         guard await ensureRecordingPermissions() else {
             isPreparingRegionSelection = false

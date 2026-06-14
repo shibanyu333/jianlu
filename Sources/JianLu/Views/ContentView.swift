@@ -148,14 +148,24 @@ private struct MainDashboardView: View {
                 HStack {
                     Image(systemName: "keyboard")
                         .foregroundStyle(.orange)
-                    Text("按住快捷键缩放需要“辅助功能”和“输入监控”权限；顶部栏“鼠标放大”可作为兜底。")
+                    Text(appState.permissionSnapshot.shortcutRecoveryMessage)
                         .font(.callout)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                     Spacer()
-                    Button {
-                        appState.openShortcutMonitoringSettings()
-                    } label: {
-                        Label("打开快捷键权限设置", systemImage: "gear")
+                    if !appState.permissionSnapshot.shortcutAccessibilityGranted {
+                        Button {
+                            appState.openAccessibilitySettings()
+                        } label: {
+                            Label("打开辅助功能", systemImage: "figure.walk.motion")
+                        }
+                    }
+                    if !appState.permissionSnapshot.shortcutInputMonitoringGranted {
+                        Button {
+                            appState.openInputMonitoringSettings()
+                        } label: {
+                            Label("打开输入监控", systemImage: "keyboard")
+                        }
                     }
                 }
                 .padding(12)

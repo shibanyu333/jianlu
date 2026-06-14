@@ -84,6 +84,15 @@ let environment = (try? String(contentsOf: environmentURL, encoding: .utf8)) ?? 
 expect(environment.contains("name = \"Run\""), "Codex Run action exists")
 expect(environment.contains("command = \"./script/build_and_run.sh\""), "Codex Run action points at build_and_run.sh")
 
+let buildScriptURL = projectRoot.appendingPathComponent("script/build_and_run.sh")
+let buildScriptSource = (try? String(contentsOf: buildScriptURL, encoding: .utf8)) ?? ""
+expect(buildScriptSource.contains("--shortcut-permission|shortcut-permission"), "build script can diagnose shortcut permission requirements")
+expect(buildScriptSource.contains("--repair-shortcut-permission|repair-shortcut-permission"), "build script can reset stale shortcut TCC records")
+expect(buildScriptSource.contains("tccutil reset Accessibility"), "shortcut repair resets Accessibility permission for the current bundle id")
+expect(buildScriptSource.contains("tccutil reset ListenEvent"), "shortcut repair resets Input Monitoring permission for the current bundle id")
+expect(buildScriptSource.contains("kTCCServiceAccessibility"), "shortcut diagnostics inspect Accessibility TCC records")
+expect(buildScriptSource.contains("kTCCServiceListenEvent"), "shortcut diagnostics inspect Input Monitoring TCC records")
+
 let appSourceURL = projectRoot.appendingPathComponent("Sources/JianLu/App/JianLuApp.swift")
 let appSource = (try? String(contentsOf: appSourceURL, encoding: .utf8)) ?? ""
 expect(appSource.contains("applicationShouldHandleReopen"), "Dock reopen restores the main JianLu window")
@@ -437,6 +446,10 @@ let permissionServiceURL = projectRoot.appendingPathComponent("Sources/JianLu/Se
 let permissionServiceSource = (try? String(contentsOf: permissionServiceURL, encoding: .utf8)) ?? ""
 expect(permissionServiceSource.contains("CGPreflightListenEventAccess()"), "shortcut permission checks include macOS Input Monitoring")
 expect(permissionServiceSource.contains("CGRequestListenEventAccess()"), "shortcut permission requests include macOS Input Monitoring")
+expect(permissionServiceSource.contains("var shortcutRecoveryMessage"), "shortcut permissions explain exactly which macOS permission is missing")
+expect(permissionServiceSource.contains("删除旧“简录”条目"), "shortcut permission guidance explains stale local TCC rows after rebuilds")
+expect(permissionServiceSource.contains("openAccessibilitySettings()"), "permission service can open Accessibility directly")
+expect(permissionServiceSource.contains("openInputMonitoringSettings()"), "permission service can open Input Monitoring directly")
 
 let contentViewURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/ContentView.swift")
 let contentViewSource = (try? String(contentsOf: contentViewURL, encoding: .utf8)) ?? ""
@@ -444,6 +457,9 @@ expect(contentViewSource.contains("appState.isStartingRecording"), "main recordi
 expect(contentViewSource.contains("正在启动"), "main recording button labels startup state in Chinese")
 expect(contentViewSource.contains(".disabled(appState.isStartingRecording)"), "main camera toggle is disabled while recording startup is in progress")
 expect(contentViewSource.contains("输入监控"), "permission UI names Input Monitoring for zoom hotkeys")
+expect(contentViewSource.contains("appState.permissionSnapshot.shortcutRecoveryMessage"), "permission warning shows the precise missing shortcut permission")
+expect(contentViewSource.contains("打开辅助功能"), "permission warning has a direct Accessibility settings action")
+expect(contentViewSource.contains("打开输入监控"), "permission warning has a direct Input Monitoring settings action")
 expect(!contentViewSource.contains("keyboard.badge.exclamationmark"), "permission UI avoids unavailable SF Symbols that prevent the main window from rendering")
 expect(contentViewSource.contains("let isSelected = project.id == appState.selectedProject?.id"), "recent recordings mark the currently edited project")
 expect(contentViewSource.contains("当前剪辑"), "recent recordings clearly label the current project")

@@ -27,6 +27,19 @@ struct PermissionSnapshot {
         return missing
     }
 
+    var shortcutRecoveryMessage: String {
+        switch (shortcutAccessibilityGranted, shortcutInputMonitoringGranted) {
+        case (true, true):
+            "快捷键权限已就绪。"
+        case (true, false):
+            "辅助功能已开启，还缺“输入监控”。请在系统设置里允许“简录”输入监控，然后重新打开 App。"
+        case (false, true):
+            "输入监控已开启，还缺“辅助功能”。若系统设置里已打开开关，请删除旧“简录”条目后重新添加当前 App。"
+        case (false, false):
+            "还缺“辅助功能”和“输入监控”。若开关已打开仍提示缺失，请删除旧“简录”条目后重新添加当前 App。"
+        }
+    }
+
     var recordingState: RecordingPermissionState {
         RecordingPermissionState(
             screenRecordingGranted: screenRecordingGranted,
@@ -86,6 +99,20 @@ enum PermissionService {
     static func openShortcutMonitoringSettings() {
         let anchor = CGPreflightListenEventAccess() ? "Privacy_Accessibility" : "Privacy_ListenEvent"
         let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)")
+        if let url {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    static func openAccessibilitySettings() {
+        let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+        if let url {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    static func openInputMonitoringSettings() {
+        let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")
         if let url {
             NSWorkspace.shared.open(url)
         }

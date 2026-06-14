@@ -15,6 +15,8 @@ APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
 APP_BINARY="$APP_MACOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
+SYSTEM_TCC_DB="/Library/Application Support/com.apple.TCC/TCC.db"
+USER_TCC_DB="$HOME/Library/Application Support/com.apple.TCC/TCC.db"
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 
@@ -80,14 +82,34 @@ sign_app() {
   fi
 }
 
-screen_permission_requirement() {
-  sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
-    "select writefile('/tmp/jianlu_screencapture.csreq', csreq) from access where service='kTCCServiceScreenCapture' and client='$BUNDLE_ID';" \
-    >/dev/null 2>&1 || return 0
-  if [[ -s /tmp/jianlu_screencapture.csreq ]]; then
-    csreq -r /tmp/jianlu_screencapture.csreq -t 2>/dev/null || true
-    rm -f /tmp/jianlu_screencapture.csreq
+tcc_permission_requirement() {
+  local db="$1"
+  local service="$2"
+  local output="$3"
+
+  rm -f "$output"
+  if [[ ! -f "$db" ]]; then
+    echo "no TCC database at $db"
+    return 0
   fi
+
+  if ! sqlite3 "$db" \
+    "select writefile('$output', csreq) from access where service='$service' and client='$BUNDLE_ID';" \
+    >/dev/null 2>&1; then
+    echo "cannot read $service from $db"
+    return 0
+  fi
+
+  if [[ -s "$output" ]]; then
+    csreq -r "$output" -t 2>/dev/null || true
+    rm -f "$output"
+  else
+    echo "no stored requirement for $service in $db"
+  fi
+}
+
+screen_permission_requirement() {
+  tcc_permission_requirement "$SYSTEM_TCC_DB" "kTCCServiceScreenCapture" "/tmp/jianlu_screencapture.csreq"
 }
 
 reset_capture_permissions() {
@@ -95,6 +117,21 @@ reset_capture_permissions() {
   tccutil reset ScreenCapture "$BUNDLE_ID" >/dev/null 2>&1 || true
   tccutil reset Camera "$BUNDLE_ID" >/dev/null 2>&1 || true
   tccutil reset Microphone "$BUNDLE_ID" >/dev/null 2>&1 || true
+}
+
+shortcut_permission_requirements() {
+  echo "current app requirement:"
+  codesign -dr - "$APP_BUNDLE" 2>&1 | sed 's/^/# /'
+  echo "stored TCC Accessibility requirement:"
+  tcc_permission_requirement "$SYSTEM_TCC_DB" "kTCCServiceAccessibility" "/tmp/jianlu_accessibility.csreq" | sed 's/^/# /'
+  echo "stored TCC Input Monitoring requirement:"
+  tcc_permission_requirement "$USER_TCC_DB" "kTCCServiceListenEvent" "/tmp/jianlu_listenevent.csreq" | sed 's/^/# /'
+}
+
+reset_shortcut_permissions() {
+  echo "resetting shortcut permissions for $BUNDLE_ID"
+  tccutil reset Accessibility "$BUNDLE_ID" >/dev/null 2>&1 || true
+  tccutil reset ListenEvent "$BUNDLE_ID" >/dev/null 2>&1 || true
 }
 
 sign_app
@@ -137,13 +174,21 @@ case "$MODE" in
     echo "stored TCC screen recording requirement:"
     screen_permission_requirement | sed 's/^/# /'
     ;;
+  --shortcut-permission|shortcut-permission)
+    shortcut_permission_requirements
+    ;;
   --repair-screen-permission|repair-screen-permission)
     reset_capture_permissions
     open_app
     echo "opened $APP_BUNDLE; click 开始录制, then allow screen recording, camera, and microphone for $DISPLAY_NAME"
     ;;
+  --repair-shortcut-permission|repair-shortcut-permission)
+    reset_shortcut_permissions
+    open_app
+    echo "opened $APP_BUNDLE; allow Accessibility and Input Monitoring for $DISPLAY_NAME. If an old row remains, remove it with the minus button and add $APP_BUNDLE again."
+    ;;
   *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--doctor|--screen-permission|--repair-screen-permission]" >&2
+    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--doctor|--screen-permission|--repair-screen-permission|--shortcut-permission|--repair-shortcut-permission]" >&2
     exit 2
     ;;
 esac
