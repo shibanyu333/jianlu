@@ -391,7 +391,7 @@ public struct RecordingProject: Codable, Identifiable, Equatable, Sendable {
                 break
             case .zoom(let zoom) where zoom.magnification > 1.001:
                 return true
-            case .cameraLayout(let layout) where layout.isVisible:
+            case .cameraLayout(let layout) where cameraRecordingURL != nil && layout.isVisible:
                 return true
             default:
                 break

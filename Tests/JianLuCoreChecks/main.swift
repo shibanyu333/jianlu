@@ -293,6 +293,32 @@ private func runProjectLibraryChecks() {
         let filteredProjects = try RecordingProjectLibrary.load(from: storeURL, limit: 10)
         expect(filteredProjects.map(\.screenRecordingURL.lastPathComponent) == ["screen-0.mov", "screen-2.mov"], "project library filters missing screen recordings")
 
+        let cameraURL = directory.appendingPathComponent("camera.mov")
+        let microphoneURL = directory.appendingPathComponent("microphone.caf")
+        FileManager.default.createFile(atPath: cameraURL.path, contents: Data("camera".utf8))
+        FileManager.default.createFile(atPath: microphoneURL.path, contents: Data("microphone".utf8))
+        let screenWithMissingSidecars = directory.appendingPathComponent("screen-sidecars.mov")
+        FileManager.default.createFile(atPath: screenWithMissingSidecars.path, contents: Data("screen-sidecars".utf8))
+        let sidecarProject = RecordingProject(
+            screenRecordingURL: screenWithMissingSidecars,
+            cameraRecordingURL: cameraURL,
+            microphoneRecordingURL: microphoneURL,
+            sourceDuration: 10,
+            events: [
+                .cameraLayout(CameraLayoutEvent(time: 0, frame: .defaultCameraFrame, shape: .circle, isVisible: true))
+            ],
+            timeline: .fullLength(duration: 10)
+        )
+        let sidecarStoreURL = directory.appendingPathComponent("sidecars.json")
+        try RecordingProjectLibrary.save([sidecarProject], to: sidecarStoreURL)
+        try FileManager.default.removeItem(at: cameraURL)
+        try FileManager.default.removeItem(at: microphoneURL)
+        let loadedSidecarProjects = try RecordingProjectLibrary.load(from: sidecarStoreURL)
+        expect(loadedSidecarProjects.count == 1, "project library keeps screen recordings when optional sidecars are missing")
+        expect(loadedSidecarProjects[0].cameraRecordingURL == nil, "project library clears missing camera sidecars")
+        expect(loadedSidecarProjects[0].microphoneRecordingURL == nil, "project library clears missing microphone sidecars")
+        expect(!loadedSidecarProjects[0].needsRenderedPreview, "missing camera sidecars do not force rendered previews")
+
         let missingStoreURL = directory.appendingPathComponent("missing.json")
         let missingProjects = try RecordingProjectLibrary.load(from: missingStoreURL, limit: 10)
         expect(missingProjects.isEmpty, "missing project library starts empty")
