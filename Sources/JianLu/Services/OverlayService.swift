@@ -157,6 +157,10 @@ final class OverlayService: ObservableObject {
             return
         }
         zoomClickModeEnabled.toggle()
+        if zoomClickModeEnabled {
+            selectedTool = nil
+            currentStrokePoints = []
+        }
         if !zoomClickModeEnabled {
             endTransientZoom()
         }
@@ -206,6 +210,10 @@ final class OverlayService: ObservableObject {
 
     func selectTool(_ tool: AnnotationTool?) {
         selectedTool = selectedTool == tool ? nil : tool
+        if selectedTool != nil {
+            zoomClickModeEnabled = false
+            endTransientZoom()
+        }
     }
 
     func undoLastAnnotation() {
