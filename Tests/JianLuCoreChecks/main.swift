@@ -299,6 +299,26 @@ private func runTimelineChecks() {
     let gapClearEvents = gapClearProject.exportedAnnotationEvents()
     expect(gapClearEvents.map(\.time) == [1, 2], "clear events in removed ranges are applied at the next kept boundary")
     expect(gapClearEvents.last == .annotationClear(AnnotationClearEvent(time: 2)), "gap clear prevents old annotations from carrying forward")
+
+    let boundaryClearProject = RecordingProject(
+        screenRecordingURL: URL(fileURLWithPath: "/tmp/boundary-clear.mov"),
+        cameraRecordingURL: nil,
+        events: [
+            .annotation(annotation),
+            .annotationClear(AnnotationClearEvent(time: 5))
+        ],
+        timeline: EditTimeline(
+            segments: [
+                EditSegment(sourceStart: 0, sourceEnd: 2),
+                EditSegment(sourceStart: 5, sourceEnd: 7)
+            ]
+        )
+    )
+    let boundaryClearEvents = boundaryClearProject.exportedAnnotationEvents()
+    expect(boundaryClearEvents == [
+        .annotation(annotation),
+        .annotationClear(AnnotationClearEvent(time: 2))
+    ], "clear events at a kept segment boundary prevent stale annotations from carrying forward")
 }
 
 private func runProjectLibraryChecks() {

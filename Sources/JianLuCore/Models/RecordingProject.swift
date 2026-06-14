@@ -569,6 +569,13 @@ public extension RecordingProject {
                     exported: &exported
                 )
             }
+            applySegmentBoundaryAnnotationClears(
+                sourceAnnotationEvents,
+                at: segment.sourceStart,
+                exportTime: exportCursor,
+                activeAnnotations: &activeAnnotations,
+                exported: &exported
+            )
 
             for annotation in activeAnnotations.sorted(by: { $0.time < $1.time }) {
                 exported.append(
@@ -603,6 +610,7 @@ public extension RecordingProject {
                     activeAnnotations.removeAll { $0.id == remapped.id }
                     activeAnnotations.append(remapped)
                 case .annotationClear:
+                    guard abs(event.time - segment.sourceStart) >= 0.001 else { break }
                     exported.append(
                         .annotationClear(
                             AnnotationClearEvent(time: exportCursor + event.time - segment.sourceStart)
@@ -619,6 +627,26 @@ public extension RecordingProject {
         }
 
         return exported.sorted { $0.time < $1.time }
+    }
+
+    private func applySegmentBoundaryAnnotationClears(
+        _ sourceAnnotationEvents: [EffectEvent],
+        at sourceTime: TimeInterval,
+        exportTime: TimeInterval,
+        activeAnnotations: inout [AnnotationEvent],
+        exported: inout [EffectEvent]
+    ) {
+        guard sourceAnnotationEvents.contains(where: { event in
+            guard case .annotationClear = event else { return false }
+            return abs(event.time - sourceTime) < 0.001
+        }) else {
+            return
+        }
+
+        if !activeAnnotations.isEmpty {
+            exported.append(.annotationClear(AnnotationClearEvent(time: exportTime)))
+        }
+        activeAnnotations.removeAll()
     }
 
     private func applyRemovedRangeAnnotationClears(
