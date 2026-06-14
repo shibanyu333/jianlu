@@ -621,6 +621,8 @@ final class AppState: ObservableObject {
             do {
                 let outputURL = try await exportService.export(project: project)
                 if recentProjects.first(where: { $0.id == id }) == project {
+                    renderedPreviewURLs[id] = outputURL
+                    renderedPreviewMessages[id] = "导出完成，下面播放的是最新成片。"
                     exportMessages[id] = "导出完成：\(outputURL.path)"
                     statusMessage = "导出完成"
                 } else {
@@ -630,6 +632,9 @@ final class AppState: ObservableObject {
             } catch {
                 exportMessages[id] = error.localizedDescription
                 statusMessage = "导出失败"
+                if let currentProject = recentProjects.first(where: { $0.id == id }) {
+                    ensureRenderedPreview(for: currentProject)
+                }
             }
         }
     }
