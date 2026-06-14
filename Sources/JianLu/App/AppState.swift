@@ -562,6 +562,7 @@ final class AppState: ObservableObject {
             return
         }
         guard let project = recentProjects.first(where: { $0.id == id }) else { return }
+        cancelRenderedPreview(for: id)
         Task {
             isExporting = true
             exportMessages[id] = "正在导出..."
@@ -595,8 +596,7 @@ final class AppState: ObservableObject {
     }
 
     private func refreshRenderedPreview(for project: RecordingProject, force: Bool = false) {
-        renderedPreviewTasks[project.id]?.cancel()
-        renderedPreviewTasks[project.id] = nil
+        cancelRenderedPreview(for: project.id)
         renderedPreviewURLs[project.id] = nil
 
         guard force || project.needsRenderedPreview else {
@@ -631,6 +631,15 @@ final class AppState: ObservableObject {
             return
         }
         refreshRenderedPreview(for: project)
+    }
+
+    private func cancelRenderedPreview(for projectID: UUID) {
+        guard renderedPreviewTasks[projectID] != nil else { return }
+        renderedPreviewTasks[projectID]?.cancel()
+        renderedPreviewTasks[projectID] = nil
+        if renderedPreviewURLs[projectID] == nil {
+            renderedPreviewMessages[projectID] = nil
+        }
     }
 
     private static func loadPreferences() -> RecordingPreferences {
