@@ -215,6 +215,7 @@ final class OverlayService: ObservableObject {
     }
 
     func clearAllAnnotations() {
+        guard !isPaused else { return }
         annotations = []
         currentStrokePoints = []
         events.append(.annotationClear(AnnotationClearEvent(time: currentRecordingTime)))

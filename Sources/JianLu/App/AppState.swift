@@ -473,6 +473,10 @@ final class AppState: ObservableObject {
             overlayService.undoLastAnnotation()
             statusMessage = "已撤销上一笔标注"
         case .clearAnnotations:
+            guard !isPaused else {
+                statusMessage = "录制已暂停，继续后再清除标注"
+                return
+            }
             overlayService.clearAllAnnotations()
             statusMessage = "已清除全部标注"
         case .toggleCamera:

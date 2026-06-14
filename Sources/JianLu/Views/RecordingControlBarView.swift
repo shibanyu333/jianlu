@@ -42,7 +42,7 @@ struct RecordingControlBarView: View {
                 ControlBarButton(title: "箭头", symbol: "arrow.up.right", isActive: overlay.selectedTool == .arrow) {
                     overlay.selectTool(.arrow)
                 }
-                ControlBarButton(title: "清除", symbol: "trash.slash", isActive: false) {
+                ControlBarButton(title: "清除", symbol: "trash.slash", isActive: false, isDisabled: overlay.isPaused) {
                     overlay.clearAllAnnotations()
                 }
 
@@ -155,6 +155,7 @@ private struct ControlBarButton: View {
     let symbol: String
     let isActive: Bool
     var tint: Color = .accentColor
+    var isDisabled = false
     let action: () -> Void
 
     var body: some View {
@@ -169,6 +170,8 @@ private struct ControlBarButton: View {
         .buttonStyle(.plain)
         .foregroundStyle(isActive ? .white : .primary)
         .background(isActive ? tint : Color.clear, in: RoundedRectangle(cornerRadius: 7))
+        .opacity(isDisabled ? 0.45 : 1)
+        .disabled(isDisabled)
         .help(title)
     }
 }
