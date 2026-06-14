@@ -421,6 +421,8 @@ expect(!contentViewSource.contains("keyboard.badge.exclamationmark"), "permissio
 expect(contentViewSource.contains("let isSelected = project.id == appState.selectedProject?.id"), "recent recordings mark the currently edited project")
 expect(contentViewSource.contains("当前剪辑"), "recent recordings clearly label the current project")
 expect(contentViewSource.contains("isSelected ? Color.accentColor.opacity(0.18)"), "recent recordings visually highlight the current project")
+expect(contentViewSource.contains("ForEach(projects)"), "recent recordings list all saved recent projects")
+expect(!contentViewSource.contains("projects.prefix(3)"), "recent recordings are not limited to the first three projects")
 
 let editorViewURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/EditorView.swift")
 let editorViewSource = (try? String(contentsOf: editorViewURL, encoding: .utf8)) ?? ""

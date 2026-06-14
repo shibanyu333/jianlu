@@ -306,7 +306,7 @@ private struct RecentProjectsView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(projects.prefix(3)) { project in
+                ForEach(projects) { project in
                     let isSelected = project.id == appState.selectedProject?.id
                     Button {
                         appState.selectProject(project.id)
