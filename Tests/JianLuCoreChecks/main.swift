@@ -17,6 +17,7 @@ struct JianLuCoreChecks {
         expect(CoreVersion.name == "JianLuCore", "core module exposes its name")
         runTimelineChecks()
         runProjectLibraryChecks()
+        runRecordingFileStoreChecks()
         runPermissionGateChecks()
         runPreferenceChecks()
         runZoomLensGeometryChecks()
@@ -297,6 +298,46 @@ private func runProjectLibraryChecks() {
         expect(missingProjects.isEmpty, "missing project library starts empty")
     } catch {
         fputs("Project library check failed: \(error.localizedDescription)\n", stderr)
+        exit(1)
+    }
+}
+
+private func runRecordingFileStoreChecks() {
+    let directory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        .appendingPathComponent("jianlu-file-store-\(UUID().uuidString)", isDirectory: true)
+    do {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let firstURL = try RecordingFileStore.makeRecordingURL(
+            prefix: "export",
+            directoryPath: directory.path,
+            date: date,
+            uniqueID: "abcdef12"
+        )
+        expect(firstURL.lastPathComponent == "export-20231114-221320-000-abcdef12.mov", "recording file names include timestamp and unique suffix")
+
+        FileManager.default.createFile(atPath: firstURL.path, contents: Data())
+        let secondURL = try RecordingFileStore.makeRecordingURL(
+            prefix: "export",
+            directoryPath: directory.path,
+            date: date,
+            uniqueID: "abcdef12"
+        )
+        expect(secondURL.lastPathComponent == "export-20231114-221320-000-abcdef12-2.mov", "recording file names avoid existing collisions")
+
+        let audioURL = try RecordingFileStore.makeRecordingURL(
+            prefix: "microphone",
+            extension: "caf",
+            directoryPath: directory.path,
+            date: date,
+            uniqueID: "abc-def-345"
+        )
+        expect(audioURL.pathExtension == "caf", "recording file store preserves requested file extension")
+        expect(audioURL.deletingLastPathComponent() == directory, "recording file store honors custom directories")
+    } catch {
+        fputs("Recording file store check failed: \(error.localizedDescription)\n", stderr)
         exit(1)
     }
 }
