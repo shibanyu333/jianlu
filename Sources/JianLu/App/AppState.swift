@@ -316,6 +316,8 @@ final class AppState: ObservableObject {
             }
 
             activeRecordingPreferences = actualRecordingPreferences
+            overlayService.cameraFrame = recordingPreferences.cameraFrame
+            overlayService.cameraShape = recordingPreferences.cameraShape
 
             overlayService.beginRecording(
                 cameraSession: cameraCaptureService.previewSession,

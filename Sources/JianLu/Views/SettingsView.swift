@@ -28,6 +28,13 @@ struct SettingsView: View {
             Section("摄像头") {
                 Toggle("默认显示摄像头头像框", isOn: $appState.cameraEnabled)
 
+                Picker("默认头像形状", selection: $appState.preferences.cameraShape) {
+                    ForEach(CameraFrameShape.allCases, id: \.self) { shape in
+                        Text(shape.displayName).tag(shape)
+                    }
+                }
+                .pickerStyle(.segmented)
+
                 Picker("头像框背景", selection: $appState.preferences.cameraBackgroundStyle) {
                     ForEach(CameraBackgroundStyle.allCases, id: \.self) { style in
                         Text(style.displayName).tag(style)

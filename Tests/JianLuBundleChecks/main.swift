@@ -124,6 +124,8 @@ let controlBarSourceURL = projectRoot.appendingPathComponent("Sources/JianLu/Ser
 let controlBarSource = (try? String(contentsOf: controlBarSourceURL, encoding: .utf8)) ?? ""
 let controlBarViewURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/RecordingControlBarView.swift")
 let controlBarViewSource = (try? String(contentsOf: controlBarViewURL, encoding: .utf8)) ?? ""
+let settingsViewURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/SettingsView.swift")
+let settingsViewSource = (try? String(contentsOf: settingsViewURL, encoding: .utf8)) ?? ""
 expect(controlBarSource.contains(".nonactivatingPanel"), "recording control bar does not activate JianLu while recording")
 expect(controlBarSource.contains("panel.orderFrontRegardless()"), "recording control bar is shown without becoming key")
 expect(controlBarSource.contains("controlBarFrame(in:"), "recording control bar uses a reusable bounded layout helper")
@@ -133,6 +135,8 @@ expect(controlBarViewSource.contains("ScrollView(.horizontal, showsIndicators: f
 expect(controlBarViewSource.contains("fixedSize(horizontal: true, vertical: false)"), "recording control bar does not squeeze button labels until they disappear")
 expect(controlBarViewSource.contains("overlay.requestToggleClickZoomMode()"), "click zoom toolbar action goes through the app intent feedback path")
 expect(!controlBarViewSource.contains("overlay.toggleClickZoomMode()"), "click zoom toolbar action is not a silent direct state toggle")
+expect(settingsViewSource.contains("Picker(\"默认头像形状\", selection: $appState.preferences.cameraShape)"), "settings expose the default camera avatar shape")
+expect(settingsViewSource.contains("ForEach(CameraFrameShape.allCases"), "default camera avatar shape picker lists all supported shapes")
 
 let regionSelectionSourceURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/CaptureRegionSelectionView.swift")
 let regionSelectionSource = (try? String(contentsOf: regionSelectionSourceURL, encoding: .utf8)) ?? ""
@@ -219,6 +223,14 @@ expect(appStateSource.contains("overlayService.cameraShape = preferences.cameraS
 expect(appStateSource.contains("private func updateDefaultCameraLayout(frame: NormalizedRect, shape: CameraFrameShape)"), "app can persist camera avatar layout changes")
 expect(appStateSource.contains("preferences.cameraFrame = frame"), "camera avatar frame changes are saved to preferences")
 expect(appStateSource.contains("preferences.cameraShape = shape"), "camera avatar shape changes are saved to preferences")
+expect(appStateSource.contains("overlayService.cameraFrame = recordingPreferences.cameraFrame"), "recording startup syncs the camera avatar frame from current preferences")
+expect(appStateSource.contains("overlayService.cameraShape = recordingPreferences.cameraShape"), "recording startup syncs the camera avatar shape from current preferences")
+expectOrder(
+    "overlayService.cameraShape = recordingPreferences.cameraShape",
+    before: "overlayService.beginRecording(",
+    in: appStateSource,
+    "camera avatar shape is synced before the recording overlay is shown"
+)
 expect(appStateSource.contains("guard !isStartingRecording else"), "recording intent ignores duplicate actions while startup is in progress")
 expect(appStateSource.contains("isStartingRecording = true"), "recording startup state is set before devices and overlay are started")
 expect(appStateSource.contains("isStartingRecording = false"), "recording startup state is cleared after success or failure")
