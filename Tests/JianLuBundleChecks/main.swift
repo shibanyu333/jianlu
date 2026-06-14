@@ -148,6 +148,12 @@ expect(appStateSource.contains("return recentProjects.first { $0.id == selectedP
 expect(appStateSource.contains("deleteUnusedSidecarRecordings()"), "recordings with no exportable segments clean unreferenced sidecar files")
 expect(appStateSource.contains("try? FileManager.default.removeItem(at: activeCameraRecordingURL)"), "no-export cleanup removes unused camera sidecars")
 expect(appStateSource.contains("try? FileManager.default.removeItem(at: activeMicrophoneRecordingURL)"), "no-export cleanup removes unused microphone sidecars")
+expectOrder(
+    "deleteUnusedSidecarRecordings()\n            overlayService.endRecording()",
+    before: "statusMessage = \"启动录制失败",
+    in: appStateSource,
+    "recording startup failures clean unreferenced camera and microphone sidecars"
+)
 expect(appStateSource.contains("renderedPreviewURLs[id] = outputURL"), "successful exports become the current editor preview")
 expect(appStateSource.contains("renderedPreviewMessages[id] = \"导出完成，下面播放的是最新成片。\""), "successful exports explain that the preview is the final movie")
 expectOrder(
