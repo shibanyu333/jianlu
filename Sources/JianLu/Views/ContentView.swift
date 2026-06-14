@@ -49,6 +49,7 @@ private struct HeaderView: View {
             } label: {
                 Label(appState.cameraEnabled ? "关闭摄像头" : "开启摄像头", systemImage: "video")
             }
+            .disabled(appState.isStartingRecording)
 
             Button {
                 appState.toggleRecordingIntent()

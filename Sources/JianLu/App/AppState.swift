@@ -119,6 +119,11 @@ final class AppState: ObservableObject {
     }
 
     func toggleCameraIntent() {
+        guard !isStartingRecording else {
+            statusMessage = "正在启动录制，请稍候"
+            return
+        }
+
         cameraEnabled.toggle()
         guard isRecording else {
             statusMessage = cameraEnabled ? "摄像头头像框已开启" : "摄像头头像框已关闭"

@@ -204,6 +204,7 @@ expect(appStateSource.contains("@Published var isStartingRecording"), "app state
 expect(appStateSource.contains("guard !isStartingRecording else"), "recording intent ignores duplicate actions while startup is in progress")
 expect(appStateSource.contains("isStartingRecording = true"), "recording startup state is set before devices and overlay are started")
 expect(appStateSource.contains("isStartingRecording = false"), "recording startup state is cleared after success or failure")
+expect(appStateSource.contains("func toggleCameraIntent() {\n        guard !isStartingRecording else"), "camera toggle is ignored while recording startup is in progress")
 expect(!appStateSource.contains("cameraEnabled = false"), "camera startup degradation does not rewrite the user's camera preference")
 expect(appStateSource.contains("cameraCaptureService.hasActiveRecording"), "recording camera toggle checks that a camera track is actually being recorded")
 expect(appStateSource.contains("overlayService.setCameraVisibility"), "recording camera toggle sets overlay visibility explicitly")
@@ -301,6 +302,7 @@ let contentViewURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/Co
 let contentViewSource = (try? String(contentsOf: contentViewURL, encoding: .utf8)) ?? ""
 expect(contentViewSource.contains("appState.isStartingRecording"), "main recording button reflects startup state")
 expect(contentViewSource.contains("正在启动"), "main recording button labels startup state in Chinese")
+expect(contentViewSource.contains(".disabled(appState.isStartingRecording)"), "main camera toggle is disabled while recording startup is in progress")
 expect(contentViewSource.contains("输入监控"), "permission UI names Input Monitoring for zoom hotkeys")
 expect(!contentViewSource.contains("keyboard.badge.exclamationmark"), "permission UI avoids unavailable SF Symbols that prevent the main window from rendering")
 
