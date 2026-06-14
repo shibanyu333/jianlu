@@ -40,6 +40,15 @@ struct EditorView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            if appState.isExporting {
+                HStack(spacing: 10) {
+                    ProgressView(value: appState.exportProgress)
+                        .frame(width: 180)
+                    Text("正在导出成片 \(Int(appState.exportProgress * 100))%")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            }
 
             PlayerPreview(url: appState.previewURL(for: project))
                 .frame(minHeight: 250)

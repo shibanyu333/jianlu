@@ -29,10 +29,12 @@ final class ExportService: ObservableObject {
     @Published private(set) var isExporting = false
     @Published private(set) var progress: Double = 0
     private var activeExportSession: AVAssetExportSession?
+    private var progressTimer: Timer?
 
     func cancelCurrentExport() {
         activeExportSession?.cancelExport()
         activeExportSession = nil
+        stopProgressPolling()
         isExporting = false
         progress = 0
     }
@@ -42,6 +44,7 @@ final class ExportService: ObservableObject {
         progress = 0
         defer {
             activeExportSession = nil
+            stopProgressPolling()
             isExporting = false
             progress = 0
         }
@@ -128,14 +131,33 @@ final class ExportService: ObservableObject {
         exportSession.videoComposition = videoComposition
         exportSession.shouldOptimizeForNetworkUse = true
         activeExportSession = exportSession
+        startProgressPolling(for: exportSession)
 
         do {
             try await exportSession.export(to: outputURL, as: .mov)
+            progress = 1
             return outputURL
         } catch {
             try? FileManager.default.removeItem(at: outputURL)
             throw ExportServiceError.exportFailed(error.localizedDescription)
         }
+    }
+
+    private func startProgressPolling(for exportSession: AVAssetExportSession) {
+        stopProgressPolling()
+        let timer = Timer(timeInterval: 0.20, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let exportSession = self.activeExportSession else { return }
+                self.progress = Double(exportSession.progress)
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        progressTimer = timer
+    }
+
+    private func stopProgressPolling() {
+        progressTimer?.invalidate()
+        progressTimer = nil
     }
 
     private func addCameraTrack(

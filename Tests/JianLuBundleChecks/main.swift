@@ -348,6 +348,10 @@ expectOrder(
     "recording startup failures clean unreferenced camera and microphone sidecars"
 )
 expect(appStateSource.contains("renderedPreviewURLs[id] = outputURL"), "successful exports become the current editor preview")
+expect(appStateSource.contains("@Published var exportProgress"), "app state exposes export progress for the editor")
+expect(appStateSource.contains("startExportProgressPolling(for: id)"), "formal exports poll progress while running")
+expect(appStateSource.contains("exportProgress = exportService.progress"), "formal export progress mirrors the export service")
+expect(appStateSource.contains("正在导出 \\(Int(exportProgress * 100))%"), "formal export message includes a percent")
 expect(appStateSource.contains("renderedPreviewMessages[id] = \"导出完成，下面播放的是最新成片。\""), "successful exports explain that the preview is the final movie")
 expectOrder(
     "deleteGeneratedPreviewIfNeeded(renderedPreviewURLs[id])",
@@ -380,6 +384,9 @@ expect(exportServiceSource.contains("project.microphoneRecordingOffset"), "micro
 expect(exportServiceSource.contains("alignedMediaRange"), "separate media tracks share an offset-aware source range helper")
 expect(exportServiceSource.contains("func cancelCurrentExport()"), "export service exposes cancellation for stale previews")
 expect(exportServiceSource.contains("activeExportSession?.cancelExport()"), "export service cancels the underlying AVAssetExportSession")
+expect(exportServiceSource.contains("startProgressPolling(for: exportSession)"), "export service polls AVAssetExportSession progress")
+expect(exportServiceSource.contains("progress = Double(exportSession.progress)"), "export service publishes session progress")
+expect(exportServiceSource.contains("stopProgressPolling()"), "export service stops progress polling after export")
 expect(exportServiceSource.contains("addScreenAudioTracks("), "screen audio export uses a helper that can handle multiple source tracks")
 expect(exportServiceSource.contains("for screenAudioTrack in screenAudioTracks"), "screen audio export iterates each source track separately")
 expect(exportServiceSource.contains("composition.addMutableTrack(withMediaType: .audio"), "screen audio export creates composition tracks for audio")
@@ -407,6 +414,8 @@ expect(!contentViewSource.contains("keyboard.badge.exclamationmark"), "permissio
 let editorViewURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/EditorView.swift")
 let editorViewSource = (try? String(contentsOf: editorViewURL, encoding: .utf8)) ?? ""
 expect(editorViewSource.contains("@State private var selectedSegmentID"), "editor tracks the selected clip segment")
+expect(editorViewSource.contains("ProgressView(value: appState.exportProgress)"), "editor shows formal export progress")
+expect(editorViewSource.contains("正在导出成片"), "editor labels export progress clearly")
 expect(editorViewSource.contains("deleteSegment(selectedSegmentID"), "editor deletes the selected segment instead of always deleting the tail")
 expect(editorViewSource.contains("删除选中片段"), "editor labels segment deletion clearly")
 expect(editorViewSource.contains("@Binding var selectedSegmentID: UUID?"), "segment strip exposes selection to the editor")

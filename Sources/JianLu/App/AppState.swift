@@ -24,6 +24,7 @@ final class AppState: ObservableObject {
     @Published var selectedProjectID: UUID?
     @Published var exportMessages: [UUID: String] = [:]
     @Published var isExporting = false
+    @Published var exportProgress: Double = 0
     @Published var isStoppingRecording = false
     @Published var isStartingRecording = false
     @Published var isPreparingRegionSelection = false
@@ -695,9 +696,13 @@ final class AppState: ObservableObject {
         guard let project = recentProjects.first(where: { $0.id == id }) else { return }
         cancelRenderedPreview(for: id)
         isExporting = true
+        exportProgress = 0
         exportMessages[id] = "正在导出..."
+        let progressTask = startExportProgressPolling(for: id)
         Task {
             defer {
+                progressTask.cancel()
+                exportProgress = 0
                 isExporting = false
             }
             do {
@@ -718,6 +723,17 @@ final class AppState: ObservableObject {
                 if let currentProject = recentProjects.first(where: { $0.id == id }) {
                     ensureRenderedPreview(for: currentProject)
                 }
+            }
+        }
+    }
+
+    private func startExportProgressPolling(for id: UUID) -> Task<Void, Never> {
+        Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let self, self.isExporting else { return }
+                exportProgress = exportService.progress
+                exportMessages[id] = "正在导出 \(Int(exportProgress * 100))%..."
+                try? await Task.sleep(nanoseconds: 250_000_000)
             }
         }
     }
