@@ -304,6 +304,8 @@ final class AppState: ObservableObject {
             isPaused = false
             overlayService.setPaused(false)
             isRecording = true
+            await captureService.waitForFirstScreenFrame()
+            overlayService.prewarmZoomPreview()
             lastErrorMessage = startupWarnings.isEmpty ? nil : startupWarnings.joined(separator: "\n")
             statusMessage = startupWarnings.isEmpty ? "录制中：顶部快捷栏可暂停或结束录制" : "录制中：部分设备已自动降级"
         } catch {

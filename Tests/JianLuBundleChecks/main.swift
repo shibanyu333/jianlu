@@ -148,6 +148,14 @@ expect(
     overlayServiceSource.contains("if selectedTool != nil {\n            zoomClickModeEnabled = false\n            endTransientZoom()\n        }"),
     "annotation tools exit click zoom mode"
 )
+expect(overlayServiceSource.contains("func prewarmZoomPreview()"), "overlay can prewarm a live zoom frame before the user presses the shortcut")
+expect(
+    !overlayServiceSource.contains("""
+        zoomPreviewImage = nil
+        appendZoomEvent(magnification: 1, focus: focus)
+"""),
+    "ending live zoom keeps the last preview frame for instant next-press feedback"
+)
 
 let hotkeyServiceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/HotkeyService.swift")
 let hotkeyServiceSource = (try? String(contentsOf: hotkeyServiceURL, encoding: .utf8)) ?? ""
@@ -160,6 +168,8 @@ expect(captureServiceSource.contains("cleanupAfterFailedStart"), "screen startup
 expect(captureServiceSource.contains("try? await stream.stopCapture()"), "screen startup cleanup stops a partially started stream")
 expect(captureServiceSource.contains("recordingOutput = nil"), "screen startup cleanup clears recording output")
 expect(captureServiceSource.contains("frameOutput.reset()"), "screen startup cleanup clears cached live zoom frames")
+expect(captureServiceSource.contains("waitForFirstScreenFrame"), "screen recording warms the first frame before zoom hotkeys become useful")
+expect(captureServiceSource.contains("Live zoom first frame"), "screen recording logs whether live zoom has a warm frame")
 expect(captureServiceSource.contains("try? FileManager.default.removeItem(at: outputURL)"), "screen startup cleanup removes incomplete screen files")
 expect(captureServiceSource.contains("defer {\n            cleanupAfterStop()"), "screen stop cleanup runs even when stop capture reports an error")
 expect(captureServiceSource.contains("private func cleanupAfterStop()"), "screen stop cleanup is centralized")
@@ -171,6 +181,13 @@ expect(!appStateSource.contains("cameraEnabled = false"), "camera startup degrad
 expect(occurrenceCount(of: "restartHotkeyMonitoringIfAuthorized()", in: appStateSource) >= 3, "hotkey event tap is restarted after Accessibility permission changes")
 expect(occurrenceCount(of: "startHotkeyMonitoring()", in: appStateSource) >= 2, "hotkey monitoring startup is reusable after permissions are granted")
 expect(appStateSource.contains("输入监控"), "recording startup explains that zoom hotkeys also need Input Monitoring permission")
+expect(appStateSource.contains("overlayService.prewarmZoomPreview()"), "recording startup primes live zoom after screen capture is ready")
+expectOrder(
+    "isRecording = true",
+    before: "await captureService.waitForFirstScreenFrame()",
+    in: appStateSource,
+    "recording can still be stopped while live zoom preview is warming"
+)
 expect(appStateSource.contains("microphoneNoiseReductionEnabledForRecording = false"), "noise reduction startup failure falls back to ordinary microphone capture")
 expect(appStateSource.contains("microphoneNoiseReductionEnabled: microphoneNoiseReductionEnabledForRecording"), "screen capture uses the noise reduction startup fallback state")
 expect(appStateSource.contains("activeCameraRecordingOffset"), "recording projects store camera track alignment offset")

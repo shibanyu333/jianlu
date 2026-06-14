@@ -174,6 +174,19 @@ final class CaptureService: NSObject, ObservableObject {
         frameOutput.latestImage()
     }
 
+    func waitForFirstScreenFrame(timeout: TimeInterval = 0.45) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while frameOutput.latestImage() == nil, Date() < deadline {
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        if frameOutput.latestImage() == nil {
+            logger.warning("Live zoom first frame did not arrive before timeout; snapshot fallback remains enabled")
+        } else {
+            logger.info("Live zoom first frame is ready")
+        }
+    }
+
     private func cleanupAfterStop() {
         stream = nil
         recordingOutput = nil

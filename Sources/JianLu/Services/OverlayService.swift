@@ -150,6 +150,14 @@ final class OverlayService: ObservableObject {
         zoomMagnification = min(3, max(1.2, zoomMagnification + delta))
     }
 
+    func prewarmZoomPreview() {
+        guard recordingStartedAt != nil, !isPaused else { return }
+        requestZoomPreviewImage(allowsInactiveFallback: true)
+        if zoomPreviewImage != nil {
+            logger.info("Live zoom preview prewarmed")
+        }
+    }
+
     func toggleClickZoomMode() {
         guard !isPaused else {
             zoomClickModeEnabled = false
@@ -203,7 +211,6 @@ final class OverlayService: ObservableObject {
         stopZoomPreviewTimer()
         let focus = normalizedMouseFocus()
         currentZoomFocus = focus
-        zoomPreviewImage = nil
         appendZoomEvent(magnification: 1, focus: focus)
         logger.info("Live zoom ended")
     }
@@ -306,7 +313,6 @@ final class OverlayService: ObservableObject {
 
     private func refreshZoomPreview() {
         guard recordingStartedAt != nil, !isPaused, isTransientZoomActive else {
-            zoomPreviewImage = nil
             return
         }
 
@@ -322,21 +328,21 @@ final class OverlayService: ObservableObject {
         }
     }
 
-    private func requestZoomPreviewImage() {
+    private func requestZoomPreviewImage(allowsInactiveFallback: Bool = false) {
         if let latestFrame = screenFrameProvider?() {
             zoomPreviewImage = latestFrame
             didLogMissingZoomFrame = false
             return
         }
 
-        requestFallbackZoomSnapshot()
+        requestFallbackZoomSnapshot(allowsInactiveAssignment: allowsInactiveFallback)
         if zoomPreviewImage == nil, !didLogMissingZoomFrame {
             didLogMissingZoomFrame = true
             logger.warning("Live zoom has no screen frame yet")
         }
     }
 
-    private func requestFallbackZoomSnapshot() {
+    private func requestFallbackZoomSnapshot(allowsInactiveAssignment: Bool = false) {
         guard !zoomSnapshotInFlight else { return }
 
         zoomSnapshotInFlight = true
@@ -346,7 +352,8 @@ final class OverlayService: ObservableObject {
                 let image = try await Self.captureFallbackZoomImage(region: region)
                 guard let self else { return }
                 self.zoomSnapshotInFlight = false
-                guard self.recordingStartedAt != nil, self.isTransientZoomActive else { return }
+                guard self.recordingStartedAt != nil,
+                      self.isTransientZoomActive || allowsInactiveAssignment else { return }
                 self.zoomPreviewImage = image
                 self.didLogMissingZoomFrame = false
             } catch {
