@@ -139,10 +139,11 @@ expect(controlBarSource.contains("recordingRegion.displayID"), "recording contro
 
 let recordingOverlayViewURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/RecordingOverlayView.swift")
 let recordingOverlayViewSource = (try? String(contentsOf: recordingOverlayViewURL, encoding: .utf8)) ?? ""
-expect(recordingOverlayViewSource.contains("let zoomViewportSize = captureSize"), "live zoom expands across the full recording region")
-expect(recordingOverlayViewSource.contains("zoomedRegionImageFrame"), "live zoom uses the same full-region transform style as exported zoom")
-expect(recordingOverlayViewSource.contains(".position(x: captureRect.midX, y: captureRect.midY)"), "live zoom fills the selected capture rect instead of a tiny lens")
-expect(!recordingOverlayViewSource.contains(".clipShape(Circle())"), "live zoom is no longer a small circular lens")
+expect(recordingOverlayViewSource.contains("let diameter = ZoomLensGeometry.lensDiameter"), "live zoom uses a simple visible mouse-area lens")
+expect(recordingOverlayViewSource.contains("clampedLensCenter(in: captureRect"), "live zoom follows the mouse focus inside the recording region")
+expect(recordingOverlayViewSource.contains("zoomedImageFrame"), "live zoom magnifies the captured frame inside the lens")
+expect(recordingOverlayViewSource.contains(".clipShape(Circle())"), "live zoom is rendered as a round lens")
+expect(recordingOverlayViewSource.contains(".position(lensCenter)"), "live zoom lens is positioned at the mouse focus")
 
 let overlayServiceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/OverlayService.swift")
 let overlayServiceSource = (try? String(contentsOf: overlayServiceURL, encoding: .utf8)) ?? ""

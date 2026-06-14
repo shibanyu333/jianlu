@@ -36,13 +36,11 @@ private struct LiveZoomRegionView: View {
 
     var body: some View {
         let captureSize = captureRect.size
-        let zoomViewportSize = captureSize
-        let geometry = ZoomLensGeometry(lensSize: zoomViewportSize)
-        let focusPoint = CGPoint(
-            x: CGFloat(overlay.currentZoomFocus.x) * zoomViewportSize.width,
-            y: CGFloat(overlay.currentZoomFocus.y) * zoomViewportSize.height
-        )
-        let imageFrame = geometry.zoomedRegionImageFrame(
+        let diameter = ZoomLensGeometry.lensDiameter(for: captureSize)
+        let lensSize = CGSize(width: diameter, height: diameter)
+        let geometry = ZoomLensGeometry(lensSize: lensSize)
+        let lensCenter = geometry.clampedLensCenter(in: captureRect, focus: overlay.currentZoomFocus)
+        let imageFrame = geometry.zoomedImageFrame(
             captureSize: captureSize,
             focus: overlay.currentZoomFocus,
             magnification: overlay.zoomMagnification
@@ -56,39 +54,28 @@ private struct LiveZoomRegionView: View {
                     .frame(width: imageFrame.width, height: imageFrame.height)
                     .offset(x: imageFrame.minX, y: imageFrame.minY)
             } else {
-                Color.blue.opacity(0.22)
-                Text("等待画面帧")
-                    .font(.callout.weight(.semibold))
+                Color.blue.opacity(0.20)
+                Image(systemName: "plus.magnifyingglass")
+                    .font(.system(size: 34, weight: .semibold))
                     .foregroundStyle(.white)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(.blue.opacity(0.88), in: Capsule())
-                    .position(x: zoomViewportSize.width / 2, y: zoomViewportSize.height / 2)
+                    .frame(width: lensSize.width, height: lensSize.height)
             }
 
             FocusMarker()
                 .frame(width: 34, height: 34)
-                .position(focusPoint)
-
-            Text("放大 \(String(format: "%.1f", overlay.zoomMagnification))x")
-                .font(.callout.weight(.semibold).monospacedDigit())
-                .foregroundStyle(.white)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(.blue.opacity(0.9), in: Capsule())
-                .padding(12)
+                .position(x: lensSize.width / 2, y: lensSize.height / 2)
         }
-        .frame(width: captureSize.width, height: captureSize.height)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .frame(width: lensSize.width, height: lensSize.height)
+        .clipShape(Circle())
         .overlay {
-            RoundedRectangle(cornerRadius: 8)
+            Circle()
                 .stroke(.white.opacity(0.95), lineWidth: 3)
-            RoundedRectangle(cornerRadius: 6)
+            Circle()
                 .stroke(.blue.opacity(0.95), lineWidth: 4)
                 .padding(3)
         }
         .clipped()
-        .position(x: captureRect.midX, y: captureRect.midY)
+        .position(lensCenter)
         .shadow(color: .black.opacity(0.28), radius: 18, y: 7)
         .allowsHitTesting(false)
         .transition(.opacity)
