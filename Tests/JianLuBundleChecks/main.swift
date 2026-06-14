@@ -123,6 +123,14 @@ let hotkeyServiceSource = (try? String(contentsOf: hotkeyServiceURL, encoding: .
 expect(hotkeyServiceSource.contains("startShortcutPolling()"), "zoom hotkeys have a keyboard-state polling fallback")
 expect(hotkeyServiceSource.contains("CGEventSource.keyState"), "zoom hotkey polling reads the real key-down state")
 
+let captureServiceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/CaptureService.swift")
+let captureServiceSource = (try? String(contentsOf: captureServiceURL, encoding: .utf8)) ?? ""
+expect(captureServiceSource.contains("cleanupAfterFailedStart"), "screen startup failures clean partial recorder state")
+expect(captureServiceSource.contains("try? await stream.stopCapture()"), "screen startup cleanup stops a partially started stream")
+expect(captureServiceSource.contains("recordingOutput = nil"), "screen startup cleanup clears recording output")
+expect(captureServiceSource.contains("frameOutput.reset()"), "screen startup cleanup clears cached live zoom frames")
+expect(captureServiceSource.contains("try? FileManager.default.removeItem(at: outputURL)"), "screen startup cleanup removes incomplete screen files")
+
 let appStateSourceURL = projectRoot.appendingPathComponent("Sources/JianLu/App/AppState.swift")
 let appStateSource = (try? String(contentsOf: appStateSourceURL, encoding: .utf8)) ?? ""
 expect(!appStateSource.contains("cameraEnabled = false"), "camera startup degradation does not rewrite the user's camera preference")

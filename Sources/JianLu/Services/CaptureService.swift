@@ -50,54 +50,62 @@ final class CaptureService: NSObject, ObservableObject {
         directoryPath: String?
     ) async throws -> URL {
         let outputURL = try RecordingFileStore.makeRecordingURL(prefix: "screen", directoryPath: directoryPath)
-        let content = try await SCShareableContent.current
-        guard let display = display(in: content, matching: region) else {
-            throw CaptureServiceError.noDisplay
-        }
-
-        let excludedWindows = includeAppWindows ? [] : content.windows.filter { window in
-            window.owningApplication?.processID == getpid()
-        }
-        let filter = SCContentFilter(display: display, excludingWindows: excludedWindows)
-        let configuration = SCStreamConfiguration()
-        let sourceRect = sourceRect(for: region, display: display)
-        if sourceRect != .zero {
-            configuration.sourceRect = sourceRect
-        }
-        let outputSize = outputSize(for: region, display: display)
-        configuration.width = max(80, Int(outputSize.width.rounded()))
-        configuration.height = max(80, Int(outputSize.height.rounded()))
-        configuration.minimumFrameInterval = CMTime(value: 1, timescale: 30)
-        configuration.queueDepth = 8
-        configuration.showsCursor = true
-        configuration.showMouseClicks = true
-        configuration.capturesAudio = true
-        configuration.excludesCurrentProcessAudio = false
-        let captureMicrophoneInScreenRecording = microphoneEnabled && !microphoneNoiseReductionEnabled
-        configuration.captureMicrophone = captureMicrophoneInScreenRecording
-        configuration.microphoneCaptureDeviceID = captureMicrophoneInScreenRecording ? AVCaptureDevice.default(for: .audio)?.uniqueID : nil
-
-        let recordingConfiguration = SCRecordingOutputConfiguration()
-        recordingConfiguration.outputURL = outputURL
-        recordingConfiguration.outputFileType = .mov
-        recordingConfiguration.videoCodecType = .hevc
-
-        let recordingOutput = SCRecordingOutput(configuration: recordingConfiguration, delegate: delegateProxy)
-        let stream = SCStream(filter: filter, configuration: configuration, delegate: delegateProxy)
+        var createdStream: SCStream?
         do {
-            try stream.addStreamOutput(frameOutput, type: .screen, sampleHandlerQueue: frameOutputQueue)
-        } catch {
-            logger.warning("Live zoom frame output could not be attached: \(error.localizedDescription, privacy: .public)")
-        }
-        try stream.addRecordingOutput(recordingOutput)
+            let content = try await SCShareableContent.current
+            guard let display = display(in: content, matching: region) else {
+                throw CaptureServiceError.noDisplay
+            }
 
-        self.stream = stream
-        self.recordingOutput = recordingOutput
-        frameOutput.reset()
-        try await stream.startCapture()
-        isRecording = true
-        lastErrorMessage = nil
-        return outputURL
+            let excludedWindows = includeAppWindows ? [] : content.windows.filter { window in
+                window.owningApplication?.processID == getpid()
+            }
+            let filter = SCContentFilter(display: display, excludingWindows: excludedWindows)
+            let configuration = SCStreamConfiguration()
+            let sourceRect = sourceRect(for: region, display: display)
+            if sourceRect != .zero {
+                configuration.sourceRect = sourceRect
+            }
+            let outputSize = outputSize(for: region, display: display)
+            configuration.width = max(80, Int(outputSize.width.rounded()))
+            configuration.height = max(80, Int(outputSize.height.rounded()))
+            configuration.minimumFrameInterval = CMTime(value: 1, timescale: 30)
+            configuration.queueDepth = 8
+            configuration.showsCursor = true
+            configuration.showMouseClicks = true
+            configuration.capturesAudio = true
+            configuration.excludesCurrentProcessAudio = false
+            let captureMicrophoneInScreenRecording = microphoneEnabled && !microphoneNoiseReductionEnabled
+            configuration.captureMicrophone = captureMicrophoneInScreenRecording
+            configuration.microphoneCaptureDeviceID = captureMicrophoneInScreenRecording ? AVCaptureDevice.default(for: .audio)?.uniqueID : nil
+
+            let recordingConfiguration = SCRecordingOutputConfiguration()
+            recordingConfiguration.outputURL = outputURL
+            recordingConfiguration.outputFileType = .mov
+            recordingConfiguration.videoCodecType = .hevc
+
+            let recordingOutput = SCRecordingOutput(configuration: recordingConfiguration, delegate: delegateProxy)
+            let stream = SCStream(filter: filter, configuration: configuration, delegate: delegateProxy)
+            createdStream = stream
+            do {
+                try stream.addStreamOutput(frameOutput, type: .screen, sampleHandlerQueue: frameOutputQueue)
+            } catch {
+                logger.warning("Live zoom frame output could not be attached: \(error.localizedDescription, privacy: .public)")
+            }
+            try stream.addRecordingOutput(recordingOutput)
+
+            self.stream = stream
+            self.recordingOutput = recordingOutput
+            frameOutput.reset()
+            try await stream.startCapture()
+            isRecording = true
+            lastErrorMessage = nil
+            return outputURL
+        } catch {
+            await cleanupAfterFailedStart(stream: createdStream, outputURL: outputURL)
+            lastErrorMessage = error.localizedDescription
+            throw error
+        }
     }
 
     private func display(in content: SCShareableContent, matching region: RecordingRegion?) -> SCDisplay? {
@@ -165,6 +173,18 @@ final class CaptureService: NSObject, ObservableObject {
 
     func latestScreenFrame() -> CGImage? {
         frameOutput.latestImage()
+    }
+
+    private func cleanupAfterFailedStart(stream: SCStream?, outputURL: URL) async {
+        isRecording = false
+        if let stream {
+            try? await stream.stopCapture()
+        }
+        self.stream = nil
+        recordingOutput = nil
+        frameOutput.reset()
+        stopContinuation = nil
+        try? FileManager.default.removeItem(at: outputURL)
     }
 
     fileprivate func handleFailure(_ error: Error) {
