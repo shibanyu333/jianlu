@@ -418,6 +418,9 @@ expect(contentViewSource.contains("正在启动"), "main recording button labels
 expect(contentViewSource.contains(".disabled(appState.isStartingRecording)"), "main camera toggle is disabled while recording startup is in progress")
 expect(contentViewSource.contains("输入监控"), "permission UI names Input Monitoring for zoom hotkeys")
 expect(!contentViewSource.contains("keyboard.badge.exclamationmark"), "permission UI avoids unavailable SF Symbols that prevent the main window from rendering")
+expect(contentViewSource.contains("let isSelected = project.id == appState.selectedProject?.id"), "recent recordings mark the currently edited project")
+expect(contentViewSource.contains("当前剪辑"), "recent recordings clearly label the current project")
+expect(contentViewSource.contains("isSelected ? Color.accentColor.opacity(0.18)"), "recent recordings visually highlight the current project")
 
 let editorViewURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/EditorView.swift")
 let editorViewSource = (try? String(contentsOf: editorViewURL, encoding: .utf8)) ?? ""

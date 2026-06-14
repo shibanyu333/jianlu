@@ -307,19 +307,26 @@ private struct RecentProjectsView: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(projects.prefix(3)) { project in
+                    let isSelected = project.id == appState.selectedProject?.id
                     Button {
                         appState.selectProject(project.id)
                     } label: {
                         HStack {
-                            Image(systemName: "movieclapper")
+                            Image(systemName: isSelected ? "checkmark.circle.fill" : "movieclapper")
                                 .foregroundStyle(.tint)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(project.screenRecordingURL.lastPathComponent)
                                     .font(.callout.weight(.medium))
                                     .lineLimit(1)
-                                Text("时长 \(Int(project.duration.rounded())) 秒")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                HStack(spacing: 8) {
+                                    Text("时长 \(Int(project.duration.rounded())) 秒")
+                                    if isSelected {
+                                        Text("当前剪辑")
+                                            .foregroundStyle(.tint)
+                                    }
+                                }
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                             }
                             Spacer()
                         }
@@ -327,6 +334,7 @@ private struct RecentProjectsView: View {
                     }
                     .buttonStyle(.plain)
                     .padding(10)
+                    .background(isSelected ? Color.accentColor.opacity(0.18) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
                 }
             }
