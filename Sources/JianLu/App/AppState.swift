@@ -670,7 +670,10 @@ final class AppState: ObservableObject {
             guard let self else { return }
             do {
                 let outputURL = try await previewExportService.export(project: project, prefix: "preview")
-                guard !Task.isCancelled else { return }
+                if Task.isCancelled {
+                    deleteGeneratedPreviewIfNeeded(outputURL)
+                    return
+                }
                 renderedPreviewURLs[project.id] = outputURL
                 renderedPreviewMessages[project.id] = "效果预览已生成，下面播放的是合成后的画面。"
                 renderedPreviewTasks[project.id] = nil

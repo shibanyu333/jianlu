@@ -156,6 +156,7 @@ expectOrder(
     in: appStateSource,
     "stale preview files are deleted before dropping their URL"
 )
+expect(appStateSource.contains("if Task.isCancelled {\n                    deleteGeneratedPreviewIfNeeded(outputURL)\n                    return\n                }"), "cancelled preview tasks delete a completed but unused preview file")
 expectOrder(
     "microphoneCaptureService.startRecording(preferences: preferences)",
     before: "captureService.startDisplayRecording",
