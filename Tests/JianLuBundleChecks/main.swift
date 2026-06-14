@@ -130,6 +130,8 @@ let regionSelectionSourceURL = projectRoot.appendingPathComponent("Sources/JianL
 let regionSelectionSource = (try? String(contentsOf: regionSelectionSourceURL, encoding: .utf8)) ?? ""
 expect(regionSelectionSource.contains("@Published var isStarting"), "region selection exposes a starting state for duplicate click prevention")
 expect(regionSelectionSource.contains("guard canStart, !isStarting else { return }"), "region selection confirms only once while recording starts")
+expect(regionSelectionSource.contains("Self.clamped("), "region selection clamps restored regions to the current screen")
+expect(regionSelectionSource.contains("private static func clamped"), "region selection has a static clamp helper usable during initialization")
 
 let regionSelectionControllerURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/CaptureRegionSelectionWindowController.swift")
 let regionSelectionController = (try? String(contentsOf: regionSelectionControllerURL, encoding: .utf8)) ?? ""

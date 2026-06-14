@@ -28,11 +28,14 @@ final class CaptureRegionSelectionModel: ObservableObject {
         self.onCancel = onCancel
 
         if let initialRegion, initialRegion.isUsable {
-            selectionRect = CGRect(
-                x: initialRegion.x,
-                y: initialRegion.y,
-                width: initialRegion.width,
-                height: initialRegion.height
+            selectionRect = Self.clamped(
+                CGRect(
+                    x: initialRegion.x,
+                    y: initialRegion.y,
+                    width: initialRegion.width,
+                    height: initialRegion.height
+                ),
+                screenSize: screenSize
             )
         } else {
             let width = min(960, screenSize.width * 0.72)
@@ -83,6 +86,10 @@ final class CaptureRegionSelectionModel: ObservableObject {
     }
 
     private func clamped(_ rect: CGRect) -> CGRect {
+        Self.clamped(rect, screenSize: screenSize)
+    }
+
+    private static func clamped(_ rect: CGRect, screenSize: CGSize) -> CGRect {
         let width = min(max(1, rect.width), screenSize.width)
         let height = min(max(1, rect.height), screenSize.height)
         let x = min(max(0, rect.minX), max(0, screenSize.width - width))
