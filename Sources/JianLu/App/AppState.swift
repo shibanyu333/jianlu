@@ -66,7 +66,7 @@ final class AppState: ObservableObject {
         )
         statusBarController = StatusBarController(appState: self)
         if let firstProject = recentProjects.first {
-            refreshRenderedPreview(for: firstProject)
+            ensureRenderedPreview(for: firstProject)
         }
     }
 
@@ -507,6 +507,9 @@ final class AppState: ObservableObject {
 
     func selectProject(_ id: UUID) {
         selectedProjectID = id
+        if let project = recentProjects.first(where: { $0.id == id }) {
+            ensureRenderedPreview(for: project)
+        }
     }
 
     func splitProject(_ id: UUID, atExportRatio ratio: Double) {
@@ -608,11 +611,25 @@ final class AppState: ObservableObject {
                 guard !Task.isCancelled else { return }
                 renderedPreviewURLs[project.id] = outputURL
                 renderedPreviewMessages[project.id] = "效果预览已生成，下面播放的是合成后的画面。"
+                renderedPreviewTasks[project.id] = nil
             } catch {
                 guard !Task.isCancelled else { return }
                 renderedPreviewMessages[project.id] = "效果预览生成失败：\(error.localizedDescription)。导出成片仍可手动重试。"
+                renderedPreviewTasks[project.id] = nil
             }
         }
+    }
+
+    private func ensureRenderedPreview(for project: RecordingProject) {
+        guard project.needsRenderedPreview else {
+            renderedPreviewMessages[project.id] = nil
+            return
+        }
+        guard renderedPreviewURLs[project.id] == nil,
+              renderedPreviewTasks[project.id] == nil else {
+            return
+        }
+        refreshRenderedPreview(for: project)
     }
 
     private static func loadPreferences() -> RecordingPreferences {
