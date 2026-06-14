@@ -28,6 +28,11 @@ private func runTimelineChecks() {
     expect(timeline.exportTime(forSourceTime: 4) == 4, "maps kept source time into export time")
     expect(timeline.exportTime(forSourceTime: 7) == nil, "deleted source time is not exportable")
 
+    let onlySegmentID = timeline.segments[0].id
+    expect(!timeline.deleteSegment(id: onlySegmentID), "timeline refuses to delete the final remaining segment")
+    expect(timeline.segments.count == 1, "timeline keeps one segment after refusing final deletion")
+    expect(timeline.totalExportDuration == 5, "timeline duration is unchanged after refused final deletion")
+
     let cameraLayout = CameraLayoutEvent(
         time: 3,
         frame: NormalizedRect(x: 0.72, y: 0.62, width: 0.22, height: 0.22),

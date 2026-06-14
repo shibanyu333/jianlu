@@ -80,7 +80,8 @@ public struct EditTimeline: Codable, Equatable, Sendable {
 
     @discardableResult
     public mutating func deleteSegment(id: UUID) -> Bool {
-        guard let index = segments.firstIndex(where: { $0.id == id }) else {
+        guard segments.count > 1,
+              let index = segments.firstIndex(where: { $0.id == id }) else {
             return false
         }
         segments.remove(at: index)
