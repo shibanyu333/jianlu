@@ -14,10 +14,12 @@ public struct NormalizedRect: Codable, Equatable, Hashable, Sendable {
     }
 
     public static let defaultCameraFrame = NormalizedRect(x: 0.74, y: 0.64, width: 0.22, height: 0.22)
+    public static let minCameraFrameSize = 0.08
+    public static let maxCameraFrameSize = 0.45
 
     public var clampedCameraFrame: NormalizedRect {
-        let minSize = 0.08
-        let maxSize = 0.45
+        let minSize = Self.minCameraFrameSize
+        let maxSize = Self.maxCameraFrameSize
         let clampedWidth = min(maxSize, max(minSize, width))
         let clampedHeight = min(maxSize, max(minSize, height))
         return NormalizedRect(
@@ -26,6 +28,18 @@ public struct NormalizedRect: Codable, Equatable, Hashable, Sendable {
             width: clampedWidth,
             height: clampedHeight
         )
+    }
+
+    public func resizedCameraFrame(size: Double) -> NormalizedRect {
+        let clampedSize = min(Self.maxCameraFrameSize, max(Self.minCameraFrameSize, size))
+        let centerX = x + width / 2
+        let centerY = y + height / 2
+        return NormalizedRect(
+            x: centerX - clampedSize / 2,
+            y: centerY - clampedSize / 2,
+            width: clampedSize,
+            height: clampedSize
+        ).clampedCameraFrame
     }
 }
 

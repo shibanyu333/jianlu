@@ -15,7 +15,10 @@ let package = Package(
     targets: [
         .target(
             name: "JianLuCore",
-            path: "Sources/JianLuCore"
+            path: "Sources/JianLuCore",
+            resources: [
+                .process("Resources")
+            ]
         ),
         .executableTarget(
             name: "JianLu",

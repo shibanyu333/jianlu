@@ -1,10 +1,9 @@
-import AVFoundation
 import JianLuCore
 import SwiftUI
 
 struct RecordingOverlayView: View {
     @ObservedObject var overlay: OverlayService
-    let cameraSession: AVCaptureSession
+    @ObservedObject var cameraService: CameraCaptureService
 
     var body: some View {
         GeometryReader { geometry in
@@ -16,11 +15,12 @@ struct RecordingOverlayView: View {
                 }
 
                 AnnotationCanvasView(overlay: overlay, captureRect: captureRect)
+                    .frame(width: geometry.size.width, height: geometry.size.height)
 
                 if overlay.cameraVisible {
                     CameraBubbleView(
                         overlay: overlay,
-                        cameraSession: cameraSession,
+                        cameraService: cameraService,
                         captureRect: captureRect
                     )
                 }
@@ -37,10 +37,14 @@ private struct LiveZoomViewportView: View {
     var body: some View {
         let captureSize = captureRect.size
         let geometry = ZoomLensGeometry(lensSize: captureSize)
-        let imageFrame = geometry.zoomedImageFrame(
+        let imageFrame = geometry.zoomedRegionImageFrame(
             captureSize: captureSize,
             focus: overlay.currentZoomFocus,
             magnification: overlay.zoomMagnification
+        )
+        let focusPoint = geometry.focusPoint(
+            in: CGRect(origin: .zero, size: captureSize),
+            focus: overlay.currentZoomFocus
         )
 
         ZStack(alignment: .topLeading) {
@@ -64,8 +68,8 @@ private struct LiveZoomViewportView: View {
             FocusMarker()
                 .frame(width: 34, height: 34)
                 .position(
-                    x: captureSize.width / 2,
-                    y: captureSize.height / 2
+                    x: focusPoint.x,
+                    y: focusPoint.y
                 )
         }
         .frame(width: captureRect.width, height: captureRect.height)
@@ -90,6 +94,9 @@ private struct LiveZoomViewportView: View {
         .shadow(color: .black.opacity(0.28), radius: 18, y: 7)
         .allowsHitTesting(false)
         .transition(.opacity)
+        .transaction { transaction in
+            transaction.animation = nil
+        }
     }
 }
 
@@ -114,7 +121,7 @@ private struct FocusMarker: View {
 
 private struct CameraBubbleView: View {
     @ObservedObject var overlay: OverlayService
-    let cameraSession: AVCaptureSession
+    @ObservedObject var cameraService: CameraCaptureService
     let captureRect: CGRect
 
     @State private var dragStartFrame: NormalizedRect?
@@ -129,7 +136,10 @@ private struct CameraBubbleView: View {
         )
 
         ZStack(alignment: .bottomTrailing) {
-            CameraPreviewView(session: cameraSession)
+            CameraPreviewView(
+                session: cameraService.previewSession,
+                processedImage: cameraService.processedPreviewImage
+            )
                 .clipShape(CameraFrameClipShape(shape: overlay.cameraShape))
                 .overlay {
                     CameraFrameClipShape(shape: overlay.cameraShape)

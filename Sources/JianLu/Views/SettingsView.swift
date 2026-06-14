@@ -35,6 +35,18 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.segmented)
 
+                HStack {
+                    Text("默认头像大小")
+                    Slider(
+                        value: cameraSizeBinding,
+                        in: NormalizedRect.minCameraFrameSize...NormalizedRect.maxCameraFrameSize
+                    )
+                    Text("\(Int(appState.preferences.cameraFrame.width * 100))%")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                        .frame(width: 44, alignment: .trailing)
+                }
+
                 Picker("头像框背景", selection: $appState.preferences.cameraBackgroundStyle) {
                     ForEach(CameraBackgroundStyle.allCases, id: \.self) { style in
                         Text(style.displayName).tag(style)
@@ -74,6 +86,17 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .padding(20)
         .frame(width: 560, height: 500)
+    }
+
+    private var cameraSizeBinding: Binding<Double> {
+        Binding(
+            get: {
+                appState.preferences.cameraFrame.width
+            },
+            set: { size in
+                appState.updateDefaultCameraSize(size)
+            }
+        )
     }
 }
 

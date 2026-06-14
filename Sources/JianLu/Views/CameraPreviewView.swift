@@ -2,7 +2,26 @@ import AVFoundation
 import AppKit
 import SwiftUI
 
-struct CameraPreviewView: NSViewRepresentable {
+struct CameraPreviewView: View {
+    let session: AVCaptureSession
+    let processedImage: CGImage?
+
+    var body: some View {
+        ZStack {
+            CameraPreviewLayerView(session: session)
+
+            if let processedImage {
+                Image(decorative: processedImage, scale: 1, orientation: .up)
+                    .resizable()
+                    .scaledToFill()
+                    .transition(.opacity)
+            }
+        }
+        .clipped()
+    }
+}
+
+private struct CameraPreviewLayerView: NSViewRepresentable {
     let session: AVCaptureSession
 
     func makeNSView(context: Context) -> CameraPreviewNSView {

@@ -16,6 +16,8 @@ public final class CameraShapeVideoCompositionInstruction: NSObject, AVVideoComp
     public let cameraTrackID: CMPersistentTrackID?
     public let renderSize: CGSize
     public let zoomStates: [ZoomEvent]
+    public let zoomRegions: [ExportZoomRegion]
+    public let annotationEvents: [EffectEvent]
     public let cameraStates: [CameraLayoutEvent]
 
     public init(
@@ -24,14 +26,26 @@ public final class CameraShapeVideoCompositionInstruction: NSObject, AVVideoComp
         cameraTrackID: CMPersistentTrackID?,
         renderSize: CGSize,
         zoomStates: [ZoomEvent],
+        annotationEvents: [EffectEvent] = [],
         cameraStates: [CameraLayoutEvent]
     ) {
         self.timeRange = timeRange
         self.screenTrackID = screenTrackID
         self.cameraTrackID = cameraTrackID
         self.renderSize = renderSize
-        self.zoomStates = zoomStates
-        self.cameraStates = cameraStates
+        let sortedZoomStates = zoomStates.sorted { $0.time < $1.time }
+        self.zoomStates = sortedZoomStates
+        self.zoomRegions = ExportZoomTimeline.regions(
+            from: sortedZoomStates,
+            duration: CMTimeGetSeconds(timeRange.duration)
+        )
+        self.annotationEvents = annotationEvents.enumerated().sorted { lhs, rhs in
+            if abs(lhs.element.time - rhs.element.time) > 0.000001 {
+                return lhs.element.time < rhs.element.time
+            }
+            return lhs.offset < rhs.offset
+        }.map(\.element)
+        self.cameraStates = cameraStates.sorted { $0.time < $1.time }
 
         var trackIDs: [NSValue] = [NSNumber(value: screenTrackID)]
         if let cameraTrackID {
@@ -86,17 +100,12 @@ public final class CameraShapeVideoCompositor: NSObject, AVVideoCompositing {
             }
 
             let renderRect = CGRect(origin: .zero, size: instruction.renderSize)
+            let compositionTime = CMTimeGetSeconds(request.compositionTime)
             var image = normalizedImage(from: screenBuffer, renderSize: instruction.renderSize)
-            image = zoomedScreenImage(
-                image,
-                at: CMTimeGetSeconds(request.compositionTime),
-                states: instruction.zoomStates,
-                renderSize: instruction.renderSize
-            )
 
             if let cameraTrackID = instruction.cameraTrackID,
                let cameraBuffer = request.sourceFrame(byTrackID: cameraTrackID),
-               let cameraState = state(at: CMTimeGetSeconds(request.compositionTime), in: instruction.cameraStates),
+               let cameraState = state(at: compositionTime, in: instruction.cameraStates),
                cameraState.isVisible {
                 let cameraImage = normalizedImage(from: cameraBuffer)
                 image = compositeCamera(
@@ -106,6 +115,20 @@ public final class CameraShapeVideoCompositor: NSObject, AVVideoCompositing {
                     renderSize: instruction.renderSize
                 )
             }
+
+            image = compositeAnnotations(
+                over: image,
+                at: compositionTime,
+                events: instruction.annotationEvents,
+                renderSize: instruction.renderSize
+            )
+            image = zoomedImage(
+                image,
+                at: compositionTime,
+                states: instruction.zoomStates,
+                regions: instruction.zoomRegions,
+                renderSize: instruction.renderSize
+            )
 
             ciContext.render(
                 image.cropped(to: renderRect),
@@ -135,31 +158,194 @@ public final class CameraShapeVideoCompositor: NSObject, AVVideoCompositing {
             .cropped(to: CGRect(origin: .zero, size: renderSize))
     }
 
-    private func zoomedScreenImage(
+    private func zoomedImage(
         _ image: CIImage,
         at time: TimeInterval,
         states: [ZoomEvent],
+        regions: [ExportZoomRegion],
         renderSize: CGSize
     ) -> CIImage {
-        let state = interpolatedZoomState(at: time, in: states)
-        let scale = CGFloat(min(max(state.magnification, 1), 3))
-        guard scale > 1.001 else {
+        let renderRect = CGRect(origin: .zero, size: renderSize)
+        let effect = ExportZoomTimeline.activeEffect(regions: regions, states: states, at: time)
+        let transform = ExportZoomTimeline.transform(for: effect, in: renderRect, flipsY: true)
+        guard transform != .identity else {
             return image
         }
 
-        let focusX = CGFloat(state.focus.x) * renderSize.width
-        let focusY = (1 - CGFloat(state.focus.y)) * renderSize.height
-        let transform = CGAffineTransform(
-            a: scale,
-            b: 0,
-            c: 0,
-            d: scale,
-            tx: renderSize.width / 2 - focusX * scale,
-            ty: renderSize.height / 2 - focusY * scale
-        )
         return image
             .transformed(by: transform)
-            .cropped(to: CGRect(origin: .zero, size: renderSize))
+            .cropped(to: renderRect)
+    }
+
+    private func compositeAnnotations(
+        over baseImage: CIImage,
+        at time: TimeInterval,
+        events: [EffectEvent],
+        renderSize: CGSize
+    ) -> CIImage {
+        guard !events.isEmpty,
+              let overlay = annotationOverlayImage(at: time, events: events, renderSize: renderSize) else {
+            return baseImage
+        }
+
+        return overlay.composited(over: baseImage)
+    }
+
+    private func annotationOverlayImage(
+        at time: TimeInterval,
+        events: [EffectEvent],
+        renderSize: CGSize
+    ) -> CIImage? {
+        let annotations = activeAnnotations(at: time, events: events)
+        guard !annotations.isEmpty else { return nil }
+
+        let width = max(1, Int(renderSize.width.rounded(.up)))
+        let height = max(1, Int(renderSize.height.rounded(.up)))
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return nil
+        }
+
+        context.clear(CGRect(x: 0, y: 0, width: width, height: height))
+        context.scaleBy(
+            x: CGFloat(width) / max(1, renderSize.width),
+            y: CGFloat(height) / max(1, renderSize.height)
+        )
+        context.translateBy(x: 0, y: renderSize.height)
+        context.scaleBy(x: 1, y: -1)
+
+        for annotation in annotations {
+            draw(annotation, in: context, renderSize: renderSize)
+        }
+
+        guard let image = context.makeImage() else { return nil }
+        return CIImage(cgImage: image).cropped(to: CGRect(origin: .zero, size: renderSize))
+    }
+
+    private func activeAnnotations(at time: TimeInterval, events: [EffectEvent]) -> [AnnotationEvent] {
+        let eventCutoff = time + 0.0001
+        var activeByID: [UUID: AnnotationEvent] = [:]
+        var order: [UUID] = []
+
+        for event in events {
+            guard event.time <= eventCutoff else { break }
+            switch event {
+            case .annotation(let annotation):
+                if activeByID[annotation.id] == nil {
+                    order.append(annotation.id)
+                }
+                activeByID[annotation.id] = annotation
+            case .annotationClear:
+                activeByID.removeAll()
+                order.removeAll()
+            case .cameraLayout, .zoom:
+                break
+            }
+        }
+
+        return order.compactMap { activeByID[$0] }
+    }
+
+    private func draw(_ annotation: AnnotationEvent, in context: CGContext, renderSize: CGSize) {
+        let points = annotation.points.map {
+            CGPoint(
+                x: CGFloat($0.point.x) * renderSize.width,
+                y: CGFloat($0.point.y) * renderSize.height
+            )
+        }
+        guard let first = points.first else { return }
+
+        let path = CGMutablePath()
+        path.move(to: first)
+
+        switch annotation.tool {
+        case .rectangle, .ellipse:
+            guard let last = points.last else { return }
+            let rect = CGRect(
+                x: min(first.x, last.x),
+                y: min(first.y, last.y),
+                width: abs(last.x - first.x),
+                height: abs(last.y - first.y)
+            )
+            if annotation.tool == .ellipse {
+                path.addEllipse(in: rect)
+            } else {
+                path.addRoundedRect(in: rect, cornerWidth: 4, cornerHeight: 4)
+            }
+        case .line, .arrow:
+            guard let last = points.last else { return }
+            path.addLine(to: last)
+            if annotation.tool == .arrow {
+                addArrowHead(to: path, from: points.dropLast().last ?? first, to: last)
+            }
+        case .pen, .highlight:
+            for point in points.dropFirst() {
+                path.addLine(to: point)
+            }
+        }
+
+        context.setStrokeColor(annotationColor(for: annotation))
+        context.setLineWidth(CGFloat(annotation.lineWidth))
+        context.setLineCap(.round)
+        context.setLineJoin(.round)
+        context.addPath(path)
+        context.strokePath()
+    }
+
+    private func addArrowHead(to path: CGMutablePath, from start: CGPoint, to end: CGPoint) {
+        let angle = atan2(end.y - start.y, end.x - start.x)
+        let length: CGFloat = 18
+        let spread: CGFloat = .pi / 7
+        path.move(to: end)
+        path.addLine(to: CGPoint(x: end.x - length * cos(angle - spread), y: end.y - length * sin(angle - spread)))
+        path.move(to: end)
+        path.addLine(to: CGPoint(x: end.x - length * cos(angle + spread), y: end.y - length * sin(angle + spread)))
+    }
+
+    private func annotationColor(for annotation: AnnotationEvent) -> CGColor {
+        let trimmed = annotation.colorHex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+        var value: UInt64 = 0
+        guard Scanner(string: trimmed).scanHexInt64(&value) else {
+            return defaultAnnotationColor(for: annotation.tool)
+        }
+
+        let red: CGFloat
+        let green: CGFloat
+        let blue: CGFloat
+        let alpha: CGFloat
+        switch trimmed.count {
+        case 6:
+            red = CGFloat((value >> 16) & 0xFF) / 255
+            green = CGFloat((value >> 8) & 0xFF) / 255
+            blue = CGFloat(value & 0xFF) / 255
+            alpha = annotation.tool == .highlight ? 0.55 : 1
+        case 8:
+            red = CGFloat((value >> 24) & 0xFF) / 255
+            green = CGFloat((value >> 16) & 0xFF) / 255
+            blue = CGFloat((value >> 8) & 0xFF) / 255
+            let parsedAlpha = CGFloat(value & 0xFF) / 255
+            alpha = annotation.tool == .highlight ? min(parsedAlpha, 0.55) : parsedAlpha
+        default:
+            return defaultAnnotationColor(for: annotation.tool)
+        }
+
+        return CGColor(red: red, green: green, blue: blue, alpha: alpha)
+    }
+
+    private func defaultAnnotationColor(for tool: AnnotationTool) -> CGColor {
+        switch tool {
+        case .highlight:
+            return CGColor(red: 1.0, green: 0.83, blue: 0.23, alpha: 0.55)
+        case .pen, .line, .arrow, .rectangle, .ellipse:
+            return CGColor(red: 1.0, green: 0.23, blue: 0.19, alpha: 1)
+        }
     }
 
     private func compositeCamera(
@@ -248,39 +434,6 @@ public final class CameraShapeVideoCompositor: NSObject, AVVideoCompositing {
             width: renderSize.width * frame.width,
             height: renderSize.height * frame.height
         )
-    }
-
-    private func interpolatedZoomState(at time: TimeInterval, in states: [ZoomEvent]) -> ZoomEvent {
-        let sortedStates = states.sorted { $0.time < $1.time }
-        guard var previous = sortedStates.first else {
-            return ZoomEvent(
-                time: 0,
-                magnification: 1,
-                focus: NormalizedPoint(x: 0.5, y: 0.5)
-            )
-        }
-
-        guard time > previous.time else {
-            return previous
-        }
-
-        for state in sortedStates.dropFirst() {
-            if time <= state.time {
-                let duration = max(0.001, state.time - previous.time)
-                let progress = min(max((time - previous.time) / duration, 0), 1)
-                return ZoomEvent(
-                    time: time,
-                    magnification: previous.magnification + (state.magnification - previous.magnification) * progress,
-                    focus: NormalizedPoint(
-                        x: previous.focus.x + (state.focus.x - previous.focus.x) * progress,
-                        y: previous.focus.y + (state.focus.y - previous.focus.y) * progress
-                    )
-                )
-            }
-            previous = state
-        }
-
-        return previous
     }
 
     private func state(at time: TimeInterval, in states: [CameraLayoutEvent]) -> CameraLayoutEvent? {

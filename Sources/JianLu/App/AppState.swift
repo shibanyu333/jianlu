@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import Foundation
 import JianLuCore
 
@@ -37,6 +38,7 @@ final class AppState: ObservableObject {
     @Published var preferences: RecordingPreferences = AppState.loadPreferences() {
         didSet {
             AppState.savePreferences(preferences)
+            syncCameraPreferences(preferences)
         }
     }
 
@@ -65,6 +67,7 @@ final class AppState: ObservableObject {
 
     init() {
         cameraEnabled = preferences.cameraEnabled
+        cameraCaptureService.updatePreviewPreferences(preferences)
         overlayService.cameraFrame = preferences.cameraFrame
         overlayService.cameraShape = preferences.cameraShape
         selectedProjectID = recentProjects.first?.id
@@ -155,6 +158,29 @@ final class AppState: ObservableObject {
         guard preferences.cameraFrame != frame || preferences.cameraShape != shape else { return }
         preferences.cameraFrame = frame
         preferences.cameraShape = shape
+    }
+
+    func updateDefaultCameraSize(_ size: Double) {
+        let frame = preferences.cameraFrame.resizedCameraFrame(size: size)
+        guard preferences.cameraFrame != frame else { return }
+        preferences.cameraFrame = frame
+    }
+
+    private func syncCameraPreferences(_ preferences: RecordingPreferences) {
+        overlayService.setCameraLayout(frame: preferences.cameraFrame, shape: preferences.cameraShape)
+        syncCameraProcessingPreferences(preferences)
+    }
+
+    private func syncCameraProcessingPreferences(_ preferences: RecordingPreferences) {
+        cameraCaptureService.updatePreviewPreferences(preferences)
+        guard cameraCaptureService.hasActiveRecording else { return }
+
+        cameraCaptureService.updateRecordingPreferences(preferences)
+        guard var activeRecordingPreferences else { return }
+        activeRecordingPreferences.cameraBackgroundStyle = preferences.cameraBackgroundStyle
+        activeRecordingPreferences.cameraBackgroundBlur = preferences.cameraBackgroundBlur
+        activeRecordingPreferences.cameraBeautyLevel = preferences.cameraBeautyLevel
+        self.activeRecordingPreferences = activeRecordingPreferences
     }
 
     func requestPermissions() {
@@ -331,11 +357,10 @@ final class AppState: ObservableObject {
             }
 
             activeRecordingPreferences = actualRecordingPreferences
-            overlayService.cameraFrame = recordingPreferences.cameraFrame
-            overlayService.cameraShape = recordingPreferences.cameraShape
+            overlayService.setCameraLayout(frame: recordingPreferences.cameraFrame, shape: recordingPreferences.cameraShape)
 
             overlayService.beginRecording(
-                cameraSession: cameraCaptureService.previewSession,
+                cameraService: cameraCaptureService,
                 cameraEnabled: cameraEnabledForRecording,
                 recordingRegion: region,
                 screenFrameProvider: { [weak self] in
@@ -439,7 +464,9 @@ final class AppState: ObservableObject {
             }
 
             if let screenURL = activeScreenRecordingURL {
-                let duration = max(0.1, Date().timeIntervalSince(recordingStartedAt ?? Date()))
+                let measuredDuration = await videoDuration(for: screenURL)
+                let fallbackDuration = Date().timeIntervalSince(recordingStartedAt ?? Date())
+                let duration = max(0.1, measuredDuration ?? fallbackDuration)
                 let timeline = timelineExcludingPausedRanges(duration: duration)
                 if timeline.segments.isEmpty {
                     noExportableSegmentMessage = "录制内容全部处于暂停状态，未生成剪辑项目。原始录屏已保存：\(screenURL.path)"
@@ -578,6 +605,16 @@ final class AppState: ObservableObject {
         )
     }
 
+    private func videoDuration(for url: URL) async -> TimeInterval? {
+        let asset = AVURLAsset(url: url)
+        guard let duration = try? await asset.load(.duration).seconds,
+              duration.isFinite,
+              duration > 0 else {
+            return nil
+        }
+        return duration
+    }
+
     private func deleteUnusedSidecarRecordings() {
         if let activeCameraRecordingURL {
             try? FileManager.default.removeItem(at: activeCameraRecordingURL)
@@ -596,7 +633,7 @@ final class AppState: ObservableObject {
                 return
             }
             overlayService.beginHoldZoom()
-            statusMessage = "按住缩放：以鼠标位置放大"
+            statusMessage = "按住缩放：可直接放大，也可按住后点击鼠标触发"
         case .endHoldZoom:
             guard isRecording else { return }
             overlayService.endHoldZoom()

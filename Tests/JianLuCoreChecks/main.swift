@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import CoreImage
 @preconcurrency import AVFoundation
 import QuartzCore
 import JianLuCore
@@ -9,6 +10,10 @@ func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
         fputs("Check failed: \(message)\n", stderr)
         exit(1)
     }
+}
+
+func expectClose(_ lhs: Double, _ rhs: Double, _ message: String) {
+    expect(abs(lhs - rhs) < 0.0001, message)
 }
 
 @main
@@ -21,6 +26,7 @@ struct JianLuCoreChecks {
         runPermissionGateChecks()
         runPreferenceChecks()
         runZoomLensGeometryChecks()
+        runCameraFrameProcessorChecks()
 
         do {
             try await runVideoCompositorChecks()
@@ -522,6 +528,19 @@ private func runPreferenceChecks() {
         "camera avatar frame preference is clamped to a usable visible range"
     )
 
+    expectClose(NormalizedRect.minCameraFrameSize, 0.08, "camera avatar minimum size stays usable")
+    expectClose(NormalizedRect.maxCameraFrameSize, 0.45, "camera avatar maximum size avoids covering too much screen")
+    let centeredCameraFrame = NormalizedRect(x: 0.70, y: 0.60, width: 0.20, height: 0.20)
+        .resizedCameraFrame(size: 0.32)
+    expectClose(centeredCameraFrame.width, 0.32, "camera avatar resize applies the requested square size")
+    expectClose(centeredCameraFrame.height, 0.32, "camera avatar resize keeps the avatar square")
+    expectClose(centeredCameraFrame.x + centeredCameraFrame.width / 2, 0.80, "camera avatar resize preserves center x when possible")
+    expectClose(centeredCameraFrame.y + centeredCameraFrame.height / 2, 0.70, "camera avatar resize preserves center y when possible")
+    let edgeCameraFrame = NormalizedRect(x: 0.90, y: 0.90, width: 0.20, height: 0.20)
+        .resizedCameraFrame(size: 0.32)
+    expectClose(edgeCameraFrame.x, 0.68, "camera avatar resize clamps right edge back on screen")
+    expectClose(edgeCameraFrame.y, 0.68, "camera avatar resize clamps bottom edge back on screen")
+
     let legacyPreferencesJSON = """
     {
       "includeAppInterface": true,
@@ -574,15 +593,17 @@ private func runZoomLensGeometryChecks() {
     expect(imageFrame.minX == -400, "zoom lens keeps the focus under the center horizontally")
     expect(imageFrame.minY == -500, "zoom lens keeps the focus under the center vertically")
 
-    let openscreenStyleZoom = ZoomLensGeometry(lensSize: CGSize(width: 1000, height: 500)).zoomedImageFrame(
+    let openRecorderStyleZoom = ZoomLensGeometry(lensSize: CGSize(width: 1000, height: 500)).zoomedRegionImageFrame(
         captureSize: CGSize(width: 1000, height: 500),
-        focus: NormalizedPoint(x: 0.5, y: 0.5),
+        focus: NormalizedPoint(x: 0.25, y: 0.6),
         magnification: 1.8
     )
-    expect(abs(openscreenStyleZoom.width - 1800) < 0.001, "openscreen-style zoom expands the recorded region width")
-    expect(abs(openscreenStyleZoom.height - 900) < 0.001, "openscreen-style zoom expands the recorded region height")
-    expect(abs(openscreenStyleZoom.minX + 400) < 0.001, "openscreen-style zoom pans horizontally so the focus moves to center")
-    expect(abs(openscreenStyleZoom.minY + 200) < 0.001, "openscreen-style zoom pans vertically so the focus moves to center")
+    let anchoredFocusX = openRecorderStyleZoom.minX + 0.25 * openRecorderStyleZoom.width
+    let anchoredFocusY = openRecorderStyleZoom.minY + 0.6 * openRecorderStyleZoom.height
+    expect(abs(openRecorderStyleZoom.width - 1800) < 0.001, "open-recorder-style zoom expands the recorded region width")
+    expect(abs(openRecorderStyleZoom.height - 900) < 0.001, "open-recorder-style zoom expands the recorded region height")
+    expect(abs(anchoredFocusX - 250) < 0.001, "open-recorder-style zoom keeps the focus pinned horizontally")
+    expect(abs(anchoredFocusY - 300) < 0.001, "open-recorder-style zoom keeps the focus pinned vertically")
 
     let clampedCenter = lens.clampedLensCenter(
         in: CGRect(x: 10, y: 20, width: 800, height: 400),
@@ -594,6 +615,120 @@ private func runZoomLensGeometryChecks() {
     expect(smallDiameter == 72, "zoom lens stays visible for tiny recording regions")
     let largeDiameter = ZoomLensGeometry.lensDiameter(for: CGSize(width: 1920, height: 1080))
     expect(largeDiameter == 280, "zoom lens has a stable maximum size")
+
+    let zoomRegion = ExportZoomTimeline.regions(
+        from: [
+            ZoomEvent(time: 0.2, magnification: 1.8, focus: NormalizedPoint(x: 0.02, y: 0.98)),
+            ZoomEvent(time: 1.4, magnification: 1, focus: NormalizedPoint(x: 0.02, y: 0.98))
+        ],
+        duration: 2
+    )
+    expect(zoomRegion == [
+        ExportZoomRegion(
+            start: 0.2,
+            end: 1.4,
+            depth: 1.8,
+            focus: NormalizedPoint(x: 0.08, y: 0.92)
+        )
+    ], "export zoom regions copy open-recorder's clamped focus model")
+    let earlyProgress = ExportZoomTimeline.animationProgress(for: zoomRegion[0], at: 0.3)
+    let holdProgress = ExportZoomTimeline.animationProgress(for: zoomRegion[0], at: 0.8)
+    let lateProgress = ExportZoomTimeline.animationProgress(for: zoomRegion[0], at: 1.35)
+    expect(earlyProgress > 0 && earlyProgress < 1, "export zoom ramps in instead of snapping")
+    expect(holdProgress == 1, "export zoom holds at full depth between ramps")
+    expect(lateProgress > 0 && lateProgress < 1, "export zoom ramps out smoothly")
+    let guidedFocusEffect = ExportZoomTimeline.activeEffect(
+        states: [
+            ZoomEvent(time: 0.2, magnification: 1.8, focus: NormalizedPoint(x: 0.20, y: 0.20)),
+            ZoomEvent(time: 0.8, magnification: 1.8, focus: NormalizedPoint(x: 0.88, y: 0.86)),
+            ZoomEvent(time: 1.4, magnification: 1, focus: NormalizedPoint(x: 0.88, y: 0.86))
+        ],
+        duration: 2,
+        at: 0.9
+    )
+    expect(guidedFocusEffect?.focusX == 0.88, "export zoom follows cursor focus after it leaves the safe zone")
+    expect(guidedFocusEffect?.focusY == 0.86, "export zoom follows cursor focus vertically after it leaves the safe zone")
+}
+
+private func runCameraFrameProcessorChecks() {
+    let width = 64
+    let height = 64
+    var pixelBuffer: CVPixelBuffer?
+    let attributes: [String: Any] = [
+        kCVPixelBufferCGImageCompatibilityKey as String: true,
+        kCVPixelBufferCGBitmapContextCompatibilityKey as String: true,
+        kCVPixelBufferIOSurfacePropertiesKey as String: [:]
+    ]
+    let result = CVPixelBufferCreate(
+        nil,
+        width,
+        height,
+        kCVPixelFormatType_32BGRA,
+        attributes as CFDictionary,
+        &pixelBuffer
+    )
+    expect(result == kCVReturnSuccess, "camera frame processor test creates a pixel buffer")
+    guard let pixelBuffer else {
+        expect(false, "camera frame processor test has a pixel buffer")
+        return
+    }
+    fill(pixelBuffer, width: width, height: height, color: (r: 0, g: 0, b: 0))
+
+    let processor = CameraFrameProcessor()
+    let originalPreferences = RecordingPreferences(
+        includeAppInterface: false,
+        cameraBackgroundStyle: .original,
+        cameraBackgroundBlur: .off,
+        cameraBeautyLevel: 0
+    )
+    guard let originalImage = processor.makePreviewImage(from: pixelBuffer, preferences: originalPreferences) else {
+        expect(false, "camera frame processor renders original preview image")
+        return
+    }
+    let originalPixel = pixelColor(in: originalImage, x: width / 2, y: height / 2)
+    expect(originalPixel.r < 5 && originalPixel.g < 5 && originalPixel.b < 5, "original camera processing keeps unchanged pixels")
+
+    let virtualBackgroundPreferences = RecordingPreferences(
+        includeAppInterface: false,
+        cameraBackgroundStyle: .studioBlue,
+        cameraBackgroundBlur: .off,
+        cameraBeautyLevel: 0
+    )
+    guard let processedImage = processor.makePreviewImage(from: pixelBuffer, preferences: virtualBackgroundPreferences) else {
+        expect(false, "camera frame processor renders virtual background preview image")
+        return
+    }
+    let processedPixel = pixelColor(in: processedImage, x: width / 2, y: height / 2)
+    expect(
+        processedPixel.b > processedPixel.r + 10 && processedPixel.b > 15,
+        "virtual camera background visibly changes pixels even when segmentation has no mask"
+    )
+
+    let realisticBackgroundPreferences = RecordingPreferences(
+        includeAppInterface: false,
+        cameraBackgroundStyle: .office,
+        cameraBackgroundBlur: .off,
+        cameraBeautyLevel: 0
+    )
+    guard let realisticImage = processor.makePreviewImage(from: pixelBuffer, preferences: realisticBackgroundPreferences) else {
+        expect(false, "camera frame processor renders real photo background preview image")
+        return
+    }
+    let realisticCenter = pixelColor(in: realisticImage, x: width / 2, y: height / 2)
+    let realisticCorner = pixelColor(in: realisticImage, x: width / 5, y: height / 5)
+    let maximumPhotoChannel = max(
+        realisticCenter.r,
+        realisticCenter.g,
+        realisticCenter.b,
+        realisticCorner.r,
+        realisticCorner.g,
+        realisticCorner.b
+    )
+    let photoVariation = abs(Int(realisticCenter.r) - Int(realisticCorner.r))
+        + abs(Int(realisticCenter.g) - Int(realisticCorner.g))
+        + abs(Int(realisticCenter.b) - Int(realisticCorner.b))
+    expect(maximumPhotoChannel > 15, "real photo camera backgrounds are loaded from resources")
+    expect(photoVariation > 4, "real photo camera backgrounds keep visible spatial detail")
 }
 
 private func runVideoCompositorChecks() async throws {
@@ -606,6 +741,7 @@ private func runVideoCompositorChecks() async throws {
     let cameraURL = directory.appendingPathComponent("camera.mov")
     let outputURL = directory.appendingPathComponent("composited.mov")
     let annotatedOutputURL = directory.appendingPathComponent("composited-annotated.mov")
+    let projectExportOutputURL = directory.appendingPathComponent("project-export.mov")
     try makeSolidColorMovie(url: screenURL, size: CGSize(width: 200, height: 200), color: (r: 20, g: 70, b: 220))
     try makeSolidColorMovie(url: cameraURL, size: CGSize(width: 120, height: 120), color: (r: 230, g: 40, b: 30))
     do {
@@ -639,6 +775,51 @@ private func runVideoCompositorChecks() async throws {
     let annotatedCenter = pixelColor(in: annotatedFrame, x: 100, y: 100)
     expect(annotatedCenter.g > 150 && annotatedCenter.r < 120, "camera compositor still renders annotation overlays")
 
+    let projectExport = RecordingProject(
+        screenRecordingURL: screenURL,
+        cameraRecordingURL: cameraURL,
+        sourceDuration: 0.5,
+        events: [
+            .cameraLayout(
+                CameraLayoutEvent(
+                    time: 0,
+                    frame: NormalizedRect(x: 0.25, y: 0.25, width: 0.5, height: 0.5),
+                    shape: .circle,
+                    isVisible: true
+                )
+            ),
+            .annotation(
+                AnnotationEvent(
+                    id: UUID(uuidString: "00000000-0000-0000-0000-000000000021")!,
+                    time: 0,
+                    tool: .line,
+                    points: [
+                        StrokePoint(time: 0, point: NormalizedPoint(x: 0.10, y: 0.85)),
+                        StrokePoint(time: 0, point: NormalizedPoint(x: 0.90, y: 0.85))
+                    ],
+                    colorHex: "#14E62E",
+                    lineWidth: 18
+                )
+            )
+        ],
+        timeline: .fullLength(duration: 0.5)
+    )
+    do {
+        try await exportProjectMovie(projectExport, outputURL: projectExportOutputURL)
+    } catch {
+        throw CheckError("project export failed: \(error.localizedDescription)")
+    }
+    let projectFrame: CGImage
+    do {
+        projectFrame = try await firstFrameImage(from: projectExportOutputURL)
+    } catch {
+        throw CheckError("project export frame read failed: \(error.localizedDescription)")
+    }
+    let projectCameraCenter = pixelColor(in: projectFrame, x: 100, y: 100)
+    let projectAnnotationPixel = pixelColor(in: projectFrame, x: 100, y: 170)
+    expect(projectCameraCenter.r > 170 && projectCameraCenter.g < 90, "project export keeps picture-in-picture visible in the final movie")
+    expect(projectAnnotationPixel.g > 140 && projectAnnotationPixel.r < 140, "project export renders annotations in the final movie")
+
     let zoomSourceURL = directory.appendingPathComponent("zoom-source.mov")
     let zoomOutputURL = directory.appendingPathComponent("zoomed.mov")
     do {
@@ -661,8 +842,20 @@ private func runVideoCompositorChecks() async throws {
     } catch {
         throw CheckError("custom compositor zoom-only frame read failed: \(error.localizedDescription)")
     }
-    let zoomedCenter = pixelColor(in: zoomedFrame, x: 100, y: 100)
-    expect(zoomedCenter.g > 170 && zoomedCenter.r < 90 && zoomedCenter.b < 90, "custom compositor zooms the selected screen region into the center")
+    let anchoredZoomFocus = pixelColor(in: zoomedFrame, x: 50, y: 50)
+    expect(
+        anchoredZoomFocus.g > 170 && anchoredZoomFocus.r < 90 && anchoredZoomFocus.b < 90,
+        "custom compositor keeps the zoom focus pinned under the original cursor point"
+    )
+}
+
+private func exportProjectMovie(_ project: RecordingProject, outputURL: URL) async throws {
+    let build = try await ProjectVideoCompositionBuilder.build(project: project)
+    guard let export = AVAssetExportSession(asset: build.composition, presetName: AVAssetExportPresetHighestQuality) else {
+        throw CheckError("cannot create project export session")
+    }
+    export.videoComposition = build.videoComposition
+    try await export.export(to: outputURL, as: AVFileType.mov)
 }
 
 private func makeSolidColorMovie(
@@ -859,6 +1052,21 @@ private func exportSyntheticCompositorMovie(
             cameraTrackID: compositionCameraTrackID,
             renderSize: CGSize(width: 200, height: 200),
             zoomStates: zoomStates,
+            annotationEvents: overlaysAnnotation ? [
+                .annotation(
+                    AnnotationEvent(
+                        id: UUID(uuidString: "00000000-0000-0000-0000-000000000020")!,
+                        time: 0,
+                        tool: .line,
+                        points: [
+                            StrokePoint(time: 0, point: NormalizedPoint(x: 0.38, y: 0.5)),
+                            StrokePoint(time: 0, point: NormalizedPoint(x: 0.62, y: 0.5))
+                        ],
+                        colorHex: "#14E62E",
+                        lineWidth: 24
+                    )
+                )
+            ] : [],
             cameraStates: [
                 CameraLayoutEvent(
                     time: 0,
@@ -869,9 +1077,6 @@ private func exportSyntheticCompositorMovie(
             ]
         )
     ]
-    if overlaysAnnotation {
-        videoComposition.animationTool = annotationAnimationTool(renderSize: CGSize(width: 200, height: 200))
-    }
 
     guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
         throw CheckError("cannot create synthetic export session")

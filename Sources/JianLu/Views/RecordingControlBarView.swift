@@ -1,3 +1,4 @@
+import JianLuCore
 import SwiftUI
 
 struct RecordingControlBarView: View {
@@ -42,6 +43,9 @@ struct RecordingControlBarView: View {
                     }
                     ControlBarButton(title: "箭头", symbol: "arrow.up.right", isActive: overlay.selectedTool == .arrow) {
                         overlay.selectTool(.arrow)
+                    }
+                    ControlBarButton(title: "圆形", symbol: "circle", isActive: overlay.selectedTool == .ellipse) {
+                        overlay.selectTool(.ellipse)
                     }
                     ControlBarButton(title: "清除", symbol: "trash.slash", isActive: false, isDisabled: overlay.isPaused) {
                         overlay.clearAllAnnotations()
@@ -131,9 +135,36 @@ private struct MoreControlMenu: View {
             Divider()
 
             Button {
+                overlay.adjustCameraSize(by: -0.03)
+            } label: {
+                Label("缩小头像框", systemImage: "minus.circle")
+            }
+            Button {
+                overlay.adjustCameraSize(by: 0.03)
+            } label: {
+                Label("放大头像框", systemImage: "plus.circle")
+            }
+            Text("头像大小 \(Int(overlay.cameraFrame.width * 100))%")
+
+            Divider()
+
+            ForEach(CameraFrameShape.allCases, id: \.self) { shape in
+                Button {
+                    overlay.setCameraShape(shape)
+                } label: {
+                    Label(
+                        "头像框：\(shape.displayName)",
+                        systemImage: shape.systemImageName
+                    )
+                }
+            }
+
+            Divider()
+
+            Button {
                 overlay.toggleCameraShape()
             } label: {
-                Label("头像框：\(overlay.cameraShape.displayName)", systemImage: "rectangle.on.rectangle")
+                Label("切换头像框：\(overlay.cameraShape.displayName)", systemImage: "rectangle.on.rectangle")
             }
             Button {
                 overlay.undoLastAnnotation()
@@ -152,6 +183,19 @@ private struct MoreControlMenu: View {
         .menuStyle(.button)
         .buttonStyle(.plain)
         .help("更多功能")
+    }
+}
+
+private extension CameraFrameShape {
+    var systemImageName: String {
+        switch self {
+        case .circle:
+            "circle"
+        case .square:
+            "square"
+        case .roundedSquare:
+            "app"
+        }
     }
 }
 

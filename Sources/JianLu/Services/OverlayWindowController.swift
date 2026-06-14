@@ -1,4 +1,3 @@
-import AVFoundation
 import AppKit
 import Combine
 import JianLuCore
@@ -13,7 +12,7 @@ final class OverlayWindowController {
     private var isCapturingMouseInteraction = false
     private var isClickZoomPollingActive = false
 
-    init(overlayService: OverlayService, cameraSession: AVCaptureSession) {
+    init(overlayService: OverlayService, cameraService: CameraCaptureService) {
         self.overlayService = overlayService
         let screenFrame = Self.screenFrame(for: overlayService.recordingRegion)
         panel = KeyableRecordingPanel(
@@ -32,8 +31,11 @@ final class OverlayWindowController {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.sharingType = .none
         panel.acceptsMouseMovedEvents = true
+        panel.isFloatingPanel = true
+        panel.worksWhenModal = true
+        panel.becomesKeyOnlyIfNeeded = false
         panel.contentView = NSHostingView(
-            rootView: RecordingOverlayView(overlay: overlayService, cameraSession: cameraSession)
+            rootView: RecordingOverlayView(overlay: overlayService, cameraService: cameraService)
         )
 
         let refreshPointerCapture: () -> Void = { [weak self] in
@@ -103,7 +105,7 @@ final class OverlayWindowController {
         guard let overlayService else { return }
 
         let captureRect = captureRectInScreenCoordinates()
-        let shouldZoom = overlayService.zoomClickModeEnabled
+        let shouldZoom = (overlayService.zoomClickModeEnabled || overlayService.zoomShortcutActive)
             && !overlayService.isPaused
             && leftMouseIsDown
             && captureRect.contains(cursorPoint)
@@ -122,10 +124,6 @@ final class OverlayWindowController {
 
         let captureRect = captureRectInScreenCoordinates()
         if !overlayService.isPaused, overlayService.selectedTool != nil, captureRect.contains(screenPoint) {
-            return true
-        }
-
-        if !overlayService.isPaused, overlayService.zoomClickModeEnabled, captureRect.contains(screenPoint) {
             return true
         }
 
@@ -169,7 +167,7 @@ final class OverlayWindowController {
 }
 
 private final class KeyableRecordingPanel: NSPanel {
-    override var canBecomeKey: Bool { false }
+    override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 }
 

@@ -25,7 +25,7 @@ final class MicrophoneCaptureService: ObservableObject {
     @Published private(set) var lastErrorMessage: String?
 
     private let engine = AVAudioEngine()
-    private var outputFile: AVAudioFile?
+    private var outputWriter: MicrophoneSampleWriter?
     private(set) var currentOutputURL: URL?
 
     var hasActiveRecording: Bool {
@@ -62,13 +62,17 @@ final class MicrophoneCaptureService: ObservableObject {
             }
 
             let file = try AVAudioFile(forWriting: outputURL, settings: format.settings)
-            outputFile = file
+            let writer = MicrophoneSampleWriter(file: file)
+            outputWriter = writer
             currentOutputURL = outputURL
 
             input.removeTap(onBus: 0)
-            input.installTap(onBus: 0, bufferSize: 4096, format: format) { [file] buffer, _ in
-                try? file.write(from: buffer)
-            }
+            input.installTap(
+                onBus: 0,
+                bufferSize: 4096,
+                format: format,
+                block: makeMicrophoneTapBlock(writer: writer)
+            )
 
             try engine.start()
             isRecording = true
@@ -86,7 +90,7 @@ final class MicrophoneCaptureService: ObservableObject {
 
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
-        outputFile = nil
+        outputWriter = nil
         currentOutputURL = nil
         isRecording = false
         try? engine.inputNode.setVoiceProcessingEnabled(false)
@@ -95,10 +99,28 @@ final class MicrophoneCaptureService: ObservableObject {
     private func cleanupAfterFailedStart(outputURL: URL) {
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
-        outputFile = nil
+        outputWriter = nil
         currentOutputURL = nil
         isRecording = false
         try? engine.inputNode.setVoiceProcessingEnabled(false)
         try? FileManager.default.removeItem(at: outputURL)
+    }
+}
+
+private final class MicrophoneSampleWriter: @unchecked Sendable {
+    private let file: AVAudioFile
+
+    init(file: AVAudioFile) {
+        self.file = file
+    }
+
+    func write(_ buffer: AVAudioPCMBuffer) {
+        try? file.write(from: buffer)
+    }
+}
+
+private func makeMicrophoneTapBlock(writer: MicrophoneSampleWriter) -> AVAudioNodeTapBlock {
+    { buffer, _ in
+        writer.write(buffer)
     }
 }

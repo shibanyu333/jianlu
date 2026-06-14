@@ -1,5 +1,4 @@
 import AppKit
-import AVFoundation
 import CoreGraphics
 import Foundation
 import JianLuCore
@@ -16,6 +15,7 @@ final class OverlayService: ObservableObject {
     @Published var zoomMagnification: Double = 1.8
     @Published var zoomClickModeEnabled = false
     @Published var zoomFollowModeEnabled = false
+    @Published var zoomShortcutActive = false
     @Published var isTransientZoomActive = false
     @Published var currentZoomFocus = NormalizedPoint(x: 0.5, y: 0.5)
     @Published var zoomPreviewImage: CGImage?
@@ -35,9 +35,12 @@ final class OverlayService: ObservableObject {
     private var screenFrameProvider: (() -> CGImage?)?
     private var zoomPreviewTimer: Timer?
     private var zoomSnapshotInFlight = false
+    private var lastFallbackSnapshotRequestTime: TimeInterval = 0
     private var didLogMissingZoomFrame = false
     private var lastRecordedZoomFocus = NormalizedPoint(x: 0.5, y: 0.5)
     private var lastZoomFocusRecordTime: TimeInterval = 0
+    private let liveZoomFrameInterval: TimeInterval = 1.0 / 30.0
+    private let fallbackZoomSnapshotInterval: TimeInterval = 0.35
     private let logger = Logger(subsystem: "com.local.JianLu", category: "Zoom")
 
     var currentRecordingTime: TimeInterval {
@@ -46,7 +49,7 @@ final class OverlayService: ObservableObject {
     }
 
     func beginRecording(
-        cameraSession: AVCaptureSession,
+        cameraService: CameraCaptureService,
         cameraEnabled: Bool,
         recordingRegion: RecordingRegion?,
         screenFrameProvider: @escaping () -> CGImage?,
@@ -62,10 +65,12 @@ final class OverlayService: ObservableObject {
         zoomMagnification = max(1.2, zoomMagnification)
         zoomClickModeEnabled = false
         zoomFollowModeEnabled = false
+        zoomShortcutActive = false
         isTransientZoomActive = false
         currentZoomFocus = NormalizedPoint(x: 0.5, y: 0.5)
         zoomPreviewImage = nil
         zoomSnapshotInFlight = false
+        lastFallbackSnapshotRequestTime = 0
         stopZoomPreviewTimer()
         self.recordingRegion = recordingRegion
         self.onStop = onStop
@@ -78,7 +83,7 @@ final class OverlayService: ObservableObject {
         currentStrokePoints = []
         events = []
         recordCameraLayout()
-        show(cameraSession: cameraSession)
+        show(cameraService: cameraService)
     }
 
     func endRecording() {
@@ -86,9 +91,11 @@ final class OverlayService: ObservableObject {
         isPaused = false
         zoomClickModeEnabled = false
         zoomFollowModeEnabled = false
+        zoomShortcutActive = false
         isTransientZoomActive = false
         zoomPreviewImage = nil
         zoomSnapshotInFlight = false
+        lastFallbackSnapshotRequestTime = 0
         stopZoomPreviewTimer()
         recordingRegion = nil
         onStop = nil
@@ -105,9 +112,9 @@ final class OverlayService: ObservableObject {
         lastZoomFocusRecordTime = 0
     }
 
-    func show(cameraSession: AVCaptureSession) {
+    func show(cameraService: CameraCaptureService) {
         if overlayWindow == nil {
-            overlayWindow = OverlayWindowController(overlayService: self, cameraSession: cameraSession)
+            overlayWindow = OverlayWindowController(overlayService: self, cameraService: cameraService)
         }
         if controlBarWindow == nil {
             controlBarWindow = RecordingControlBarWindowController(overlayService: self)
@@ -134,7 +141,37 @@ final class OverlayService: ObservableObject {
     }
 
     func toggleCameraShape() {
-        cameraShape = cameraShape == .circle ? .square : .circle
+        let allShapes = CameraFrameShape.allCases
+        guard let currentIndex = allShapes.firstIndex(of: cameraShape) else {
+            setCameraShape(.circle)
+            return
+        }
+        let nextIndex = allShapes.index(after: currentIndex)
+        setCameraShape(nextIndex == allShapes.endIndex ? allShapes[0] : allShapes[nextIndex])
+    }
+
+    func setCameraShape(_ shape: CameraFrameShape) {
+        guard cameraShape != shape else { return }
+        cameraShape = shape
+        recordCameraLayout()
+    }
+
+    func adjustCameraSize(by delta: Double) {
+        setCameraSize(cameraFrame.width + delta)
+    }
+
+    func setCameraSize(_ size: Double) {
+        let frame = cameraFrame.resizedCameraFrame(size: size)
+        guard frame != cameraFrame else { return }
+        cameraFrame = frame
+        recordCameraLayout()
+    }
+
+    func setCameraLayout(frame: NormalizedRect, shape: CameraFrameShape) {
+        let clampedFrame = clamp(frame)
+        guard cameraFrame != clampedFrame || cameraShape != shape else { return }
+        cameraFrame = clampedFrame
+        cameraShape = shape
         recordCameraLayout()
     }
 
@@ -142,6 +179,7 @@ final class OverlayService: ObservableObject {
         if isPaused {
             zoomFollowModeEnabled = false
             zoomClickModeEnabled = false
+            zoomShortcutActive = false
             endTransientZoom()
             currentStrokePoints = []
         }
@@ -219,30 +257,35 @@ final class OverlayService: ObservableObject {
     }
 
     func beginHoldZoom() {
+        zoomShortcutActive = true
         beginTransientZoom()
     }
 
     func endHoldZoom() {
+        zoomShortcutActive = false
         if !zoomFollowModeEnabled {
             endTransientZoom()
         }
     }
 
     func beginClickZoom() {
-        guard zoomClickModeEnabled, isMouseInsideRecordingRegion() else { return }
+        guard zoomClickModeEnabled || zoomShortcutActive else { return }
+        guard isMouseInsideRecordingRegion() else { return }
         beginTransientZoom()
     }
 
     func endClickZoom() {
-        guard zoomClickModeEnabled else { return }
-        if !zoomFollowModeEnabled {
+        guard zoomClickModeEnabled || zoomShortcutActive else { return }
+        if !zoomFollowModeEnabled, !zoomShortcutActive {
             endTransientZoom()
         }
     }
 
     private func beginTransientZoom() {
         guard recordingStartedAt != nil, !isPaused, !isTransientZoomActive else { return }
-        isTransientZoomActive = true
+        withAnimation(.easeInOut(duration: 0.12)) {
+            isTransientZoomActive = true
+        }
         let focus = normalizedMouseFocus()
         currentZoomFocus = focus
         lastRecordedZoomFocus = focus
@@ -255,7 +298,9 @@ final class OverlayService: ObservableObject {
 
     private func endTransientZoom() {
         guard recordingStartedAt != nil, isTransientZoomActive else { return }
-        isTransientZoomActive = false
+        withAnimation(.easeInOut(duration: 0.12)) {
+            isTransientZoomActive = false
+        }
         stopZoomPreviewTimer()
         let focus = normalizedMouseFocus()
         currentZoomFocus = focus
@@ -324,6 +369,7 @@ final class OverlayService: ObservableObject {
 
     private func recordCameraLayout() {
         onCameraLayoutChanged?(cameraFrame, cameraShape)
+        guard recordingStartedAt != nil else { return }
         let event = CameraLayoutEvent(
             time: currentRecordingTime,
             frame: cameraFrame,
@@ -347,7 +393,7 @@ final class OverlayService: ObservableObject {
 
     private func startZoomPreviewTimer() {
         stopZoomPreviewTimer()
-        let timer = Timer(timeInterval: 0.10, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: liveZoomFrameInterval, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.refreshZoomPreview()
             }
@@ -394,8 +440,13 @@ final class OverlayService: ObservableObject {
 
     private func requestFallbackZoomSnapshot(allowsInactiveAssignment: Bool = false) {
         guard !zoomSnapshotInFlight else { return }
+        let now = currentRecordingTime
+        guard allowsInactiveAssignment || now - lastFallbackSnapshotRequestTime >= fallbackZoomSnapshotInterval else {
+            return
+        }
 
         zoomSnapshotInFlight = true
+        lastFallbackSnapshotRequestTime = now
         let region = recordingRegion
         Task { [weak self] in
             do {

@@ -13,6 +13,7 @@ APP_BUNDLE="$DIST_DIR/$DISPLAY_NAME.app"
 LEGACY_APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
+APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_BINARY="$APP_MACOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 SYSTEM_TCC_DB="/Library/Application Support/com.apple.TCC/TCC.db"
@@ -98,12 +99,15 @@ sign_app() {
 
 stage_app_bundle() {
   swift build --package-path "$ROOT_DIR"
+  local build_dir
   local build_binary
-  build_binary="$(swift build --package-path "$ROOT_DIR" --show-bin-path)/$APP_NAME"
+  build_dir="$(swift build --package-path "$ROOT_DIR" --show-bin-path)"
+  build_binary="$build_dir/$APP_NAME"
 
   rm -rf "$APP_BUNDLE" "$LEGACY_APP_BUNDLE"
-  mkdir -p "$APP_MACOS"
+  mkdir -p "$APP_MACOS" "$APP_RESOURCES"
   cp "$build_binary" "$APP_BINARY"
+  find "$build_dir" -maxdepth 1 \( -name "*.resources" -o -name "*.bundle" \) -exec cp -R {} "$APP_RESOURCES/" \;
   chmod +x "$APP_BINARY"
   write_info_plist
   sign_app

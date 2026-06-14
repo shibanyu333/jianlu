@@ -11,9 +11,18 @@ struct ContentView: View {
             HStack(spacing: 0) {
                 SidebarView()
                 Divider()
-                ScrollView {
-                    MainDashboardView()
+                ScrollViewReader { scrollProxy in
+                    ScrollView {
+                        MainDashboardView { projectID in
+                            appState.selectProject(projectID)
+                            DispatchQueue.main.async {
+                                withAnimation(.easeInOut(duration: 0.20)) {
+                                    scrollProxy.scrollTo("selected-project-editor", anchor: .top)
+                                }
+                            }
+                        }
                         .frame(maxWidth: .infinity, alignment: .topLeading)
+                    }
                 }
             }
         }
@@ -104,6 +113,7 @@ private struct SidebarView: View {
 private struct MainDashboardView: View {
     @EnvironmentObject private var appState: AppState
     private let columns = [GridItem(.adaptive(minimum: 220), spacing: 14)]
+    let onRecentProjectSelected: (UUID) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
@@ -178,8 +188,9 @@ private struct MainDashboardView: View {
             }
             if let selectedProject = appState.selectedProject {
                 EditorView(project: selectedProject)
+                    .id("selected-project-editor")
             }
-            RecentProjectsView(projects: appState.recentProjects)
+            RecentProjectsView(projects: appState.recentProjects, onSelectProject: onRecentProjectSelected)
         }
         .padding(28)
     }
@@ -305,6 +316,7 @@ private struct PermissionBadge: View {
 private struct RecentProjectsView: View {
     @EnvironmentObject private var appState: AppState
     let projects: [RecordingProject]
+    let onSelectProject: (UUID) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -319,7 +331,7 @@ private struct RecentProjectsView: View {
                 ForEach(projects) { project in
                     let isSelected = project.id == appState.selectedProject?.id
                     Button {
-                        appState.selectProject(project.id)
+                        onSelectProject(project.id)
                     } label: {
                         HStack {
                             Image(systemName: isSelected ? "checkmark.circle.fill" : "movieclapper")
