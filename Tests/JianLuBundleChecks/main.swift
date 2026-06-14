@@ -137,6 +137,9 @@ expect(exportServiceSource.contains("project.microphoneRecordingOffset"), "micro
 expect(exportServiceSource.contains("alignedMediaRange"), "separate media tracks share an offset-aware source range helper")
 expect(exportServiceSource.contains("func cancelCurrentExport()"), "export service exposes cancellation for stale previews")
 expect(exportServiceSource.contains("activeExportSession?.cancelExport()"), "export service cancels the underlying AVAssetExportSession")
+expect(exportServiceSource.contains("addScreenAudioTracks("), "screen audio export uses a helper that can handle multiple source tracks")
+expect(exportServiceSource.contains("for screenAudioTrack in screenAudioTracks"), "screen audio export iterates each source track separately")
+expect(exportServiceSource.contains("composition.addMutableTrack(withMediaType: .audio"), "screen audio export creates composition tracks for audio")
 
 let permissionServiceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/PermissionService.swift")
 let permissionServiceSource = (try? String(contentsOf: permissionServiceURL, encoding: .utf8)) ?? ""

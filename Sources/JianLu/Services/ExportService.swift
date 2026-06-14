@@ -67,7 +67,6 @@ final class ExportService: ObservableObject {
             throw ExportServiceError.missingVideoTrack
         }
 
-        let compositionAudio = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
         let screenAudioTracks = try await screenAsset.loadTracks(withMediaType: .audio)
 
         var cursor = CMTime.zero
@@ -77,11 +76,9 @@ final class ExportService: ObservableObject {
                 duration: CMTime(seconds: segment.duration, preferredTimescale: 600)
             )
             try compositionVideo.insertTimeRange(sourceRange, of: screenTrack, at: cursor)
-            for audioTrack in screenAudioTracks {
-                try compositionAudio?.insertTimeRange(sourceRange, of: audioTrack, at: cursor)
-            }
             cursor = cursor + sourceRange.duration
         }
+        try addScreenAudioTracks(screenAudioTracks, to: composition, project: project)
 
         var cameraTrackID: CMPersistentTrackID?
         if let cameraURL = project.cameraRecordingURL {
@@ -209,6 +206,31 @@ final class ExportService: ObservableObject {
                 at: cursor + alignedRange.destinationOffset
             )
             cursor = cursor + CMTime(seconds: segment.duration, preferredTimescale: 600)
+        }
+    }
+
+    private func addScreenAudioTracks(
+        _ screenAudioTracks: [AVAssetTrack],
+        to composition: AVMutableComposition,
+        project: RecordingProject
+    ) throws {
+        for screenAudioTrack in screenAudioTracks {
+            guard let compositionAudio = composition.addMutableTrack(
+                withMediaType: .audio,
+                preferredTrackID: kCMPersistentTrackID_Invalid
+            ) else {
+                continue
+            }
+
+            var cursor = CMTime.zero
+            for segment in project.timeline.segments {
+                let sourceRange = CMTimeRange(
+                    start: CMTime(seconds: segment.sourceStart, preferredTimescale: 600),
+                    duration: CMTime(seconds: segment.duration, preferredTimescale: 600)
+                )
+                try compositionAudio.insertTimeRange(sourceRange, of: screenAudioTrack, at: cursor)
+                cursor = cursor + sourceRange.duration
+            }
         }
     }
 
