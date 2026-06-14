@@ -52,6 +52,7 @@ final class AppState: ObservableObject {
     private var activeScreenRecordingURL: URL?
     private var activeCameraRecordingURL: URL?
     private var activeMicrophoneRecordingURL: URL?
+    private var activeRecordingPreferences: RecordingPreferences?
     private var activeCameraRecordingOffset: TimeInterval = 0
     private var activeMicrophoneRecordingOffset: TimeInterval = 0
     private var recordingStartedAt: Date?
@@ -260,19 +261,21 @@ final class AppState: ObservableObject {
         isStartingRecording = true
         statusMessage = "正在启动录制..."
         preferences.lastSelectedRegion = region
+        let recordingPreferences = preferences
+        activeRecordingPreferences = recordingPreferences
         AppWindowUtility.minimizeMainWindows()
         activeCameraRecordingOffset = 0
         activeMicrophoneRecordingOffset = 0
         var startupWarnings: [String] = []
         var cameraEnabledForRecording = cameraEnabled
-        var microphoneNoiseReductionEnabledForRecording = preferences.microphoneNoiseReductionEnabled
+        var microphoneNoiseReductionEnabledForRecording = recordingPreferences.microphoneNoiseReductionEnabled
         var cameraRecordingStartedAt: Date?
         var microphoneRecordingStartedAt: Date?
 
         do {
             if cameraEnabled {
                 do {
-                    activeCameraRecordingURL = try await cameraCaptureService.startRecording(preferences: preferences)
+                    activeCameraRecordingURL = try await cameraCaptureService.startRecording(preferences: recordingPreferences)
                     cameraRecordingStartedAt = Date()
                 } catch {
                     cameraEnabledForRecording = false
@@ -281,9 +284,9 @@ final class AppState: ObservableObject {
                 }
             }
 
-            if preferences.microphoneEnabled && preferences.microphoneNoiseReductionEnabled {
+            if recordingPreferences.microphoneEnabled && recordingPreferences.microphoneNoiseReductionEnabled {
                 do {
-                    activeMicrophoneRecordingURL = try microphoneCaptureService.startRecording(preferences: preferences)
+                    activeMicrophoneRecordingURL = try microphoneCaptureService.startRecording(preferences: recordingPreferences)
                     microphoneRecordingStartedAt = Date()
                     if let microphoneWarning = microphoneCaptureService.lastErrorMessage {
                         startupWarnings.append(microphoneWarning)
@@ -310,11 +313,11 @@ final class AppState: ObservableObject {
                 }
             )
             activeScreenRecordingURL = try await captureService.startDisplayRecording(
-                includeAppWindows: preferences.includeAppInterface,
-                microphoneEnabled: preferences.microphoneEnabled,
+                includeAppWindows: recordingPreferences.includeAppInterface,
+                microphoneEnabled: recordingPreferences.microphoneEnabled,
                 microphoneNoiseReductionEnabled: microphoneNoiseReductionEnabledForRecording,
                 region: region,
-                directoryPath: preferences.recordingDirectoryPath
+                directoryPath: recordingPreferences.recordingDirectoryPath
             )
             let startedAt = Date()
             recordingStartedAt = startedAt
@@ -347,6 +350,7 @@ final class AppState: ObservableObject {
             activeScreenRecordingURL = nil
             activeCameraRecordingURL = nil
             activeMicrophoneRecordingURL = nil
+            activeRecordingPreferences = nil
             activeCameraRecordingOffset = 0
             activeMicrophoneRecordingOffset = 0
             recordingStartedAt = nil
@@ -374,6 +378,7 @@ final class AppState: ObservableObject {
             try await captureService.stopDisplayRecording()
             var stopWarnings: [String] = []
             var noExportableSegmentMessage: String?
+            let projectPreferences = activeRecordingPreferences ?? preferences
             if cameraCaptureService.hasActiveRecording {
                 do {
                     try await cameraCaptureService.stopRecording()
@@ -405,7 +410,7 @@ final class AppState: ObservableObject {
                         cameraRecordingOffset: activeCameraRecordingOffset,
                         microphoneRecordingOffset: activeMicrophoneRecordingOffset,
                         sourceDuration: duration,
-                        preferences: preferences,
+                        preferences: projectPreferences,
                         events: overlayService.events,
                         timeline: timeline
                     )
@@ -419,6 +424,7 @@ final class AppState: ObservableObject {
             activeScreenRecordingURL = nil
             activeCameraRecordingURL = nil
             activeMicrophoneRecordingURL = nil
+            activeRecordingPreferences = nil
             activeCameraRecordingOffset = 0
             activeMicrophoneRecordingOffset = 0
             recordingStartedAt = nil
@@ -446,6 +452,7 @@ final class AppState: ObservableObject {
             activeScreenRecordingURL = nil
             activeCameraRecordingURL = nil
             activeMicrophoneRecordingURL = nil
+            activeRecordingPreferences = nil
             activeCameraRecordingOffset = 0
             activeMicrophoneRecordingOffset = 0
             recordingStartedAt = nil

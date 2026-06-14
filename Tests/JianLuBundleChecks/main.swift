@@ -210,6 +210,19 @@ expect(appStateSource.contains("cameraCaptureService.hasActiveRecording"), "reco
 expect(appStateSource.contains("overlayService.setCameraVisibility"), "recording camera toggle sets overlay visibility explicitly")
 expect(!appStateSource.contains("overlayService.toggleCameraVisibility()"), "recording camera toggle does not blindly invert overlay state")
 expect(appStateSource.contains("下一次录制会开启摄像头"), "recording camera toggle explains when enabling applies only to the next recording")
+expect(appStateSource.contains("private var activeRecordingPreferences"), "recording stores a snapshot of preferences used for the active capture")
+expectOrder(
+    "preferences.lastSelectedRegion = region",
+    before: "let recordingPreferences = preferences",
+    in: appStateSource,
+    "recording preference snapshot includes the confirmed capture region"
+)
+expect(appStateSource.contains("cameraCaptureService.startRecording(preferences: recordingPreferences)"), "camera recording uses the frozen recording preferences")
+expect(appStateSource.contains("microphoneCaptureService.startRecording(preferences: recordingPreferences)"), "noise-reduced microphone recording uses the frozen recording preferences")
+expect(appStateSource.contains("includeAppWindows: recordingPreferences.includeAppInterface"), "screen capture include-app setting comes from the frozen recording preferences")
+expect(appStateSource.contains("directoryPath: recordingPreferences.recordingDirectoryPath"), "recording files are written to the directory selected at recording start")
+expect(appStateSource.contains("let projectPreferences = activeRecordingPreferences ?? preferences"), "recording project falls back only if the active preference snapshot is unavailable")
+expect(appStateSource.contains("preferences: projectPreferences"), "recording project stores the frozen preferences used by the capture")
 expect(occurrenceCount(of: "restartHotkeyMonitoringIfAuthorized()", in: appStateSource) >= 3, "hotkey event tap is restarted after Accessibility permission changes")
 expect(occurrenceCount(of: "startHotkeyMonitoring()", in: appStateSource) >= 2, "hotkey monitoring startup is reusable after permissions are granted")
 expect(appStateSource.contains("输入监控"), "recording startup explains that zoom hotkeys also need Input Monitoring permission")
@@ -269,7 +282,7 @@ expectOrder(
 )
 expect(appStateSource.contains("if Task.isCancelled {\n                    deleteGeneratedPreviewIfNeeded(outputURL)\n                    return\n                }"), "cancelled preview tasks delete a completed but unused preview file")
 expectOrder(
-    "microphoneCaptureService.startRecording(preferences: preferences)",
+    "microphoneCaptureService.startRecording(preferences: recordingPreferences)",
     before: "captureService.startDisplayRecording",
     in: appStateSource,
     "noise-reduced microphone starts before screen capture so failures can fall back to ordinary microphone"
