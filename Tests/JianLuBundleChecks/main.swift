@@ -29,6 +29,16 @@ func containsStandaloneAssignment(to variableName: String, value: String, in hay
     }
 }
 
+func expectOrder(_ orderedNeedles: [String], in haystack: String, _ message: String) {
+    var searchStart = haystack.startIndex
+    for needle in orderedNeedles {
+        guard let range = haystack.range(of: needle, range: searchStart..<haystack.endIndex) else {
+            fail(message)
+        }
+        searchStart = range.upperBound
+    }
+}
+
 let arguments = CommandLine.arguments
 guard arguments.count >= 2 else {
     fail("usage: JianLuBundleChecks /path/to/app.bundle")
@@ -88,10 +98,20 @@ let buildScriptURL = projectRoot.appendingPathComponent("script/build_and_run.sh
 let buildScriptSource = (try? String(contentsOf: buildScriptURL, encoding: .utf8)) ?? ""
 expect(buildScriptSource.contains("--shortcut-permission|shortcut-permission"), "build script can diagnose shortcut permission requirements")
 expect(buildScriptSource.contains("--repair-shortcut-permission|repair-shortcut-permission"), "build script can reset stale shortcut TCC records")
+expect(buildScriptSource.contains("--verify-existing|verify-existing"), "build script can verify the currently signed app without rebuilding it")
+expect(buildScriptSource.contains("--run-existing|run-existing"), "build script can launch the currently signed app without rebuilding it")
+expect(buildScriptSource.contains("should_build=false"), "build script can skip rebuilds for permission diagnostics")
+expect(buildScriptSource.contains("should_stop_running_app=false"), "permission diagnostics do not kill the app being inspected")
 expect(buildScriptSource.contains("tccutil reset Accessibility"), "shortcut repair resets Accessibility permission for the current bundle id")
 expect(buildScriptSource.contains("tccutil reset ListenEvent"), "shortcut repair resets Input Monitoring permission for the current bundle id")
 expect(buildScriptSource.contains("kTCCServiceAccessibility"), "shortcut diagnostics inspect Accessibility TCC records")
 expect(buildScriptSource.contains("kTCCServiceListenEvent"), "shortcut diagnostics inspect Input Monitoring TCC records")
+expect(buildScriptSource.contains("click + and choose $APP_BUNDLE"), "shortcut repair explains how to add JianLu when Input Monitoring is empty")
+expectOrder(
+    ["configure_mode", "if $should_stop_running_app", "if $should_build", "case \"$MODE\" in"],
+    in: buildScriptSource,
+    "build script decides whether to stop/build before dispatching a mode"
+)
 
 let appSourceURL = projectRoot.appendingPathComponent("Sources/JianLu/App/JianLuApp.swift")
 let appSource = (try? String(contentsOf: appSourceURL, encoding: .utf8)) ?? ""
@@ -448,6 +468,7 @@ expect(permissionServiceSource.contains("CGPreflightListenEventAccess()"), "shor
 expect(permissionServiceSource.contains("CGRequestListenEventAccess()"), "shortcut permission requests include macOS Input Monitoring")
 expect(permissionServiceSource.contains("var shortcutRecoveryMessage"), "shortcut permissions explain exactly which macOS permission is missing")
 expect(permissionServiceSource.contains("删除旧“简录”条目"), "shortcut permission guidance explains stale local TCC rows after rebuilds")
+expect(permissionServiceSource.contains("点“+”添加当前 App"), "shortcut permission guidance explains empty Input Monitoring lists")
 expect(permissionServiceSource.contains("openAccessibilitySettings()"), "permission service can open Accessibility directly")
 expect(permissionServiceSource.contains("openInputMonitoringSettings()"), "permission service can open Input Monitoring directly")
 

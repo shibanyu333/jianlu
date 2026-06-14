@@ -18,17 +18,30 @@ INFO_PLIST="$APP_CONTENTS/Info.plist"
 SYSTEM_TCC_DB="/Library/Application Support/com.apple.TCC/TCC.db"
 USER_TCC_DB="$HOME/Library/Application Support/com.apple.TCC/TCC.db"
 
-pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+should_build=true
+should_stop_running_app=true
 
-swift build --package-path "$ROOT_DIR"
-BUILD_BINARY="$(swift build --package-path "$ROOT_DIR" --show-bin-path)/$APP_NAME"
+configure_mode() {
+  case "$MODE" in
+    --screen-permission|screen-permission|--shortcut-permission|shortcut-permission)
+      should_build=false
+      should_stop_running_app=false
+      ;;
+    --run-existing|run-existing|--verify-existing|verify-existing)
+      should_build=false
+      ;;
+  esac
+}
 
-rm -rf "$APP_BUNDLE" "$LEGACY_APP_BUNDLE"
-mkdir -p "$APP_MACOS"
-cp "$BUILD_BINARY" "$APP_BINARY"
-chmod +x "$APP_BINARY"
+ensure_app_bundle() {
+  if [[ ! -x "$APP_BINARY" ]]; then
+    echo "missing existing app at $APP_BUNDLE; run $0 once to build it" >&2
+    exit 2
+  fi
+}
 
-cat >"$INFO_PLIST" <<PLIST
+write_info_plist() {
+  cat >"$INFO_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -62,6 +75,7 @@ cat >"$INFO_PLIST" <<PLIST
 </dict>
 </plist>
 PLIST
+}
 
 sign_app() {
   local identity="${JIANLU_CODE_SIGN_IDENTITY:-}"
@@ -80,6 +94,19 @@ sign_app() {
     /usr/bin/codesign --force --sign - --requirements "=designated => identifier \"$BUNDLE_ID\"" "$APP_BUNDLE"
     echo "warning: signed $APP_BUNDLE ad-hoc with a stable local requirement for $BUNDLE_ID" >&2
   fi
+}
+
+stage_app_bundle() {
+  swift build --package-path "$ROOT_DIR"
+  local build_binary
+  build_binary="$(swift build --package-path "$ROOT_DIR" --show-bin-path)/$APP_NAME"
+
+  rm -rf "$APP_BUNDLE" "$LEGACY_APP_BUNDLE"
+  mkdir -p "$APP_MACOS"
+  cp "$build_binary" "$APP_BINARY"
+  chmod +x "$APP_BINARY"
+  write_info_plist
+  sign_app
 }
 
 tcc_permission_requirement() {
@@ -134,14 +161,27 @@ reset_shortcut_permissions() {
   tccutil reset ListenEvent "$BUNDLE_ID" >/dev/null 2>&1 || true
 }
 
-sign_app
-
 open_app() {
   /usr/bin/open -n "$APP_BUNDLE"
 }
 
+configure_mode
+
+if $should_stop_running_app; then
+  pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+fi
+
+if $should_build; then
+  stage_app_bundle
+else
+  ensure_app_bundle
+fi
+
 case "$MODE" in
   run)
+    open_app
+    ;;
+  --run-existing|run-existing)
     open_app
     ;;
   --debug|debug)
@@ -156,6 +196,11 @@ case "$MODE" in
     /usr/bin/log stream --info --style compact --predicate "subsystem == \"$BUNDLE_ID\""
     ;;
   --verify|verify)
+    open_app
+    sleep 1
+    pgrep -x "$APP_NAME" >/dev/null
+    ;;
+  --verify-existing|verify-existing)
     open_app
     sleep 1
     pgrep -x "$APP_NAME" >/dev/null
@@ -185,10 +230,10 @@ case "$MODE" in
   --repair-shortcut-permission|repair-shortcut-permission)
     reset_shortcut_permissions
     open_app
-    echo "opened $APP_BUNDLE; allow Accessibility and Input Monitoring for $DISPLAY_NAME. If an old row remains, remove it with the minus button and add $APP_BUNDLE again."
+    echo "opened $APP_BUNDLE; allow Accessibility for $DISPLAY_NAME, then open Input Monitoring, click + and choose $APP_BUNDLE. If an old row remains, remove it with the minus button and add $APP_BUNDLE again."
     ;;
   *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--doctor|--screen-permission|--repair-screen-permission|--shortcut-permission|--repair-shortcut-permission]" >&2
+    echo "usage: $0 [run|--run-existing|--debug|--logs|--telemetry|--verify|--verify-existing|--doctor|--screen-permission|--repair-screen-permission|--shortcut-permission|--repair-shortcut-permission]" >&2
     exit 2
     ;;
 esac
