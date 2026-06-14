@@ -86,4 +86,8 @@ expect(overlayWindowSource.contains("recordingRegion.displayID"), "recording ove
 
 expect(controlBarSource.contains("recordingRegion.displayID"), "recording control bar follows the selected display")
 
+let appStateSourceURL = projectRoot.appendingPathComponent("Sources/JianLu/App/AppState.swift")
+let appStateSource = (try? String(contentsOf: appStateSourceURL, encoding: .utf8)) ?? ""
+expect(!appStateSource.contains("cameraEnabled = false"), "camera startup degradation does not rewrite the user's camera preference")
+
 print("JianLuBundleChecks passed")

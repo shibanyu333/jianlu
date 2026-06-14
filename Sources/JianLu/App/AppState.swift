@@ -231,7 +231,6 @@ final class AppState: ObservableObject {
                     activeCameraRecordingURL = try await cameraCaptureService.startRecording(preferences: preferences)
                 } catch {
                     cameraEnabledForRecording = false
-                    cameraEnabled = false
                     activeCameraRecordingURL = nil
                     startupWarnings.append("摄像头不可用，已继续只录屏幕：\(error.localizedDescription)")
                 }
