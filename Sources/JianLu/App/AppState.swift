@@ -25,6 +25,7 @@ final class AppState: ObservableObject {
     @Published var exportMessages: [UUID: String] = [:]
     @Published var isExporting = false
     @Published var isStoppingRecording = false
+    @Published var isStartingRecording = false
     @Published var isPreparingRegionSelection = false
     @Published var isSelectingRegion = false
     @Published var isPaused = false
@@ -91,16 +92,22 @@ final class AppState: ObservableObject {
             statusMessage = "正在停止录制，请稍候"
             return
         }
+        if isRecording {
+            Task {
+                await stopRecording()
+            }
+            return
+        }
+        guard !isStartingRecording else {
+            statusMessage = "正在启动录制，请稍候"
+            return
+        }
         guard !isPreparingRegionSelection else {
             statusMessage = "正在准备选择区域，请稍候"
             return
         }
 
-        if isRecording {
-            Task {
-                await stopRecording()
-            }
-        } else if isSelectingRegion {
+        if isSelectingRegion {
             regionSelectionController.confirmSelection()
         } else {
             isPreparingRegionSelection = true
@@ -237,6 +244,8 @@ final class AppState: ObservableObject {
     private func startRecording(region: RecordingRegion) async {
         regionSelectionController.hide()
         isSelectingRegion = false
+        isStartingRecording = true
+        statusMessage = "正在启动录制..."
         preferences.lastSelectedRegion = region
         AppWindowUtility.minimizeMainWindows()
         activeCameraRecordingOffset = 0
@@ -303,6 +312,7 @@ final class AppState: ObservableObject {
             pausedRanges = []
             isPaused = false
             overlayService.setPaused(false)
+            isStartingRecording = false
             isRecording = true
             await captureService.waitForFirstScreenFrame()
             overlayService.prewarmZoomPreview()
@@ -330,6 +340,7 @@ final class AppState: ObservableObject {
             pauseStartedAt = nil
             pausedRanges = []
             isPaused = false
+            isStartingRecording = false
             lastErrorMessage = error.localizedDescription
             statusMessage = "启动录制失败：\(error.localizedDescription)"
             isRecording = false

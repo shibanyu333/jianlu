@@ -199,6 +199,10 @@ expect(captureServiceSource.contains("stream = nil\n        recordingOutput = ni
 
 let appStateSourceURL = projectRoot.appendingPathComponent("Sources/JianLu/App/AppState.swift")
 let appStateSource = (try? String(contentsOf: appStateSourceURL, encoding: .utf8)) ?? ""
+expect(appStateSource.contains("@Published var isStartingRecording"), "app state exposes recording startup state")
+expect(appStateSource.contains("guard !isStartingRecording else"), "recording intent ignores duplicate actions while startup is in progress")
+expect(appStateSource.contains("isStartingRecording = true"), "recording startup state is set before devices and overlay are started")
+expect(appStateSource.contains("isStartingRecording = false"), "recording startup state is cleared after success or failure")
 expect(!appStateSource.contains("cameraEnabled = false"), "camera startup degradation does not rewrite the user's camera preference")
 expect(occurrenceCount(of: "restartHotkeyMonitoringIfAuthorized()", in: appStateSource) >= 3, "hotkey event tap is restarted after Accessibility permission changes")
 expect(occurrenceCount(of: "startHotkeyMonitoring()", in: appStateSource) >= 2, "hotkey monitoring startup is reusable after permissions are granted")
@@ -290,6 +294,8 @@ expect(permissionServiceSource.contains("CGRequestListenEventAccess()"), "shortc
 
 let contentViewURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/ContentView.swift")
 let contentViewSource = (try? String(contentsOf: contentViewURL, encoding: .utf8)) ?? ""
+expect(contentViewSource.contains("appState.isStartingRecording"), "main recording button reflects startup state")
+expect(contentViewSource.contains("正在启动"), "main recording button labels startup state in Chinese")
 expect(contentViewSource.contains("输入监控"), "permission UI names Input Monitoring for zoom hotkeys")
 expect(!contentViewSource.contains("keyboard.badge.exclamationmark"), "permission UI avoids unavailable SF Symbols that prevent the main window from rendering")
 
