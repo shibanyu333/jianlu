@@ -1,0 +1,86 @@
+import JianLuCore
+import SwiftUI
+
+struct SettingsView: View {
+    @EnvironmentObject private var appState: AppState
+
+    var body: some View {
+        Form {
+            Section("录制") {
+                Toggle("录入简录界面", isOn: $appState.preferences.includeAppInterface)
+                Toggle("录入麦克风", isOn: $appState.preferences.microphoneEnabled)
+                Toggle("麦克风降噪", isOn: $appState.preferences.microphoneNoiseReductionEnabled)
+                    .disabled(!appState.preferences.microphoneEnabled)
+
+                HStack {
+                    Text("默认保存目录")
+                    Spacer()
+                    Text(appState.recordingDirectoryDisplayPath)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Button("更改...") {
+                        appState.chooseRecordingDirectory()
+                    }
+                }
+            }
+
+            Section("摄像头") {
+                Toggle("默认显示摄像头头像框", isOn: $appState.cameraEnabled)
+
+                Picker("头像框背景", selection: $appState.preferences.cameraBackgroundStyle) {
+                    ForEach(CameraBackgroundStyle.allCases, id: \.self) { style in
+                        Text(style.displayName).tag(style)
+                    }
+                }
+
+                Picker("背景虚化", selection: $appState.preferences.cameraBackgroundBlur) {
+                    ForEach(CameraBackgroundBlur.allCases, id: \.self) { blur in
+                        Text(blur.displayName).tag(blur)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                HStack {
+                    Text("轻度美颜")
+                    Slider(value: $appState.preferences.cameraBeautyLevel, in: 0...1)
+                    Text("\(Int(appState.preferences.cameraBeautyLevel * 100))%")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                        .frame(width: 44, alignment: .trailing)
+                }
+            }
+
+            Section("快捷键") {
+                Picker("按住缩放快捷键", selection: $appState.preferences.zoomShortcut) {
+                    ForEach(ZoomShortcut.allCases, id: \.self) { shortcut in
+                        Text(shortcut.displayName).tag(shortcut)
+                    }
+                }
+                ShortcutRow(title: "点击缩放模式", shortcut: "顶部栏按钮")
+                ShortcutRow(title: "画笔/高亮/直线/箭头", shortcut: "^ + ⌥ + ⌘ + P/H/L/A")
+                ShortcutRow(title: "方框/圆框", shortcut: "^ + ⌥ + ⌘ + B/O")
+                ShortcutRow(title: "清除全部标注", shortcut: "^ + ⌥ + ⌘ + X")
+                ShortcutRow(title: "停止录制", shortcut: "^ + ⌥ + ⌘ + R")
+            }
+        }
+        .formStyle(.grouped)
+        .padding(20)
+        .frame(width: 560, height: 500)
+    }
+}
+
+private struct ShortcutRow: View {
+    let title: String
+    let shortcut: String
+
+    var body: some View {
+        HStack {
+            Text(title)
+            Spacer()
+            Text(shortcut)
+                .font(.callout.monospaced())
+                .foregroundStyle(.secondary)
+        }
+    }
+}

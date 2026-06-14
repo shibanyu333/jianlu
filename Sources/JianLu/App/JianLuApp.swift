@@ -10,21 +10,31 @@ struct JianLuApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(appState)
-                .frame(minWidth: 980, minHeight: 640)
+                .frame(minWidth: 760, minHeight: 520)
         }
         .windowResizability(.contentMinSize)
         .commands {
             CommandMenu("录制") {
-                Button("开始/停止录制") {
+                Button("选择区域/开始/停止录制") {
                     appState.toggleRecordingIntent()
                 }
                 .keyboardShortcut("r", modifiers: [.control, .option, .command])
+
+                Button("暂停/继续录制") {
+                    appState.togglePauseIntent()
+                }
+                .disabled(!appState.isRecording)
 
                 Button("摄像头开关") {
                     appState.toggleCameraIntent()
                 }
                 .keyboardShortcut("c", modifiers: [.control, .option, .command])
             }
+        }
+
+        Settings {
+            SettingsView()
+                .environmentObject(appState)
         }
     }
 }

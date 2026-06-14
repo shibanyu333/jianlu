@@ -29,7 +29,18 @@ struct EditorView: View {
                 .disabled(appState.isExporting)
             }
 
-            VideoPlayer(player: AVPlayer(url: project.screenRecordingURL))
+            if let previewMessage = appState.previewMessage(for: project) {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .opacity(appState.renderedPreviewURLs[project.id] == nil ? 1 : 0)
+                    Text(previewMessage)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            PlayerPreview(url: appState.previewURL(for: project))
                 .frame(minHeight: 250)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
 
@@ -63,6 +74,36 @@ struct EditorView: View {
         }
         .padding(16)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+private struct PlayerPreview: NSViewRepresentable {
+    let url: URL
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(url: url)
+    }
+
+    func makeNSView(context: Context) -> AVPlayerView {
+        let playerView = AVPlayerView()
+        playerView.controlsStyle = .floating
+        playerView.videoGravity = .resizeAspect
+        playerView.player = AVPlayer(url: url)
+        return playerView
+    }
+
+    func updateNSView(_ playerView: AVPlayerView, context: Context) {
+        guard context.coordinator.url != url else { return }
+        context.coordinator.url = url
+        playerView.player = AVPlayer(url: url)
+    }
+
+    final class Coordinator {
+        var url: URL
+
+        init(url: URL) {
+            self.url = url
+        }
     }
 }
 

@@ -1,36 +1,137 @@
 import AVFoundation
 import AppKit
+import Combine
 import SwiftUI
 
 @MainActor
 final class OverlayWindowController {
     private let panel: NSPanel
+    private weak var overlayService: OverlayService?
+    private var cancellables: Set<AnyCancellable> = []
+    private var pointerTimer: Timer?
+    private var isCapturingMouseInteraction = false
 
     init(overlayService: OverlayService, cameraSession: AVCaptureSession) {
+        self.overlayService = overlayService
         let screenFrame = NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 1280, height: 720)
-        panel = NSPanel(
+        panel = KeyableRecordingPanel(
             contentRect: screenFrame,
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
         panel.level = .screenSaver
+        panel.title = "录制标注层"
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = false
-        panel.ignoresMouseEvents = false
+        panel.hidesOnDeactivate = false
+        panel.ignoresMouseEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.sharingType = .none
+        panel.acceptsMouseMovedEvents = true
         panel.contentView = NSHostingView(
             rootView: RecordingOverlayView(overlay: overlayService, cameraSession: cameraSession)
         )
+
+        let refreshPointerCapture: () -> Void = { [weak self] in
+            self?.refreshPointerCapture()
+        }
+
+        overlayService.$selectedTool
+            .receive(on: RunLoop.main)
+            .sink { _ in refreshPointerCapture() }
+            .store(in: &cancellables)
+        overlayService.$cameraFrame
+            .receive(on: RunLoop.main)
+            .sink { _ in refreshPointerCapture() }
+            .store(in: &cancellables)
+        overlayService.$cameraVisible
+            .receive(on: RunLoop.main)
+            .sink { _ in refreshPointerCapture() }
+            .store(in: &cancellables)
+        overlayService.$recordingRegion
+            .receive(on: RunLoop.main)
+            .sink { _ in refreshPointerCapture() }
+            .store(in: &cancellables)
+
+        let timer = Timer(timeInterval: 0.04, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshPointerCapture()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        pointerTimer = timer
     }
 
     func show() {
         panel.orderFrontRegardless()
+        refreshPointerCapture()
     }
 
     func hide() {
+        pointerTimer?.invalidate()
+        pointerTimer = nil
         panel.orderOut(nil)
     }
+
+    private func refreshPointerCapture() {
+        guard panel.isVisible else { return }
+
+        let leftMouseIsDown = NSEvent.pressedMouseButtons & 1 == 1
+        if !leftMouseIsDown {
+            isCapturingMouseInteraction = false
+        }
+
+        let cursorPoint = NSEvent.mouseLocation
+        let shouldCapture = shouldCaptureMouse(at: cursorPoint)
+        if shouldCapture && leftMouseIsDown {
+            isCapturingMouseInteraction = true
+        }
+
+        panel.ignoresMouseEvents = !(shouldCapture || isCapturingMouseInteraction)
+    }
+
+    private func shouldCaptureMouse(at screenPoint: CGPoint) -> Bool {
+        guard let overlayService else { return false }
+
+        let captureRect = captureRectInScreenCoordinates()
+        if overlayService.selectedTool != nil, captureRect.contains(screenPoint) {
+            return true
+        }
+
+        if overlayService.cameraVisible, cameraRectInScreenCoordinates(captureRect: captureRect).contains(screenPoint) {
+            return true
+        }
+
+        return false
+    }
+
+    private func captureRectInScreenCoordinates() -> CGRect {
+        let contentSize = panel.frame.size
+        let contentRect = overlayService?.captureRect(in: contentSize) ?? CGRect(origin: .zero, size: contentSize)
+        return CGRect(
+            x: panel.frame.minX + contentRect.minX,
+            y: panel.frame.maxY - contentRect.maxY,
+            width: contentRect.width,
+            height: contentRect.height
+        )
+    }
+
+    private func cameraRectInScreenCoordinates(captureRect: CGRect) -> CGRect {
+        guard let overlayService else { return .zero }
+
+        let frame = overlayService.cameraFrame
+        return CGRect(
+            x: captureRect.minX + frame.x * captureRect.width,
+            y: captureRect.maxY - (frame.y + frame.height) * captureRect.height,
+            width: frame.width * captureRect.width,
+            height: frame.height * captureRect.height
+        ).insetBy(dx: -8, dy: -8)
+    }
+}
+
+private final class KeyableRecordingPanel: NSPanel {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
 }

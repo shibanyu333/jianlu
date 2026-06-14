@@ -55,6 +55,10 @@ public struct EditTimeline: Codable, Equatable, Sendable {
         segments.reduce(0) { $0 + $1.duration }
     }
 
+    public var sourceDurationEstimate: TimeInterval {
+        segments.map(\.sourceEnd).max() ?? totalExportDuration
+    }
+
     public init(segments: [EditSegment]) {
         self.segments = segments.filter { $0.duration > 0 }
     }

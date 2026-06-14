@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import Foundation
 import JianLuCore
@@ -9,22 +10,45 @@ final class OverlayService: ObservableObject {
     @Published var cameraShape: CameraFrameShape = .circle
     @Published var cameraVisible = true
     @Published var selectedTool: AnnotationTool?
-    @Published var zoomMagnification: Double = 1
+    @Published var zoomMagnification: Double = 1.8
+    @Published var zoomClickModeEnabled = false
+    @Published var isTransientZoomActive = false
+    @Published var currentZoomFocus = NormalizedPoint(x: 0.5, y: 0.5)
     @Published var annotations: [AnnotationEvent] = []
     @Published var currentStrokePoints: [StrokePoint] = []
+    @Published var isPaused = false
+    @Published var recordingRegion: RecordingRegion?
 
     private(set) var events: [EffectEvent] = []
     private var recordingStartedAt: Date?
     private var overlayWindow: OverlayWindowController?
+    private var controlBarWindow: RecordingControlBarWindowController?
+    private var onStop: (() -> Void)?
+    private var onTogglePause: (() -> Void)?
 
     var currentRecordingTime: TimeInterval {
         guard let recordingStartedAt else { return 0 }
         return Date().timeIntervalSince(recordingStartedAt)
     }
 
-    func beginRecording(cameraSession: AVCaptureSession, cameraEnabled: Bool) {
+    func beginRecording(
+        cameraSession: AVCaptureSession,
+        cameraEnabled: Bool,
+        recordingRegion: RecordingRegion?,
+        onStop: @escaping () -> Void,
+        onTogglePause: @escaping () -> Void
+    ) {
         recordingStartedAt = Date()
         cameraVisible = cameraEnabled
+        isPaused = false
+        selectedTool = nil
+        zoomMagnification = max(1.2, zoomMagnification)
+        zoomClickModeEnabled = false
+        isTransientZoomActive = false
+        currentZoomFocus = NormalizedPoint(x: 0.5, y: 0.5)
+        self.recordingRegion = recordingRegion
+        self.onStop = onStop
+        self.onTogglePause = onTogglePause
         annotations = []
         currentStrokePoints = []
         events = []
@@ -34,6 +58,12 @@ final class OverlayService: ObservableObject {
 
     func endRecording() {
         recordingStartedAt = nil
+        isPaused = false
+        zoomClickModeEnabled = false
+        isTransientZoomActive = false
+        recordingRegion = nil
+        onStop = nil
+        onTogglePause = nil
         hide()
     }
 
@@ -41,12 +71,18 @@ final class OverlayService: ObservableObject {
         if overlayWindow == nil {
             overlayWindow = OverlayWindowController(overlayService: self, cameraSession: cameraSession)
         }
+        if controlBarWindow == nil {
+            controlBarWindow = RecordingControlBarWindowController(overlayService: self)
+        }
         overlayWindow?.show()
+        controlBarWindow?.show()
     }
 
     func hide() {
         overlayWindow?.hide()
+        controlBarWindow?.hide()
         overlayWindow = nil
+        controlBarWindow = nil
     }
 
     func toggleCameraVisibility() {
@@ -59,6 +95,18 @@ final class OverlayService: ObservableObject {
         recordCameraLayout()
     }
 
+    func setPaused(_ isPaused: Bool) {
+        self.isPaused = isPaused
+    }
+
+    func requestStop() {
+        onStop?()
+    }
+
+    func requestTogglePause() {
+        onTogglePause?()
+    }
+
     func updateCameraFrame(_ frame: NormalizedRect) {
         cameraFrame = clamp(frame)
     }
@@ -68,15 +116,62 @@ final class OverlayService: ObservableObject {
     }
 
     func adjustZoom(by delta: Double) {
-        zoomMagnification = min(3, max(1, zoomMagnification + delta))
-        let event = ZoomEvent(time: currentRecordingTime, magnification: zoomMagnification, focus: NormalizedPoint(x: 0.5, y: 0.5))
-        events.append(.zoom(event))
+        zoomMagnification = min(3, max(1.2, zoomMagnification + delta))
     }
 
-    func toggleZoom() {
-        zoomMagnification = zoomMagnification > 1 ? 1 : 1.8
-        let event = ZoomEvent(time: currentRecordingTime, magnification: zoomMagnification, focus: NormalizedPoint(x: 0.5, y: 0.5))
-        events.append(.zoom(event))
+    func toggleClickZoomMode() {
+        zoomClickModeEnabled.toggle()
+        if !zoomClickModeEnabled {
+            endTransientZoom()
+        }
+    }
+
+    func beginHoldZoom() {
+        beginTransientZoom()
+    }
+
+    func endHoldZoom() {
+        endTransientZoom()
+    }
+
+    func beginClickZoom() {
+        guard zoomClickModeEnabled else { return }
+        beginTransientZoom()
+    }
+
+    func endClickZoom() {
+        guard zoomClickModeEnabled else { return }
+        endTransientZoom()
+    }
+
+    private func beginTransientZoom() {
+        guard recordingStartedAt != nil, !isTransientZoomActive else { return }
+        isTransientZoomActive = true
+        let focus = normalizedMouseFocus()
+        currentZoomFocus = focus
+        events.append(
+            .zoom(
+                ZoomEvent(
+                    time: currentRecordingTime,
+                    magnification: zoomMagnification,
+                    focus: focus
+                )
+            )
+        )
+    }
+
+    private func endTransientZoom() {
+        guard recordingStartedAt != nil, isTransientZoomActive else { return }
+        isTransientZoomActive = false
+        events.append(
+            .zoom(
+                ZoomEvent(
+                    time: currentRecordingTime,
+                    magnification: 1,
+                    focus: normalizedMouseFocus()
+                )
+            )
+        )
     }
 
     func selectTool(_ tool: AnnotationTool?) {
@@ -88,6 +183,17 @@ final class OverlayService: ObservableObject {
         events.removeAll { event in
             if case .annotation(let annotation) = event {
                 return annotation.id == removed.id
+            }
+            return false
+        }
+    }
+
+    func clearAllAnnotations() {
+        annotations = []
+        currentStrokePoints = []
+        events.removeAll { event in
+            if case .annotation = event {
+                return true
             }
             return false
         }
@@ -141,6 +247,27 @@ final class OverlayService: ObservableObject {
             y: min(max(0, frame.y), 1 - height),
             width: width,
             height: height
+        )
+    }
+
+    private func normalizedMouseFocus() -> NormalizedPoint {
+        let mouse = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main
+        let screenFrame = screen?.frame ?? NSRect(x: 0, y: 0, width: 1280, height: 720)
+        let capture = recordingRegion?.isUsable == true
+            ? CGRect(
+                x: recordingRegion?.x ?? 0,
+                y: recordingRegion?.y ?? 0,
+                width: recordingRegion?.width ?? screenFrame.width,
+                height: recordingRegion?.height ?? screenFrame.height
+            )
+            : CGRect(origin: .zero, size: screenFrame.size)
+
+        let xInScreen = mouse.x - screenFrame.minX
+        let yFromTop = screenFrame.maxY - mouse.y
+        return NormalizedPoint(
+            x: min(max(0, (xInScreen - capture.minX) / max(1, capture.width)), 1),
+            y: min(max(0, (yFromTop - capture.minY) / max(1, capture.height)), 1)
         )
     }
 }

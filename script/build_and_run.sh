@@ -3,12 +3,14 @@ set -euo pipefail
 
 MODE="${1:-run}"
 APP_NAME="JianLu"
+DISPLAY_NAME="简录"
 BUNDLE_ID="com.local.JianLu"
 MIN_SYSTEM_VERSION="15.0"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
-APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
+APP_BUNDLE="$DIST_DIR/$DISPLAY_NAME.app"
+LEGACY_APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
 APP_BINARY="$APP_MACOS/$APP_NAME"
@@ -19,7 +21,7 @@ pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 swift build --package-path "$ROOT_DIR"
 BUILD_BINARY="$(swift build --package-path "$ROOT_DIR" --show-bin-path)/$APP_NAME"
 
-rm -rf "$APP_BUNDLE"
+rm -rf "$APP_BUNDLE" "$LEGACY_APP_BUNDLE"
 mkdir -p "$APP_MACOS"
 cp "$BUILD_BINARY" "$APP_BINARY"
 chmod +x "$APP_BINARY"
@@ -34,9 +36,9 @@ cat >"$INFO_PLIST" <<PLIST
   <key>CFBundleIdentifier</key>
   <string>$BUNDLE_ID</string>
   <key>CFBundleName</key>
-  <string>简录</string>
+  <string>$DISPLAY_NAME</string>
   <key>CFBundleDisplayName</key>
-  <string>简录</string>
+  <string>$DISPLAY_NAME</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
@@ -59,7 +61,43 @@ cat >"$INFO_PLIST" <<PLIST
 </plist>
 PLIST
 
-/usr/bin/codesign --force --sign - "$APP_BUNDLE" >/dev/null 2>&1 || true
+sign_app() {
+  local identity="${JIANLU_CODE_SIGN_IDENTITY:-}"
+
+  if [[ -z "$identity" ]]; then
+    identity="$(
+      security find-identity -p codesigning -v 2>/dev/null \
+        | awk -F '"' '/^[[:space:]]*[0-9]+\\)/ { print $2; exit }'
+    )"
+  fi
+
+  if [[ -n "$identity" ]]; then
+    /usr/bin/codesign --force --sign "$identity" "$APP_BUNDLE"
+    echo "signed $APP_BUNDLE with identity: $identity"
+  else
+    /usr/bin/codesign --force --sign - --requirements "=designated => identifier \"$BUNDLE_ID\"" "$APP_BUNDLE"
+    echo "warning: signed $APP_BUNDLE ad-hoc with a stable local requirement for $BUNDLE_ID" >&2
+  fi
+}
+
+screen_permission_requirement() {
+  sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
+    "select writefile('/tmp/jianlu_screencapture.csreq', csreq) from access where service='kTCCServiceScreenCapture' and client='$BUNDLE_ID';" \
+    >/dev/null 2>&1 || return 0
+  if [[ -s /tmp/jianlu_screencapture.csreq ]]; then
+    csreq -r /tmp/jianlu_screencapture.csreq -t 2>/dev/null || true
+    rm -f /tmp/jianlu_screencapture.csreq
+  fi
+}
+
+reset_capture_permissions() {
+  echo "resetting capture permissions for $BUNDLE_ID"
+  tccutil reset ScreenCapture "$BUNDLE_ID" >/dev/null 2>&1 || true
+  tccutil reset Camera "$BUNDLE_ID" >/dev/null 2>&1 || true
+  tccutil reset Microphone "$BUNDLE_ID" >/dev/null 2>&1 || true
+}
+
+sign_app
 
 open_app() {
   /usr/bin/open -n "$APP_BUNDLE"
@@ -85,8 +123,19 @@ case "$MODE" in
     sleep 1
     pgrep -x "$APP_NAME" >/dev/null
     ;;
+  --screen-permission|screen-permission)
+    echo "current app requirement:"
+    codesign -dr - "$APP_BUNDLE" 2>&1 | sed 's/^/# /'
+    echo "stored TCC screen recording requirement:"
+    screen_permission_requirement | sed 's/^/# /'
+    ;;
+  --repair-screen-permission|repair-screen-permission)
+    reset_capture_permissions
+    open_app
+    echo "opened $APP_BUNDLE; click 开始录制, then allow screen recording, camera, and microphone for $DISPLAY_NAME"
+    ;;
   *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify]" >&2
+    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--screen-permission|--repair-screen-permission]" >&2
     exit 2
     ;;
 esac

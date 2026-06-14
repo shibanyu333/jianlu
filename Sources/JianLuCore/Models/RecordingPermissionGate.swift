@@ -19,7 +19,11 @@ public enum RecordingStartDecision: Equatable, Sendable {
 }
 
 public enum RecordingPermissionGate {
-    public static func decision(for state: RecordingPermissionState, cameraEnabled: Bool) -> RecordingStartDecision {
+    public static func decision(
+        for state: RecordingPermissionState,
+        cameraEnabled: Bool,
+        microphoneEnabled: Bool = true
+    ) -> RecordingStartDecision {
         guard state.screenRecordingGranted else {
             return .needsScreenRecordingPermission
         }
@@ -28,7 +32,7 @@ public enum RecordingPermissionGate {
         if cameraEnabled && !state.cameraGranted {
             missing.append("摄像头")
         }
-        if !state.microphoneGranted {
+        if microphoneEnabled && !state.microphoneGranted {
             missing.append("麦克风")
         }
 

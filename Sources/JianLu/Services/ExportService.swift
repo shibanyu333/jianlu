@@ -26,7 +26,7 @@ final class ExportService: ObservableObject {
     @Published private(set) var isExporting = false
     @Published private(set) var progress: Double = 0
 
-    func export(project: RecordingProject) async throws -> URL {
+    func export(project: RecordingProject, prefix: String = "export") async throws -> URL {
         isExporting = true
         progress = 0
         defer {
@@ -34,7 +34,10 @@ final class ExportService: ObservableObject {
             progress = 0
         }
 
-        let outputURL = try RecordingFileStore.makeRecordingURL(prefix: "export")
+        let outputURL = try RecordingFileStore.makeRecordingURL(
+            prefix: prefix,
+            directoryPath: project.preferences.recordingDirectoryPath
+        )
         if FileManager.default.fileExists(atPath: outputURL.path) {
             try FileManager.default.removeItem(at: outputURL)
         }
@@ -65,9 +68,9 @@ final class ExportService: ObservableObject {
             cursor = cursor + sourceRange.duration
         }
 
-        var layerInstructions: [AVVideoCompositionLayerInstruction] = [
-            AVMutableVideoCompositionLayerInstruction(assetTrack: compositionVideo)
-        ]
+        let screenInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: compositionVideo)
+        applyZoomEvents(project: project, to: screenInstruction, renderSize: normalizedRenderSize(for: screenTrack))
+        var layerInstructions: [AVVideoCompositionLayerInstruction] = [screenInstruction]
 
         if let cameraURL = project.cameraRecordingURL {
             try addCameraTrack(
@@ -76,6 +79,9 @@ final class ExportService: ObservableObject {
                 project: project,
                 layerInstructions: &layerInstructions
             )
+        }
+        if let microphoneURL = project.microphoneRecordingURL {
+            try addMicrophoneTrack(from: microphoneURL, to: composition, project: project)
         }
 
         let renderSize = normalizedRenderSize(for: screenTrack)
@@ -87,7 +93,7 @@ final class ExportService: ObservableObject {
         videoComposition.renderSize = renderSize
         videoComposition.frameDuration = CMTime(value: 1, timescale: 30)
         videoComposition.instructions = [instruction]
-        videoComposition.animationTool = makeAnimationTool(project: project, renderSize: renderSize)
+        videoComposition.animationTool = makeAnimationTool(project: project, renderSize: renderSize, duration: CMTimeGetSeconds(cursor))
 
         guard let exportSession = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
             throw ExportServiceError.cannotCreateExportSession
@@ -123,14 +129,27 @@ final class ExportService: ObservableObject {
             return
         }
 
+        let cameraDuration = CMTimeGetSeconds(cameraAsset.duration)
         var cursor = CMTime.zero
-        for segment in project.timeline.segments {
+        var insertedCameraVideo = false
+        for segment in project.timeline.segments where segment.sourceStart < cameraDuration {
+            let availableDuration = max(0, min(segment.duration, cameraDuration - segment.sourceStart))
+            guard availableDuration > 0 else {
+                cursor = cursor + CMTime(seconds: segment.duration, preferredTimescale: 600)
+                continue
+            }
+
             let sourceRange = CMTimeRange(
                 start: CMTime(seconds: segment.sourceStart, preferredTimescale: 600),
-                duration: CMTime(seconds: segment.duration, preferredTimescale: 600)
+                duration: CMTime(seconds: availableDuration, preferredTimescale: 600)
             )
             try compositionCamera.insertTimeRange(sourceRange, of: cameraTrack, at: cursor)
-            cursor = cursor + sourceRange.duration
+            insertedCameraVideo = true
+            cursor = cursor + CMTime(seconds: segment.duration, preferredTimescale: 600)
+        }
+
+        guard insertedCameraVideo else {
+            return
         }
 
         let instruction = AVMutableVideoCompositionLayerInstruction(assetTrack: compositionCamera)
@@ -146,7 +165,33 @@ final class ExportService: ObservableObject {
         layerInstructions.insert(instruction, at: 0)
     }
 
-    private func makeAnimationTool(project: RecordingProject, renderSize: CGSize) -> AVVideoCompositionCoreAnimationTool? {
+    private func addMicrophoneTrack(
+        from microphoneURL: URL,
+        to composition: AVMutableComposition,
+        project: RecordingProject
+    ) throws {
+        let microphoneAsset = AVURLAsset(url: microphoneURL)
+        guard let microphoneTrack = microphoneAsset.tracks(withMediaType: .audio).first,
+              let compositionMicrophone = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+            return
+        }
+
+        let microphoneDuration = CMTimeGetSeconds(microphoneAsset.duration)
+        var cursor = CMTime.zero
+        for segment in project.timeline.segments where segment.sourceStart < microphoneDuration {
+            let availableDuration = max(0, min(segment.duration, microphoneDuration - segment.sourceStart))
+            guard availableDuration > 0 else { continue }
+
+            let sourceRange = CMTimeRange(
+                start: CMTime(seconds: segment.sourceStart, preferredTimescale: 600),
+                duration: CMTime(seconds: availableDuration, preferredTimescale: 600)
+            )
+            try compositionMicrophone.insertTimeRange(sourceRange, of: microphoneTrack, at: cursor)
+            cursor = cursor + CMTime(seconds: segment.duration, preferredTimescale: 600)
+        }
+    }
+
+    private func makeAnimationTool(project: RecordingProject, renderSize: CGSize, duration: TimeInterval) -> AVVideoCompositionCoreAnimationTool? {
         let parentLayer = CALayer()
         parentLayer.frame = CGRect(origin: .zero, size: renderSize)
         parentLayer.isGeometryFlipped = true
@@ -155,13 +200,141 @@ final class ExportService: ObservableObject {
         videoLayer.frame = parentLayer.bounds
         parentLayer.addSublayer(videoLayer)
 
+        let annotationContainer = CALayer()
+        annotationContainer.frame = parentLayer.bounds
+        applyZoomAnimation(to: annotationContainer, project: project, renderSize: renderSize, duration: duration)
+        parentLayer.addSublayer(annotationContainer)
+
         for event in project.events {
             if case .annotation(let annotation) = event {
-                parentLayer.addSublayer(annotationLayer(annotation, renderSize: renderSize))
+                annotationContainer.addSublayer(annotationLayer(annotation, renderSize: renderSize))
             }
         }
 
         return AVVideoCompositionCoreAnimationTool(postProcessingAsVideoLayer: videoLayer, in: parentLayer)
+    }
+
+    private func applyZoomEvents(
+        project: RecordingProject,
+        to instruction: AVMutableVideoCompositionLayerInstruction,
+        renderSize: CGSize
+    ) {
+        let states = exportedZoomStates(for: project)
+        guard let first = states.first else {
+            instruction.setTransform(zoomTransform(magnification: 1, focus: NormalizedPoint(x: 0.5, y: 0.5), renderSize: renderSize), at: .zero)
+            return
+        }
+
+        instruction.setTransform(
+            zoomTransform(magnification: first.magnification, focus: first.focus, renderSize: renderSize),
+            at: .zero
+        )
+
+        for state in states.dropFirst() {
+            instruction.setTransform(
+                zoomTransform(magnification: state.magnification, focus: state.focus, renderSize: renderSize),
+                at: CMTime(seconds: state.time, preferredTimescale: 600)
+            )
+        }
+    }
+
+    private func applyZoomAnimation(
+        to layer: CALayer,
+        project: RecordingProject,
+        renderSize: CGSize,
+        duration: TimeInterval
+    ) {
+        guard duration > 0 else { return }
+        let states = exportedZoomStates(for: project)
+        guard !states.isEmpty else { return }
+
+        let animation = CAKeyframeAnimation(keyPath: "transform")
+        animation.beginTime = AVCoreAnimationBeginTimeAtZero
+        animation.duration = duration
+        animation.calculationMode = .discrete
+        animation.values = states.map {
+            CATransform3DMakeAffineTransform(
+                zoomTransform(magnification: $0.magnification, focus: $0.focus, renderSize: renderSize)
+            )
+        }
+        animation.keyTimes = states.map { NSNumber(value: min(max($0.time / duration, 0), 1)) }
+        animation.isRemovedOnCompletion = false
+        animation.fillMode = .forwards
+        layer.add(animation, forKey: "zoom")
+    }
+
+    private func exportedZoomStates(for project: RecordingProject) -> [ZoomEvent] {
+        let sourceZoomEvents = project.events.compactMap { event -> ZoomEvent? in
+            if case .zoom(let zoom) = event {
+                return zoom
+            }
+            return nil
+        }.sorted { $0.time < $1.time }
+
+        var exported: [ZoomEvent] = []
+        var exportCursor: TimeInterval = 0
+
+        for segment in project.timeline.segments {
+            let stateAtStart = latestZoomState(at: segment.sourceStart, in: sourceZoomEvents)
+            exported.append(
+                ZoomEvent(
+                    time: exportCursor,
+                    magnification: stateAtStart.magnification,
+                    focus: stateAtStart.focus
+                )
+            )
+
+            for event in sourceZoomEvents where event.time > segment.sourceStart && event.time < segment.sourceEnd {
+                exported.append(
+                    ZoomEvent(
+                        time: exportCursor + event.time - segment.sourceStart,
+                        magnification: event.magnification,
+                        focus: event.focus
+                    )
+                )
+            }
+            exportCursor += segment.duration
+        }
+
+        return coalescedZoomStates(exported)
+    }
+
+    private func latestZoomState(at sourceTime: TimeInterval, in events: [ZoomEvent]) -> ZoomEvent {
+        events.last { $0.time <= sourceTime } ?? ZoomEvent(
+            time: sourceTime,
+            magnification: 1,
+            focus: NormalizedPoint(x: 0.5, y: 0.5)
+        )
+    }
+
+    private func coalescedZoomStates(_ states: [ZoomEvent]) -> [ZoomEvent] {
+        var result: [ZoomEvent] = []
+        for state in states.sorted(by: { $0.time < $1.time }) {
+            if let last = result.last, abs(last.time - state.time) < 0.001 {
+                result[result.count - 1] = state
+            } else if let last = result.last,
+                      abs(last.magnification - state.magnification) < 0.001,
+                      last.focus == state.focus {
+                continue
+            } else {
+                result.append(state)
+            }
+        }
+        return result
+    }
+
+    private func zoomTransform(magnification: Double, focus: NormalizedPoint, renderSize: CGSize) -> CGAffineTransform {
+        let scale = CGFloat(min(max(magnification, 1), 3))
+        let focusX = CGFloat(focus.x) * renderSize.width
+        let focusY = CGFloat(focus.y) * renderSize.height
+        return CGAffineTransform(
+            a: scale,
+            b: 0,
+            c: 0,
+            d: scale,
+            tx: focusX * (1 - scale),
+            ty: focusY * (1 - scale)
+        )
     }
 
     private func annotationLayer(_ annotation: AnnotationEvent, renderSize: CGSize) -> CAShapeLayer {
@@ -169,13 +342,33 @@ final class ExportService: ObservableObject {
         let points = annotation.points.map {
             CGPoint(x: $0.point.x * renderSize.width, y: $0.point.y * renderSize.height)
         }
+
         if let first = points.first {
             path.move(to: first)
-            if annotation.tool == .line || annotation.tool == .arrow {
+
+            switch annotation.tool {
+            case .rectangle, .ellipse:
+                if let last = points.last {
+                    let rect = CGRect(
+                        x: min(first.x, last.x),
+                        y: min(first.y, last.y),
+                        width: abs(last.x - first.x),
+                        height: abs(last.y - first.y)
+                    )
+                    if annotation.tool == .ellipse {
+                        path.addEllipse(in: rect)
+                    } else {
+                        path.addRoundedRect(in: rect, cornerWidth: 4, cornerHeight: 4)
+                    }
+                }
+            case .line, .arrow:
                 if let last = points.last {
                     path.addLine(to: last)
+                    if annotation.tool == .arrow {
+                        addArrowHead(to: path, from: points.dropLast().last ?? first, to: last)
+                    }
                 }
-            } else {
+            case .pen, .highlight:
                 for point in points.dropFirst() {
                     path.addLine(to: point)
                 }
@@ -191,6 +384,18 @@ final class ExportService: ObservableObject {
         layer.lineCap = .round
         layer.lineJoin = .round
         return layer
+    }
+
+    private func addArrowHead(to path: CGMutablePath, from start: CGPoint, to end: CGPoint) {
+        let angle = atan2(end.y - start.y, end.x - start.x)
+        let length: CGFloat = 18
+        let spread: CGFloat = .pi / 7
+        let left = CGPoint(x: end.x - length * cos(angle - spread), y: end.y - length * sin(angle - spread))
+        let right = CGPoint(x: end.x - length * cos(angle + spread), y: end.y - length * sin(angle + spread))
+
+        path.move(to: left)
+        path.addLine(to: end)
+        path.addLine(to: right)
     }
 
     private func nsColor(for annotation: AnnotationEvent) -> NSColor {

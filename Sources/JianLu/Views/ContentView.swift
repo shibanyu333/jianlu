@@ -11,7 +11,10 @@ struct ContentView: View {
             HStack(spacing: 0) {
                 SidebarView()
                 Divider()
-                MainDashboardView()
+                ScrollView {
+                    MainDashboardView()
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
             }
         }
         .onAppear {
@@ -50,13 +53,30 @@ private struct HeaderView: View {
             Button {
                 appState.toggleRecordingIntent()
             } label: {
-                Label(appState.isRecording ? "停止录制" : "开始录制", systemImage: appState.isRecording ? "stop.circle.fill" : "record.circle")
+                Label(
+                    recordingButtonTitle,
+                    systemImage: recordingButtonSymbol
+                )
             }
             .buttonStyle(.borderedProminent)
             .tint(appState.isRecording ? .red : .accentColor)
-            .help(appState.permissionSnapshot.screenRecordingGranted ? "开始录制" : "点击后会请求屏幕录制权限")
+            .disabled(appState.isStoppingRecording)
+            .help(appState.permissionSnapshot.screenRecordingGranted ? "选择录制区域" : "点击后会请求屏幕录制权限")
         }
         .padding(20)
+    }
+
+    private var recordingButtonTitle: String {
+        if appState.isStoppingRecording { return "正在停止" }
+        if appState.isRecording { return "停止录制" }
+        if appState.isSelectingRegion { return "确认区域" }
+        return "选择区域"
+    }
+
+    private var recordingButtonSymbol: String {
+        if appState.isRecording { return "stop.circle.fill" }
+        if appState.isSelectingRegion { return "record.circle" }
+        return "viewfinder"
     }
 }
 
@@ -78,6 +98,7 @@ private struct SidebarView: View {
 
 private struct MainDashboardView: View {
     @EnvironmentObject private var appState: AppState
+    private let columns = [GridItem(.adaptive(minimum: 220), spacing: 14)]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
@@ -86,13 +107,20 @@ private struct MainDashboardView: View {
             Text("录屏、摄像头头像框、缩放重点、划线涂鸦和剪辑导出会在这里串成一个简单流程。")
                 .foregroundStyle(.secondary)
 
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 14) {
-                FeatureCard(title: "屏幕录制", detail: "录制整屏或窗口，支持系统音和麦克风。", symbol: "display")
-                FeatureCard(title: "摄像头头像框", detail: appState.cameraEnabled ? "默认圆形右下角，可拖动缩放。" : "当前关闭，可随时开启。", symbol: "person.crop.circle")
+            LazyVGrid(columns: columns, spacing: 14) {
+                FeatureCard(title: "屏幕录制", detail: appState.preferences.includeAppInterface ? "会录入简录主界面。" : "默认避开简录主界面。", symbol: "display")
+                FeatureCard(title: "摄像头头像框", detail: appState.cameraEnabled ? "圆形右下角，可拖动缩放，支持背景和美颜。" : "当前关闭，可随时开启。", symbol: "person.crop.circle")
                 FeatureCard(title: "缩放和标注", detail: "快捷键缩放、画笔、高亮、直线和箭头重点。", symbol: "pencil.and.outline")
-                FeatureCard(title: "录后剪辑", detail: "裁头尾、分割删除片段、预览并导出。", symbol: "timeline.selection")
+                FeatureCard(
+                    title: "声音",
+                    detail: appState.preferences.microphoneEnabled
+                        ? (appState.preferences.microphoneNoiseReductionEnabled ? "麦克风已开启，导出时使用降噪讲解音轨。" : "麦克风已开启，会录入讲解声音。")
+                        : "麦克风已关闭。",
+                    symbol: "mic"
+                )
             }
 
+            RecordingOptionsPanel()
             PermissionPanel(snapshot: appState.permissionSnapshot)
             if !appState.permissionSnapshot.screenRecordingGranted {
                 HStack {
@@ -111,6 +139,23 @@ private struct MainDashboardView: View {
                 .padding(12)
                 .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
             }
+            if !appState.permissionSnapshot.shortcutMonitoringGranted {
+                HStack {
+                    Image(systemName: "keyboard.badge.exclamationmark")
+                        .foregroundStyle(.orange)
+                    Text("按住缩放和点击缩放需要“辅助功能”权限，否则录制时收不到快捷键和鼠标点击。")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        appState.openShortcutMonitoringSettings()
+                    } label: {
+                        Label("打开辅助功能设置", systemImage: "gear")
+                    }
+                }
+                .padding(12)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+            }
             if let lastErrorMessage = appState.lastErrorMessage {
                 Text(lastErrorMessage)
                     .font(.callout)
@@ -120,10 +165,68 @@ private struct MainDashboardView: View {
                 EditorView(project: selectedProject)
             }
             RecentProjectsView(projects: appState.recentProjects)
-
-            Spacer()
         }
         .padding(28)
+    }
+}
+
+private struct RecordingOptionsPanel: View {
+    @EnvironmentObject private var appState: AppState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("录制设置")
+                .font(.headline)
+
+            Toggle(isOn: $appState.preferences.includeAppInterface) {
+                Label("录入简录界面", systemImage: "macwindow")
+            }
+            .toggleStyle(.checkbox)
+
+            Toggle(isOn: $appState.preferences.microphoneEnabled) {
+                Label("录入麦克风", systemImage: appState.preferences.microphoneEnabled ? "mic" : "mic.slash")
+            }
+            .toggleStyle(.checkbox)
+
+            Toggle(isOn: $appState.preferences.microphoneNoiseReductionEnabled) {
+                Label("麦克风降噪", systemImage: "waveform.badge.magnifyingglass")
+            }
+            .toggleStyle(.checkbox)
+            .disabled(!appState.preferences.microphoneEnabled)
+
+            HStack(spacing: 10) {
+                Label("默认保存目录", systemImage: "folder")
+                    .font(.callout.weight(.medium))
+                Text(appState.recordingDirectoryDisplayPath)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                Button {
+                    appState.openRecordingDirectory()
+                } label: {
+                    Label("打开", systemImage: "arrow.up.forward.app")
+                }
+                Button {
+                    appState.chooseRecordingDirectory()
+                } label: {
+                    Label("更改", systemImage: "folder.badge.gearshape")
+                }
+            }
+
+            HStack {
+                Label("摄像头背景、美颜和虚化在设置菜单里调整", systemImage: "slider.horizontal.3")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                SettingsLink {
+                    Label("打开设置", systemImage: "gearshape")
+                }
+            }
+        }
+        .padding(16)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
     }
 }
 
@@ -164,7 +267,7 @@ private struct PermissionPanel: View {
                 PermissionBadge(title: "屏幕录制", isGranted: snapshot.screenRecordingGranted)
                 PermissionBadge(title: "摄像头", isGranted: snapshot.cameraGranted)
                 PermissionBadge(title: "麦克风", isGranted: snapshot.microphoneGranted)
-                PermissionBadge(title: "快捷键监听", isGranted: true)
+                PermissionBadge(title: "快捷键监听", isGranted: snapshot.shortcutMonitoringGranted)
             }
         }
         .padding(16)

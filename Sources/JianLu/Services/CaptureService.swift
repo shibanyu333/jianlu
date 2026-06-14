@@ -1,6 +1,7 @@
 @preconcurrency import AVFoundation
 import CoreMedia
 import Foundation
+import JianLuCore
 @preconcurrency import ScreenCaptureKit
 
 enum CaptureServiceError: LocalizedError {
@@ -28,31 +29,46 @@ final class CaptureService: NSObject, ObservableObject {
     private var stream: SCStream?
     private var recordingOutput: SCRecordingOutput?
     private let delegateProxy = CaptureServiceDelegateProxy()
+    private var stopContinuation: CheckedContinuation<Void, Error>?
 
     override init() {
         super.init()
         delegateProxy.owner = self
     }
 
-    func startDisplayRecording() async throws -> URL {
-        let outputURL = try RecordingFileStore.makeRecordingURL(prefix: "screen")
+    func startDisplayRecording(
+        includeAppWindows: Bool,
+        microphoneEnabled: Bool,
+        microphoneNoiseReductionEnabled: Bool,
+        region: RecordingRegion?,
+        directoryPath: String?
+    ) async throws -> URL {
+        let outputURL = try RecordingFileStore.makeRecordingURL(prefix: "screen", directoryPath: directoryPath)
         let content = try await SCShareableContent.current
-        guard let display = content.displays.first else {
+        guard let display = display(in: content, matching: region) else {
             throw CaptureServiceError.noDisplay
         }
 
-        let filter = SCContentFilter(display: display, excludingWindows: [])
+        let excludedWindows = includeAppWindows ? [] : content.windows.filter { window in
+            window.owningApplication?.processID == getpid()
+        }
+        let filter = SCContentFilter(display: display, excludingWindows: excludedWindows)
         let configuration = SCStreamConfiguration()
-        configuration.width = max(1280, display.width)
-        configuration.height = max(720, display.height)
+        let sourceRect = sourceRect(for: region, display: display)
+        if sourceRect != .zero {
+            configuration.sourceRect = sourceRect
+        }
+        configuration.width = max(80, Int(sourceRect == .zero ? Double(display.width) : sourceRect.width))
+        configuration.height = max(80, Int(sourceRect == .zero ? Double(display.height) : sourceRect.height))
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: 30)
         configuration.queueDepth = 8
         configuration.showsCursor = true
         configuration.showMouseClicks = true
         configuration.capturesAudio = true
         configuration.excludesCurrentProcessAudio = false
-        configuration.captureMicrophone = true
-        configuration.microphoneCaptureDeviceID = AVCaptureDevice.default(for: .audio)?.uniqueID
+        let captureMicrophoneInScreenRecording = microphoneEnabled && !microphoneNoiseReductionEnabled
+        configuration.captureMicrophone = captureMicrophoneInScreenRecording
+        configuration.microphoneCaptureDeviceID = captureMicrophoneInScreenRecording ? AVCaptureDevice.default(for: .audio)?.uniqueID : nil
 
         let recordingConfiguration = SCRecordingOutputConfiguration()
         recordingConfiguration.outputURL = outputURL
@@ -71,18 +87,55 @@ final class CaptureService: NSObject, ObservableObject {
         return outputURL
     }
 
+    private func display(in content: SCShareableContent, matching region: RecordingRegion?) -> SCDisplay? {
+        guard let region else {
+            return content.displays.first
+        }
+        return content.displays.first { $0.displayID == region.displayID } ?? content.displays.first
+    }
+
+    private func sourceRect(for region: RecordingRegion?, display: SCDisplay) -> CGRect {
+        guard let region, region.isUsable else { return .zero }
+
+        let width = min(max(80, region.width), Double(display.width))
+        let height = min(max(80, region.height), Double(display.height))
+        let x = min(max(0, region.x), max(0, Double(display.width) - width))
+        let y = min(max(0, region.y), max(0, Double(display.height) - height))
+        return CGRect(x: x, y: y, width: width, height: height)
+    }
+
     func stopDisplayRecording() async throws {
         guard let stream else {
             throw CaptureServiceError.notRecording
         }
 
-        try await stream.stopCapture()
+        try await withCheckedThrowingContinuation { continuation in
+            stopContinuation = continuation
+            Task { @MainActor in
+                do {
+                    try await stream.stopCapture()
+                } catch {
+                    completeStop(with: .failure(error))
+                }
+            }
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                if stopContinuation != nil {
+                    completeStop(with: .success(()))
+                }
+            }
+        }
         self.stream = nil
         self.recordingOutput = nil
         isRecording = false
     }
 
     fileprivate func handleFailure(_ error: Error) {
+        if stopContinuation != nil {
+            completeStop(with: .failure(error))
+            return
+        }
+
         lastErrorMessage = error.localizedDescription
         isRecording = false
     }
@@ -92,7 +145,24 @@ final class CaptureService: NSObject, ObservableObject {
     }
 
     fileprivate func handleFinished() {
+        if stopContinuation != nil {
+            completeStop(with: .success(()))
+            return
+        }
+
         isRecording = false
+    }
+
+    private func completeStop(with result: Result<Void, Error>) {
+        guard let continuation = stopContinuation else { return }
+        stopContinuation = nil
+
+        switch result {
+        case .success:
+            continuation.resume()
+        case .failure(let error):
+            continuation.resume(throwing: error)
+        }
     }
 }
 

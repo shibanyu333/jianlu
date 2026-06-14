@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import JianLuCore
 
@@ -12,29 +13,61 @@ final class AppState: ObservableObject {
     @Published var selectedProjectID: UUID?
     @Published var exportMessage: String?
     @Published var isExporting = false
-
-    let captureService = CaptureService()
-    let cameraCaptureService = CameraCaptureService()
-    let overlayService = OverlayService()
-    private let exportService = ExportService()
-    private let hotkeyService = HotkeyService()
-
-    private var activeScreenRecordingURL: URL?
-    private var activeCameraRecordingURL: URL?
-    private var recordingStartedAt: Date?
-
-    init() {
-        hotkeyService.start { [weak self] action in
-            self?.handleHotkey(action)
+    @Published var isStoppingRecording = false
+    @Published var isSelectingRegion = false
+    @Published var isPaused = false
+    @Published var renderedPreviewURLs: [UUID: URL] = [:]
+    @Published var renderedPreviewMessages: [UUID: String] = [:]
+    @Published var preferences: RecordingPreferences = AppState.loadPreferences() {
+        didSet {
+            AppState.savePreferences(preferences)
         }
     }
 
+    let captureService = CaptureService()
+    let cameraCaptureService = CameraCaptureService()
+    let microphoneCaptureService = MicrophoneCaptureService()
+    let overlayService = OverlayService()
+    private let exportService = ExportService()
+    private let previewExportService = ExportService()
+    private let hotkeyService = HotkeyService()
+    private let regionSelectionController = CaptureRegionSelectionWindowController()
+    private var statusBarController: StatusBarController?
+    private static let preferencesKey = "com.local.JianLu.recordingPreferences"
+
+    private var activeScreenRecordingURL: URL?
+    private var activeCameraRecordingURL: URL?
+    private var activeMicrophoneRecordingURL: URL?
+    private var recordingStartedAt: Date?
+    private var pauseStartedAt: TimeInterval?
+    private var pausedRanges: [(start: TimeInterval, end: TimeInterval)] = []
+    private var renderedPreviewTasks: [UUID: Task<Void, Never>] = [:]
+
+    init() {
+        hotkeyService.start(
+            zoomShortcutProvider: { [weak self] in
+                self?.preferences.zoomShortcut ?? .controlOptionCommandZ
+            },
+            handler: { [weak self] action in
+                self?.handleHotkey(action)
+            }
+        )
+        statusBarController = StatusBarController(appState: self)
+    }
+
     func toggleRecordingIntent() {
+        guard !isStoppingRecording else {
+            statusMessage = "正在停止录制，请稍候"
+            return
+        }
+
         Task {
             if isRecording {
                 await stopRecording()
+            } else if isSelectingRegion {
+                regionSelectionController.confirmSelection()
             } else {
-                await startRecording()
+                await beginRegionSelection()
             }
         }
     }
@@ -52,6 +85,10 @@ final class AppState: ObservableObject {
         if !snapshotBeforeRequest.screenRecordingGranted {
             PermissionService.requestScreenRecordingAccess()
             statusMessage = "请在系统设置中允许“简录”屏幕录制权限，然后重新打开 App"
+        }
+        if !snapshotBeforeRequest.shortcutMonitoringGranted {
+            PermissionService.requestShortcutMonitoringAccess()
+            statusMessage = "请在系统设置中允许“简录”辅助功能权限，否则缩放快捷键不会生效"
         }
 
         Task {
@@ -72,7 +109,38 @@ final class AppState: ObservableObject {
         PermissionService.openScreenRecordingSettings()
     }
 
-    private func startRecording() async {
+    func openShortcutMonitoringSettings() {
+        PermissionService.openShortcutMonitoringSettings()
+    }
+
+    private func beginRegionSelection() async {
+        guard await ensureRecordingPermissions() else { return }
+
+        isSelectingRegion = true
+        lastErrorMessage = nil
+        statusMessage = "拖拽选择录制区域，然后点击“开始录制”"
+        regionSelectionController.show(
+            initialRegion: preferences.lastSelectedRegion,
+            onStart: { [weak self] region in
+                Task { @MainActor [weak self] in
+                    await self?.startRecording(region: region)
+                }
+            },
+            onCancel: { [weak self] in
+                self?.cancelRegionSelection()
+            }
+        )
+        AppWindowUtility.minimizeMainWindows()
+    }
+
+    private func cancelRegionSelection() {
+        regionSelectionController.hide()
+        isSelectingRegion = false
+        statusMessage = "已取消录制"
+        AppWindowUtility.restoreMainWindows()
+    }
+
+    private func ensureRecordingPermissions() async -> Bool {
         refreshPermissions()
         if !permissionSnapshot.screenRecordingGranted {
             PermissionService.requestScreenRecordingAccess()
@@ -80,51 +148,117 @@ final class AppState: ObservableObject {
             statusMessage = "请在系统设置中允许“简录”屏幕录制权限，然后重新打开 App 再开始录制"
             lastErrorMessage = "屏幕录制权限尚未就绪。macOS 授权后通常需要重新打开 App。"
             isRecording = false
-            return
+            return false
+        }
+        if !permissionSnapshot.shortcutMonitoringGranted {
+            PermissionService.requestShortcutMonitoringAccess()
+            refreshPermissions()
+            statusMessage = "请在系统设置中允许“简录”辅助功能权限，然后再开始录制"
+            lastErrorMessage = "缩放快捷键和点击缩放需要“辅助功能”权限；未授权时全局鼠标/键盘事件收不到。"
+            isRecording = false
+            return false
         }
 
-        permissionSnapshot = await PermissionService.requestMediaAccess()
+        permissionSnapshot = await PermissionService.requestMediaAccess(
+            cameraEnabled: cameraEnabled,
+            microphoneEnabled: preferences.microphoneEnabled
+        )
 
-        switch RecordingPermissionGate.decision(for: permissionSnapshot.recordingState, cameraEnabled: cameraEnabled) {
+        switch RecordingPermissionGate.decision(
+            for: permissionSnapshot.recordingState,
+            cameraEnabled: cameraEnabled,
+            microphoneEnabled: preferences.microphoneEnabled
+        ) {
         case .allowed:
-            break
+            return true
         case .needsScreenRecordingPermission:
             PermissionService.requestScreenRecordingAccess()
             refreshPermissions()
             statusMessage = "请在系统设置中允许“简录”屏幕录制权限，然后重新打开 App 再开始录制"
             lastErrorMessage = "屏幕录制权限尚未就绪。macOS 授权后通常需要重新打开 App。"
             isRecording = false
-            return
+            return false
         case .missingMediaPermissions(let missing):
             statusMessage = "请先允许权限：\(missing.joined(separator: "、"))"
             lastErrorMessage = "缺少权限：\(missing.joined(separator: "、"))"
             isRecording = false
-            return
+            return false
         }
+    }
+
+    private func startRecording(region: RecordingRegion) async {
+        regionSelectionController.hide()
+        isSelectingRegion = false
+        preferences.lastSelectedRegion = region
+        AppWindowUtility.minimizeMainWindows()
+        var startupWarnings: [String] = []
+        var cameraEnabledForRecording = cameraEnabled
 
         do {
             if cameraEnabled {
-                cameraCaptureService.startPreviewIfNeeded()
-                activeCameraRecordingURL = try cameraCaptureService.startRecording()
+                do {
+                    activeCameraRecordingURL = try await cameraCaptureService.startRecording(preferences: preferences)
+                } catch {
+                    cameraEnabledForRecording = false
+                    cameraEnabled = false
+                    activeCameraRecordingURL = nil
+                    startupWarnings.append("摄像头不可用，已继续只录屏幕：\(error.localizedDescription)")
+                }
             }
 
             overlayService.beginRecording(
                 cameraSession: cameraCaptureService.previewSession,
-                cameraEnabled: cameraEnabled
+                cameraEnabled: cameraEnabledForRecording,
+                recordingRegion: region,
+                onStop: { [weak self] in
+                    self?.toggleRecordingIntent()
+                },
+                onTogglePause: { [weak self] in
+                    self?.togglePauseIntent()
+                }
             )
-            activeScreenRecordingURL = try await captureService.startDisplayRecording()
+            activeScreenRecordingURL = try await captureService.startDisplayRecording(
+                includeAppWindows: preferences.includeAppInterface,
+                microphoneEnabled: preferences.microphoneEnabled,
+                microphoneNoiseReductionEnabled: preferences.microphoneNoiseReductionEnabled,
+                region: region,
+                directoryPath: preferences.recordingDirectoryPath
+            )
+            if preferences.microphoneEnabled && preferences.microphoneNoiseReductionEnabled {
+                do {
+                    activeMicrophoneRecordingURL = try microphoneCaptureService.startRecording(preferences: preferences)
+                } catch {
+                    activeMicrophoneRecordingURL = nil
+                    startupWarnings.append("麦克风降噪不可用，已继续录制屏幕和系统声音：\(error.localizedDescription)")
+                }
+            }
             recordingStartedAt = Date()
+            pauseStartedAt = nil
+            pausedRanges = []
+            isPaused = false
+            overlayService.setPaused(false)
             isRecording = true
-            lastErrorMessage = nil
-            statusMessage = "录制中：缩放、标注和摄像头头像框会写入成片"
+            lastErrorMessage = startupWarnings.isEmpty ? nil : startupWarnings.joined(separator: "\n")
+            statusMessage = startupWarnings.isEmpty ? "录制中：顶部快捷栏可暂停或结束录制" : "录制中：部分设备已自动降级"
         } catch {
-            if cameraCaptureService.isRecording {
-                try? cameraCaptureService.stopRecording()
+            if captureService.isRecording {
+                try? await captureService.stopDisplayRecording()
+            }
+            if cameraCaptureService.hasActiveRecording {
+                try? await cameraCaptureService.stopRecording()
+            }
+            if microphoneCaptureService.hasActiveRecording {
+                try? microphoneCaptureService.stopRecording()
             }
             overlayService.endRecording()
+            AppWindowUtility.restoreMainWindows()
             activeScreenRecordingURL = nil
             activeCameraRecordingURL = nil
+            activeMicrophoneRecordingURL = nil
             recordingStartedAt = nil
+            pauseStartedAt = nil
+            pausedRanges = []
+            isPaused = false
             lastErrorMessage = error.localizedDescription
             statusMessage = "启动录制失败：\(error.localizedDescription)"
             isRecording = false
@@ -132,10 +266,33 @@ final class AppState: ObservableObject {
     }
 
     private func stopRecording() async {
+        guard !isStoppingRecording else { return }
+
+        isStoppingRecording = true
+        statusMessage = "正在停止录制..."
+        defer {
+            isStoppingRecording = false
+        }
+
         do {
+            closeActivePauseIfNeeded()
             try await captureService.stopDisplayRecording()
-            if cameraCaptureService.isRecording {
-                try cameraCaptureService.stopRecording()
+            var stopWarnings: [String] = []
+            if cameraCaptureService.hasActiveRecording {
+                do {
+                    try await cameraCaptureService.stopRecording()
+                } catch {
+                    activeCameraRecordingURL = nil
+                    stopWarnings.append("摄像头视频保存失败，已保留屏幕录制：\(error.localizedDescription)")
+                }
+            }
+            if microphoneCaptureService.hasActiveRecording {
+                do {
+                    try microphoneCaptureService.stopRecording()
+                } catch {
+                    activeMicrophoneRecordingURL = nil
+                    stopWarnings.append("降噪麦克风音轨保存失败，已保留屏幕录制：\(error.localizedDescription)")
+                }
             }
 
             if let screenURL = activeScreenRecordingURL {
@@ -143,42 +300,158 @@ final class AppState: ObservableObject {
                 let project = RecordingProject(
                     screenRecordingURL: screenURL,
                     cameraRecordingURL: activeCameraRecordingURL,
+                    microphoneRecordingURL: activeMicrophoneRecordingURL,
+                    sourceDuration: duration,
+                    preferences: preferences,
                     events: overlayService.events,
-                    timeline: .fullLength(duration: duration)
+                    timeline: timelineExcludingPausedRanges(duration: duration)
                 )
                 recentProjects.insert(project, at: 0)
                 selectedProjectID = project.id
+                refreshRenderedPreview(for: project)
             }
 
             activeScreenRecordingURL = nil
             activeCameraRecordingURL = nil
+            activeMicrophoneRecordingURL = nil
             recordingStartedAt = nil
+            pauseStartedAt = nil
+            pausedRanges = []
             overlayService.endRecording()
             isRecording = false
-            statusMessage = "录制已停止，可以进入剪辑和导出"
+            isPaused = false
+            lastErrorMessage = stopWarnings.isEmpty ? nil : stopWarnings.joined(separator: "\n")
+            statusMessage = stopWarnings.isEmpty ? "录制已停止，可以进入剪辑和导出" : "录制已停止，部分附加轨道已跳过"
+            AppWindowUtility.restoreMainWindows()
         } catch {
+            if cameraCaptureService.hasActiveRecording {
+                try? await cameraCaptureService.stopRecording()
+            }
+            if microphoneCaptureService.hasActiveRecording {
+                try? microphoneCaptureService.stopRecording()
+            }
+            activeScreenRecordingURL = nil
+            activeCameraRecordingURL = nil
+            activeMicrophoneRecordingURL = nil
+            recordingStartedAt = nil
+            pauseStartedAt = nil
+            pausedRanges = []
+            overlayService.endRecording()
+            isRecording = false
+            isPaused = false
+            AppWindowUtility.restoreMainWindows()
             lastErrorMessage = error.localizedDescription
             statusMessage = "停止录制失败：\(error.localizedDescription)"
         }
     }
 
+    func togglePauseIntent() {
+        guard isRecording, !isStoppingRecording else { return }
+
+        if isPaused {
+            closeActivePauseIfNeeded()
+            isPaused = false
+            overlayService.setPaused(false)
+            statusMessage = "已继续录制"
+        } else {
+            pauseStartedAt = currentRecordingTime
+            isPaused = true
+            overlayService.setPaused(true)
+            statusMessage = "录制已暂停，导出会自动跳过暂停段"
+        }
+    }
+
+    func chooseRecordingDirectory() {
+        let panel = NSOpenPanel()
+        panel.title = "选择默认保存目录"
+        panel.prompt = "使用此目录"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = RecordingFileStore.recordingsDirectory(path: preferences.recordingDirectoryPath)
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        preferences.recordingDirectoryPath = url.path
+        statusMessage = "默认保存目录已更新"
+    }
+
+    func openRecordingDirectory() {
+        let directory = RecordingFileStore.recordingsDirectory(path: preferences.recordingDirectoryPath)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(directory)
+    }
+
+    var recordingDirectoryDisplayPath: String {
+        RecordingFileStore.recordingsDirectory(path: preferences.recordingDirectoryPath).path
+    }
+
+    private func closeActivePauseIfNeeded() {
+        guard let pauseStartedAt else { return }
+        let end = max(pauseStartedAt, currentRecordingTime)
+        pausedRanges.append((pauseStartedAt, end))
+        self.pauseStartedAt = nil
+    }
+
+    private func timelineExcludingPausedRanges(duration: TimeInterval) -> EditTimeline {
+        var segments = [EditSegment(sourceStart: 0, sourceEnd: duration)]
+
+        for range in pausedRanges where range.end > range.start {
+            var nextSegments: [EditSegment] = []
+            for segment in segments {
+                if range.end <= segment.sourceStart || range.start >= segment.sourceEnd {
+                    nextSegments.append(segment)
+                    continue
+                }
+
+                if range.start > segment.sourceStart {
+                    nextSegments.append(EditSegment(sourceStart: segment.sourceStart, sourceEnd: range.start))
+                }
+                if range.end < segment.sourceEnd {
+                    nextSegments.append(EditSegment(sourceStart: range.end, sourceEnd: segment.sourceEnd))
+                }
+            }
+            segments = nextSegments
+        }
+
+        return EditTimeline(segments: segments.isEmpty ? [EditSegment(sourceStart: 0, sourceEnd: duration)] : segments)
+    }
+
     private func handleHotkey(_ action: HotkeyAction) {
         switch action {
-        case .toggleZoom:
-            overlayService.toggleZoom()
-            statusMessage = "已切换缩放效果"
+        case .beginHoldZoom:
+            guard isRecording else { return }
+            overlayService.beginHoldZoom()
+            statusMessage = "按住缩放：以鼠标位置放大"
+        case .endHoldZoom:
+            guard isRecording else { return }
+            overlayService.endHoldZoom()
+            statusMessage = "缩放已恢复"
+        case .beginClickZoom:
+            guard isRecording else { return }
+            overlayService.beginClickZoom()
+        case .endClickZoom:
+            guard isRecording else { return }
+            overlayService.endClickZoom()
         case .zoomIn:
             overlayService.adjustZoom(by: 0.2)
-            statusMessage = "缩放倍率 \(String(format: "%.1f", overlayService.zoomMagnification))x"
+            statusMessage = "临时缩放倍率 \(String(format: "%.1f", overlayService.zoomMagnification))x"
         case .zoomOut:
             overlayService.adjustZoom(by: -0.2)
-            statusMessage = "缩放倍率 \(String(format: "%.1f", overlayService.zoomMagnification))x"
+            statusMessage = "临时缩放倍率 \(String(format: "%.1f", overlayService.zoomMagnification))x"
         case .selectTool(let tool):
             overlayService.selectTool(tool)
-            statusMessage = "标注工具：\(tool.displayName)"
+            if overlayService.selectedTool == nil {
+                statusMessage = "标注工具已关闭，鼠标会穿透到其他软件"
+            } else {
+                statusMessage = "标注工具：\(tool.displayName)，再次选择可关闭"
+            }
         case .undo:
             overlayService.undoLastAnnotation()
             statusMessage = "已撤销上一笔标注"
+        case .clearAnnotations:
+            overlayService.clearAllAnnotations()
+            statusMessage = "已清除全部标注"
         case .toggleCamera:
             toggleCameraIntent()
         case .toggleCameraShape:
@@ -215,6 +488,7 @@ final class AppState: ObservableObject {
 
         if recentProjects[index].timeline.split(at: sourceTime) {
             recentProjects = recentProjects
+            refreshRenderedPreview(for: recentProjects[index], force: true)
             statusMessage = "已在 \(Int(sourceTime)) 秒处分割"
         }
     }
@@ -229,6 +503,7 @@ final class AppState: ObservableObject {
 
         if recentProjects[index].timeline.deleteSegment(id: lastSegment.id) {
             recentProjects = recentProjects
+            refreshRenderedPreview(for: recentProjects[index], force: true)
             statusMessage = "已删除最后一个片段"
         }
     }
@@ -248,5 +523,50 @@ final class AppState: ObservableObject {
             }
             isExporting = false
         }
+    }
+
+    func previewURL(for project: RecordingProject) -> URL {
+        renderedPreviewURLs[project.id] ?? project.screenRecordingURL
+    }
+
+    func previewMessage(for project: RecordingProject) -> String? {
+        renderedPreviewMessages[project.id]
+    }
+
+    private func refreshRenderedPreview(for project: RecordingProject, force: Bool = false) {
+        renderedPreviewTasks[project.id]?.cancel()
+        renderedPreviewURLs[project.id] = nil
+
+        guard force || project.needsRenderedPreview else {
+            renderedPreviewMessages[project.id] = nil
+            return
+        }
+
+        renderedPreviewMessages[project.id] = "正在生成带缩放、标注和摄像头的效果预览..."
+        renderedPreviewTasks[project.id] = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let outputURL = try await previewExportService.export(project: project, prefix: "preview")
+                guard !Task.isCancelled else { return }
+                renderedPreviewURLs[project.id] = outputURL
+                renderedPreviewMessages[project.id] = "效果预览已生成，下面播放的是合成后的画面。"
+            } catch {
+                guard !Task.isCancelled else { return }
+                renderedPreviewMessages[project.id] = "效果预览生成失败：\(error.localizedDescription)。导出成片仍可手动重试。"
+            }
+        }
+    }
+
+    private static func loadPreferences() -> RecordingPreferences {
+        guard let data = UserDefaults.standard.data(forKey: preferencesKey),
+              let preferences = try? JSONDecoder().decode(RecordingPreferences.self, from: data) else {
+            return .defaults
+        }
+        return preferences
+    }
+
+    private static func savePreferences(_ preferences: RecordingPreferences) {
+        guard let data = try? JSONEncoder().encode(preferences) else { return }
+        UserDefaults.standard.set(data, forKey: preferencesKey)
     }
 }
