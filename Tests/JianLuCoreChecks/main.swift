@@ -126,6 +126,27 @@ private func runTimelineChecks() {
     }
     expect(roundTrippedProject?.sourceDuration == 12, "project round trip preserves source duration")
     expect(roundTrippedProject?.needsRenderedPreview == true, "project round trip preserves rendered preview requirements")
+
+    let zoomedProject = RecordingProject(
+        screenRecordingURL: URL(fileURLWithPath: "/tmp/zoomed.mov"),
+        cameraRecordingURL: nil,
+        events: [
+            .zoom(ZoomEvent(time: 0.5, magnification: 1.8, focus: NormalizedPoint(x: 0.25, y: 0.35))),
+            .zoom(ZoomEvent(time: 2, magnification: 1, focus: NormalizedPoint(x: 0.25, y: 0.35))),
+            .zoom(ZoomEvent(time: 7, magnification: 2.2, focus: NormalizedPoint(x: 0.75, y: 0.4))),
+            .zoom(ZoomEvent(time: 9, magnification: 1, focus: NormalizedPoint(x: 0.75, y: 0.4)))
+        ],
+        timeline: EditTimeline(
+            segments: [
+                EditSegment(sourceStart: 0, sourceEnd: 4),
+                EditSegment(sourceStart: 6, sourceEnd: 10)
+            ]
+        )
+    )
+    let zoomStates = zoomedProject.exportedZoomStates()
+    expect(zoomStates.map(\.time) == [0, 0.5, 2, 5, 7], "zoom states are remapped through edited timeline")
+    expect(zoomStates[1].magnification == 1.8, "hold zoom records the enlarged state")
+    expect(zoomStates[3].focus == NormalizedPoint(x: 0.75, y: 0.4), "zoom focus is preserved after trimming")
 }
 
 private func runPreferenceChecks() {

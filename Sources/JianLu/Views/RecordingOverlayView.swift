@@ -14,7 +14,7 @@ struct RecordingOverlayView: View {
                 AnnotationCanvasView(overlay: overlay, captureRect: captureRect)
 
                 if overlay.isTransientZoomActive {
-                    ZoomFocusIndicatorView(overlay: overlay, captureRect: captureRect)
+                    LiveZoomMagnifierView(overlay: overlay, captureRect: captureRect)
                 }
 
                 if overlay.cameraVisible {
@@ -30,32 +30,79 @@ struct RecordingOverlayView: View {
     }
 }
 
-private struct ZoomFocusIndicatorView: View {
+private struct LiveZoomMagnifierView: View {
     @ObservedObject var overlay: OverlayService
     let captureRect: CGRect
 
     var body: some View {
-        let center = CGPoint(
+        let focus = CGPoint(
             x: captureRect.minX + overlay.currentZoomFocus.x * captureRect.width,
             y: captureRect.minY + overlay.currentZoomFocus.y * captureRect.height
         )
+        let previewSize = CGSize(width: 260, height: 180)
+        let position = clampedPosition(
+            near: CGPoint(x: focus.x + 150, y: focus.y - 118),
+            previewSize: previewSize
+        )
 
-        ZStack {
+        ZStack(alignment: .topLeading) {
+            ZStack {
+                if let image = overlay.zoomPreviewImage {
+                    Image(decorative: image, scale: 1, orientation: .up)
+                        .resizable()
+                        .interpolation(.high)
+                        .scaledToFill()
+                        .frame(width: previewSize.width, height: previewSize.height)
+                        .clipped()
+                } else {
+                    Color.black.opacity(0.58)
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(.white)
+                }
+
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(.white.opacity(0.92), lineWidth: 2)
+
+                VStack {
+                    Spacer()
+                    HStack {
+                        Text("\(String(format: "%.1f", overlay.zoomMagnification))x")
+                            .font(.callout.weight(.semibold).monospacedDigit())
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(.blue.opacity(0.88), in: Capsule())
+                        Spacer()
+                    }
+                    .padding(8)
+                }
+            }
+            .foregroundStyle(.white)
+            .frame(width: previewSize.width, height: previewSize.height)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .shadow(color: .black.opacity(0.28), radius: 16, y: 8)
+            .position(position)
+
             Circle()
-                .stroke(.blue.opacity(0.9), lineWidth: 4)
-                .background(Circle().fill(.blue.opacity(0.12)))
-            Text("\(String(format: "%.1f", overlay.zoomMagnification))x")
-                .font(.headline.monospacedDigit())
-                .foregroundStyle(.white)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(.blue.opacity(0.86), in: Capsule())
-                .offset(y: 52)
+                .fill(.blue)
+                .frame(width: 12, height: 12)
+                .overlay(Circle().stroke(.white, lineWidth: 2))
+                .position(focus)
         }
-        .frame(width: 120, height: 120)
-        .position(center)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .allowsHitTesting(false)
-        .transition(.scale.combined(with: .opacity))
+        .transition(.scale(scale: 0.96).combined(with: .opacity))
+    }
+
+    private func clampedPosition(near point: CGPoint, previewSize: CGSize) -> CGPoint {
+        let minX = captureRect.minX + previewSize.width / 2
+        let maxX = max(minX, captureRect.maxX - previewSize.width / 2)
+        let minY = captureRect.minY + previewSize.height / 2
+        let maxY = max(minY, captureRect.maxY - previewSize.height / 2)
+        return CGPoint(
+            x: min(max(minX, point.x), maxX),
+            y: min(max(minY, point.y), maxY)
+        )
     }
 }
 

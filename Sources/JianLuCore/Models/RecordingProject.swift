@@ -431,3 +431,66 @@ public struct RecordingProject: Codable, Identifiable, Equatable, Sendable {
         events.sort { $0.time < $1.time }
     }
 }
+
+public extension RecordingProject {
+    func exportedZoomStates() -> [ZoomEvent] {
+        let sourceZoomEvents = events.compactMap { event -> ZoomEvent? in
+            if case .zoom(let zoom) = event {
+                return zoom
+            }
+            return nil
+        }.sorted { $0.time < $1.time }
+
+        var exported: [ZoomEvent] = []
+        var exportCursor: TimeInterval = 0
+
+        for segment in timeline.segments {
+            let stateAtStart = latestZoomState(at: segment.sourceStart, in: sourceZoomEvents)
+            exported.append(
+                ZoomEvent(
+                    time: exportCursor,
+                    magnification: stateAtStart.magnification,
+                    focus: stateAtStart.focus
+                )
+            )
+
+            for event in sourceZoomEvents where event.time > segment.sourceStart && event.time < segment.sourceEnd {
+                exported.append(
+                    ZoomEvent(
+                        time: exportCursor + event.time - segment.sourceStart,
+                        magnification: event.magnification,
+                        focus: event.focus
+                    )
+                )
+            }
+
+            exportCursor += segment.duration
+        }
+
+        return coalescedZoomStates(exported)
+    }
+
+    private func latestZoomState(at sourceTime: TimeInterval, in events: [ZoomEvent]) -> ZoomEvent {
+        events.last { $0.time <= sourceTime } ?? ZoomEvent(
+            time: sourceTime,
+            magnification: 1,
+            focus: NormalizedPoint(x: 0.5, y: 0.5)
+        )
+    }
+
+    private func coalescedZoomStates(_ states: [ZoomEvent]) -> [ZoomEvent] {
+        var result: [ZoomEvent] = []
+        for state in states.sorted(by: { $0.time < $1.time }) {
+            if let last = result.last, abs(last.time - state.time) < 0.001 {
+                result[result.count - 1] = state
+            } else if let last = result.last,
+                      abs(last.magnification - state.magnification) < 0.001,
+                      last.focus == state.focus {
+                continue
+            } else {
+                result.append(state)
+            }
+        }
+        return result
+    }
+}
