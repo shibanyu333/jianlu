@@ -11,11 +11,11 @@ struct RecordingOverlayView: View {
             let captureRect = overlay.captureRect(in: geometry.size)
 
             ZStack(alignment: .topLeading) {
-                AnnotationCanvasView(overlay: overlay, captureRect: captureRect)
-
                 if overlay.isTransientZoomActive {
-                    LiveZoomMagnifierView(overlay: overlay, captureRect: captureRect)
+                    LiveZoomRegionView(overlay: overlay, captureRect: captureRect)
                 }
+
+                AnnotationCanvasView(overlay: overlay, captureRect: captureRect)
 
                 if overlay.cameraVisible {
                     CameraBubbleView(
@@ -30,88 +30,81 @@ struct RecordingOverlayView: View {
     }
 }
 
-private struct LiveZoomMagnifierView: View {
+private struct LiveZoomRegionView: View {
     @ObservedObject var overlay: OverlayService
     let captureRect: CGRect
 
     var body: some View {
-        let diameter = ZoomLensGeometry.lensDiameter(for: captureRect.size)
-        let lensSize = CGSize(width: diameter, height: diameter)
-        let geometry = ZoomLensGeometry(lensSize: lensSize)
-        let focus = geometry.focusPoint(in: captureRect, focus: overlay.currentZoomFocus)
-        let position = geometry.clampedLensCenter(in: captureRect, focus: overlay.currentZoomFocus)
+        let regionSize = captureRect.size
+        let geometry = ZoomLensGeometry(lensSize: regionSize)
+        let localFocus = geometry.focusPoint(
+            in: CGRect(origin: .zero, size: regionSize),
+            focus: overlay.currentZoomFocus
+        )
         let imageFrame = geometry.zoomedImageFrame(
-            captureSize: captureRect.size,
+            captureSize: regionSize,
             focus: overlay.currentZoomFocus,
             magnification: overlay.zoomMagnification
         )
 
         ZStack(alignment: .topLeading) {
-            ZStack {
-                if let image = overlay.zoomPreviewImage {
-                    ZStack(alignment: .topLeading) {
-                        Image(decorative: image, scale: 1, orientation: .up)
-                            .resizable()
-                            .interpolation(.high)
-                            .frame(width: imageFrame.width, height: imageFrame.height)
-                            .offset(x: imageFrame.minX, y: imageFrame.minY)
-                    }
-                    .frame(width: lensSize.width, height: lensSize.height)
-                    .clipped()
-                } else {
-                    RadialGradient(
-                        colors: [.blue.opacity(0.36), .black.opacity(0.62)],
-                        center: .center,
-                        startRadius: 8,
-                        endRadius: diameter / 2
-                    )
-                    Text("放大中")
-                        .font(.callout.weight(.semibold))
-                        .foregroundStyle(.white)
-                }
-
-                Circle()
-                    .stroke(.white.opacity(0.94), lineWidth: 3)
-                Circle()
-                    .stroke(.blue.opacity(0.85), lineWidth: 1)
-                    .padding(5)
-
-                Path { path in
-                    path.move(to: CGPoint(x: lensSize.width / 2 - 10, y: lensSize.height / 2))
-                    path.addLine(to: CGPoint(x: lensSize.width / 2 + 10, y: lensSize.height / 2))
-                    path.move(to: CGPoint(x: lensSize.width / 2, y: lensSize.height / 2 - 10))
-                    path.addLine(to: CGPoint(x: lensSize.width / 2, y: lensSize.height / 2 + 10))
-                }
-                .stroke(.white.opacity(0.88), lineWidth: 2)
-
-                VStack {
-                    Spacer()
-                    HStack {
-                        Text("\(String(format: "%.1f", overlay.zoomMagnification))x")
-                            .font(.callout.weight(.semibold).monospacedDigit())
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(.blue.opacity(0.88), in: Capsule())
-                        Spacer()
-                    }
-                    .padding(14)
-                }
+            if let image = overlay.zoomPreviewImage {
+                Image(decorative: image, scale: 1, orientation: .up)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: imageFrame.width, height: imageFrame.height)
+                    .offset(x: imageFrame.minX, y: imageFrame.minY)
+            } else {
+                Color.black.opacity(0.16)
+                Text("等待画面帧")
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(.blue.opacity(0.88), in: Capsule())
+                    .position(x: regionSize.width / 2, y: regionSize.height / 2)
             }
-            .foregroundStyle(.white)
-            .frame(width: lensSize.width, height: lensSize.height)
-            .clipShape(Circle())
-            .shadow(color: .black.opacity(0.32), radius: 18, y: 8)
-            .position(position)
 
-            Circle()
-                .fill(.blue)
-                .frame(width: 12, height: 12)
-                .overlay(Circle().stroke(.white, lineWidth: 2))
-                .position(focus)
+            Rectangle()
+                .stroke(.blue.opacity(0.92), lineWidth: 3)
+
+            FocusMarker()
+                .frame(width: 34, height: 34)
+                .position(localFocus)
+
+            Text("放大 \(String(format: "%.1f", overlay.zoomMagnification))x")
+                .font(.callout.weight(.semibold).monospacedDigit())
+                .foregroundStyle(.white)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(.blue.opacity(0.9), in: Capsule())
+                .padding(12)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(width: regionSize.width, height: regionSize.height)
+        .clipped()
+        .position(x: captureRect.midX, y: captureRect.midY)
+        .shadow(color: .black.opacity(0.2), radius: 14, y: 5)
         .allowsHitTesting(false)
-        .transition(.scale(scale: 0.96).combined(with: .opacity))
+        .transition(.opacity)
+    }
+}
+
+private struct FocusMarker: View {
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(.white.opacity(0.95), lineWidth: 3)
+            Circle()
+                .stroke(.blue.opacity(0.9), lineWidth: 2)
+                .padding(4)
+            Path { path in
+                path.move(to: CGPoint(x: 17, y: 5))
+                path.addLine(to: CGPoint(x: 17, y: 29))
+                path.move(to: CGPoint(x: 5, y: 17))
+                path.addLine(to: CGPoint(x: 29, y: 17))
+            }
+            .stroke(.white.opacity(0.9), lineWidth: 2)
+        }
     }
 }
 

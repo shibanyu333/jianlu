@@ -33,7 +33,7 @@ struct EditorView: View {
                 HStack(spacing: 8) {
                     ProgressView()
                         .controlSize(.small)
-                        .opacity(appState.renderedPreviewURLs[project.id] == nil ? 1 : 0)
+                        .opacity(appState.isRenderingPreview(for: project) ? 1 : 0)
                     Text(previewMessage)
                         .font(.callout)
                         .foregroundStyle(.secondary)

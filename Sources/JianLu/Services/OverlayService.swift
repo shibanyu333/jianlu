@@ -4,6 +4,7 @@ import CoreGraphics
 import Foundation
 import JianLuCore
 import os
+@preconcurrency import ScreenCaptureKit
 import SwiftUI
 
 @MainActor
@@ -30,6 +31,7 @@ final class OverlayService: ObservableObject {
     private var onTogglePause: (() -> Void)?
     private var screenFrameProvider: (() -> CGImage?)?
     private var zoomPreviewTimer: Timer?
+    private var zoomSnapshotInFlight = false
     private var didLogMissingZoomFrame = false
     private var lastRecordedZoomFocus = NormalizedPoint(x: 0.5, y: 0.5)
     private var lastZoomFocusRecordTime: TimeInterval = 0
@@ -57,6 +59,7 @@ final class OverlayService: ObservableObject {
         isTransientZoomActive = false
         currentZoomFocus = NormalizedPoint(x: 0.5, y: 0.5)
         zoomPreviewImage = nil
+        zoomSnapshotInFlight = false
         stopZoomPreviewTimer()
         self.recordingRegion = recordingRegion
         self.onStop = onStop
@@ -76,6 +79,7 @@ final class OverlayService: ObservableObject {
         zoomClickModeEnabled = false
         isTransientZoomActive = false
         zoomPreviewImage = nil
+        zoomSnapshotInFlight = false
         stopZoomPreviewTimer()
         recordingRegion = nil
         onStop = nil
@@ -311,11 +315,91 @@ final class OverlayService: ObservableObject {
     }
 
     private func requestZoomPreviewImage() {
-        zoomPreviewImage = screenFrameProvider?()
+        if let latestFrame = screenFrameProvider?() {
+            zoomPreviewImage = latestFrame
+            didLogMissingZoomFrame = false
+            return
+        }
+
+        requestFallbackZoomSnapshot()
         if zoomPreviewImage == nil, !didLogMissingZoomFrame {
             didLogMissingZoomFrame = true
             logger.warning("Live zoom has no screen frame yet")
         }
+    }
+
+    private func requestFallbackZoomSnapshot() {
+        guard !zoomSnapshotInFlight else { return }
+
+        zoomSnapshotInFlight = true
+        let region = recordingRegion
+        Task { [weak self] in
+            do {
+                let image = try await Self.captureFallbackZoomImage(region: region)
+                guard let self else { return }
+                self.zoomSnapshotInFlight = false
+                guard self.recordingStartedAt != nil, self.isTransientZoomActive else { return }
+                self.zoomPreviewImage = image
+                self.didLogMissingZoomFrame = false
+            } catch {
+                guard let self else { return }
+                self.zoomSnapshotInFlight = false
+                self.logger.warning("Fallback zoom snapshot failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    private static func captureFallbackZoomImage(region: RecordingRegion?) async throws -> CGImage {
+        let content = try await SCShareableContent.current
+        guard let display = display(in: content, matching: region) else {
+            throw CaptureServiceError.noDisplay
+        }
+
+        let excludedWindows = content.windows.filter { window in
+            window.owningApplication?.processID == getpid()
+        }
+        let filter = SCContentFilter(display: display, excludingWindows: excludedWindows)
+        let configuration = SCStreamConfiguration()
+        configureFallbackSnapshot(configuration, display: display, region: region)
+        configuration.showsCursor = true
+        configuration.showMouseClicks = true
+        return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+    }
+
+    private static func configureFallbackSnapshot(
+        _ configuration: SCStreamConfiguration,
+        display: SCDisplay,
+        region: RecordingRegion?
+    ) {
+        guard let region, region.isUsable else {
+            configuration.width = max(80, display.width)
+            configuration.height = max(80, display.height)
+            return
+        }
+
+        configuration.sourceRect = CGRect(
+            x: region.x,
+            y: region.y,
+            width: region.width,
+            height: region.height
+        )
+        configuration.width = max(80, Int(region.width))
+        configuration.height = max(80, Int(region.height))
+    }
+
+    private static func display(in content: SCShareableContent, matching region: RecordingRegion?) -> SCDisplay? {
+        guard let region else {
+            return content.displays.first
+        }
+        return content.displays.first { $0.displayID == region.displayID } ?? content.displays.first
+    }
+
+    private func screenForCurrentCapture(mouseLocation: CGPoint) -> NSScreen? {
+        if let recordingRegion,
+           let screen = NSScreen.screens.first(where: { $0.displayID == recordingRegion.displayID }) {
+            return screen
+        }
+        return NSScreen.screens.first { $0.frame.contains(mouseLocation) } ?? NSScreen.main
     }
 
     private func clamp(_ frame: NormalizedRect) -> NormalizedRect {
@@ -333,7 +417,7 @@ final class OverlayService: ObservableObject {
 
     private func normalizedMouseFocus() -> NormalizedPoint {
         let mouse = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main
+        let screen = screenForCurrentCapture(mouseLocation: mouse)
         let screenFrame = screen?.frame ?? NSRect(x: 0, y: 0, width: 1280, height: 720)
         return ZoomLensGeometry.normalizedFocus(
             mouseLocation: mouse,
@@ -346,5 +430,11 @@ final class OverlayService: ObservableObject {
 private extension NormalizedPoint {
     func distance(to other: NormalizedPoint) -> Double {
         hypot(x - other.x, y - other.y)
+    }
+}
+
+private extension NSScreen {
+    var displayID: UInt32 {
+        deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32 ?? 0
     }
 }
