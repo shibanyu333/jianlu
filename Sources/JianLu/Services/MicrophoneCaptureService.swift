@@ -45,33 +45,38 @@ final class MicrophoneCaptureService: ObservableObject {
 
         let input = engine.inputNode
         lastErrorMessage = nil
-        if preferences.microphoneNoiseReductionEnabled {
-            do {
-                try input.setVoiceProcessingEnabled(true)
-            } catch {
-                lastErrorMessage = "当前麦克风不支持系统降噪，已继续使用普通麦克风录制。"
+        do {
+            if preferences.microphoneNoiseReductionEnabled {
+                do {
+                    try input.setVoiceProcessingEnabled(true)
+                } catch {
+                    lastErrorMessage = "当前麦克风不支持系统降噪，已继续使用普通麦克风录制。"
+                }
+            } else {
+                try? input.setVoiceProcessingEnabled(false)
             }
-        } else {
-            try? input.setVoiceProcessingEnabled(false)
+
+            let format = input.outputFormat(forBus: 0)
+            guard format.channelCount > 0 else {
+                throw MicrophoneCaptureError.cannotCreateAudioFile
+            }
+
+            let file = try AVAudioFile(forWriting: outputURL, settings: format.settings)
+            outputFile = file
+            currentOutputURL = outputURL
+
+            input.removeTap(onBus: 0)
+            input.installTap(onBus: 0, bufferSize: 4096, format: format) { [file] buffer, _ in
+                try? file.write(from: buffer)
+            }
+
+            try engine.start()
+            isRecording = true
+            return outputURL
+        } catch {
+            cleanupAfterFailedStart(outputURL: outputURL)
+            throw error
         }
-
-        let format = input.outputFormat(forBus: 0)
-        guard format.channelCount > 0 else {
-            throw MicrophoneCaptureError.cannotCreateAudioFile
-        }
-
-        let file = try AVAudioFile(forWriting: outputURL, settings: format.settings)
-        outputFile = file
-        currentOutputURL = outputURL
-
-        input.removeTap(onBus: 0)
-        input.installTap(onBus: 0, bufferSize: 4096, format: format) { [file] buffer, _ in
-            try? file.write(from: buffer)
-        }
-
-        try engine.start()
-        isRecording = true
-        return outputURL
     }
 
     func stopRecording() throws {
@@ -85,5 +90,15 @@ final class MicrophoneCaptureService: ObservableObject {
         currentOutputURL = nil
         isRecording = false
         try? engine.inputNode.setVoiceProcessingEnabled(false)
+    }
+
+    private func cleanupAfterFailedStart(outputURL: URL) {
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
+        outputFile = nil
+        currentOutputURL = nil
+        isRecording = false
+        try? engine.inputNode.setVoiceProcessingEnabled(false)
+        try? FileManager.default.removeItem(at: outputURL)
     }
 }

@@ -150,4 +150,11 @@ let contentViewURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/Co
 let contentViewSource = (try? String(contentsOf: contentViewURL, encoding: .utf8)) ?? ""
 expect(contentViewSource.contains("输入监控"), "permission UI names Input Monitoring for zoom hotkeys")
 
+let microphoneCaptureServiceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/MicrophoneCaptureService.swift")
+let microphoneCaptureServiceSource = (try? String(contentsOf: microphoneCaptureServiceURL, encoding: .utf8)) ?? ""
+expect(microphoneCaptureServiceSource.contains("cleanupAfterFailedStart"), "microphone startup failures clean partial recorder state")
+expect(microphoneCaptureServiceSource.contains("engine.inputNode.removeTap(onBus: 0)"), "microphone startup cleanup removes any installed tap")
+expect(microphoneCaptureServiceSource.contains("try? engine.inputNode.setVoiceProcessingEnabled(false)"), "microphone startup cleanup disables voice processing")
+expect(microphoneCaptureServiceSource.contains("try? FileManager.default.removeItem(at: outputURL)"), "microphone startup cleanup removes incomplete audio files")
+
 print("JianLuBundleChecks passed")
