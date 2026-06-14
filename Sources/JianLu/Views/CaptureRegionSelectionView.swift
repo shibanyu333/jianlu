@@ -161,7 +161,7 @@ struct CaptureRegionSelectionView: View {
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
                     .shadow(radius: 12)
 
-                    Text("也可以再次按主录制快捷键确认当前区域")
+                    Text("Return 开始录制，Esc 取消，⌃⌥⌘R 也可确认当前区域")
                         .font(.caption)
                         .foregroundStyle(.white.opacity(0.86))
                         .shadow(radius: 4)

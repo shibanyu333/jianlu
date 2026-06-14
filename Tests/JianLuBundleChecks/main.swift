@@ -140,6 +140,8 @@ expect(regionSelectionSource.contains("@Published var isStarting"), "region sele
 expect(regionSelectionSource.contains("guard canStart, !isStarting else { return }"), "region selection confirms only once while recording starts")
 expect(regionSelectionSource.contains("Self.clamped("), "region selection clamps restored regions to the current screen")
 expect(regionSelectionSource.contains("private static func clamped"), "region selection has a static clamp helper usable during initialization")
+expect(regionSelectionSource.contains("Return 开始录制，Esc 取消，⌃⌥⌘R 也可确认当前区域"), "region selection shows the actual available keyboard actions")
+expect(!regionSelectionSource.contains("再次按主录制快捷键"), "region selection avoids vague shortcut wording")
 
 let regionSelectionControllerURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/CaptureRegionSelectionWindowController.swift")
 let regionSelectionController = (try? String(contentsOf: regionSelectionControllerURL, encoding: .utf8)) ?? ""
