@@ -53,7 +53,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     @objc private func showMainWindow() {
-        AppWindowUtility.restoreMainWindows()
+        AppWindowUtility.restoreOrCreateMainWindow()
     }
 
     @objc private func openRecordingDirectory() {

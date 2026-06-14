@@ -4,7 +4,14 @@ import SwiftUI
 @main
 struct JianLuApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @StateObject private var appState = AppState()
+    @StateObject private var appState = AppState.shared
+
+    init() {
+        DispatchQueue.main.async {
+            NSApp.setActivationPolicy(.regular)
+            AppWindowUtility.restoreOrCreateMainWindow()
+        }
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -39,11 +46,18 @@ struct JianLuApp: App {
     }
 }
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         DispatchQueue.main.async {
             NSApp.activate(ignoringOtherApps: true)
+            AppWindowUtility.restoreOrCreateMainWindow()
         }
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        AppWindowUtility.restoreOrCreateMainWindow()
+        return false
     }
 }

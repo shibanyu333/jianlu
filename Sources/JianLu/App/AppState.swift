@@ -4,6 +4,8 @@ import JianLuCore
 
 @MainActor
 final class AppState: ObservableObject {
+    static let shared = AppState()
+
     @Published var isRecording = false
     @Published var cameraEnabled = true {
         didSet {

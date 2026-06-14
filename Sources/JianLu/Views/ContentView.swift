@@ -143,7 +143,7 @@ private struct MainDashboardView: View {
             }
             if !appState.permissionSnapshot.shortcutMonitoringGranted {
                 HStack {
-                    Image(systemName: "keyboard.badge.exclamationmark")
+                    Image(systemName: "keyboard")
                         .foregroundStyle(.orange)
                     Text("按住缩放和点击缩放需要“辅助功能”和“输入监控”权限，否则录制时收不到快捷键和鼠标点击。")
                         .font(.callout)

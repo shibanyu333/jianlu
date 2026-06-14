@@ -78,6 +78,36 @@ let environment = (try? String(contentsOf: environmentURL, encoding: .utf8)) ?? 
 expect(environment.contains("name = \"Run\""), "Codex Run action exists")
 expect(environment.contains("command = \"./script/build_and_run.sh\""), "Codex Run action points at build_and_run.sh")
 
+let appSourceURL = projectRoot.appendingPathComponent("Sources/JianLu/App/JianLuApp.swift")
+let appSource = (try? String(contentsOf: appSourceURL, encoding: .utf8)) ?? ""
+expect(appSource.contains("applicationShouldHandleReopen"), "Dock reopen restores the main JianLu window")
+expect(appSource.contains("AppState.shared"), "WindowGroup and fallback AppKit window share one app state")
+expect(appSource.contains("init()"), "JianLu schedules fallback window creation during app initialization")
+expect(appSource.contains("AppWindowUtility.restoreOrCreateMainWindow()"), "app activation paths bring the main window forward")
+
+let appWindowUtilitySourceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/AppWindowUtility.swift")
+let appWindowUtilitySource = (try? String(contentsOf: appWindowUtilitySourceURL, encoding: .utf8)) ?? ""
+expect(appWindowUtilitySource.contains("fallbackMainWindowController"), "main window utility owns a reusable fallback main window")
+expect(appWindowUtilitySource.contains("NSHostingView"), "fallback main window hosts SwiftUI content")
+expect(appWindowUtilitySource.contains("ContentView()\n            .environmentObject(AppState.shared)"), "fallback main window shows the normal JianLu content")
+expect(appWindowUtilitySource.contains("window.isReleasedWhenClosed = false"), "fallback main window can be shown again after close")
+expect(appWindowUtilitySource.contains("restoreOrCreateMainWindow"), "main window utility restores or creates the main window")
+expect(
+    appWindowUtilitySource.contains("""
+        _ = restoreMainWindows()
+        showFallbackMainWindow()
+"""),
+    "main window utility always ensures the fallback main window exists"
+)
+expect(
+    appWindowUtilitySource.contains("""
+        let hasVisibleMainWindow = NSApp.windows.contains { window in
+            isMainAppWindow(window) && window.isVisible
+        }
+"""),
+    "main window restoration only succeeds when a visible main window exists"
+)
+
 let controlBarSourceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/RecordingControlBarWindowController.swift")
 let controlBarSource = (try? String(contentsOf: controlBarSourceURL, encoding: .utf8)) ?? ""
 expect(controlBarSource.contains(".nonactivatingPanel"), "recording control bar does not activate JianLu while recording")
@@ -220,6 +250,11 @@ expect(permissionServiceSource.contains("CGRequestListenEventAccess()"), "shortc
 let contentViewURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/ContentView.swift")
 let contentViewSource = (try? String(contentsOf: contentViewURL, encoding: .utf8)) ?? ""
 expect(contentViewSource.contains("输入监控"), "permission UI names Input Monitoring for zoom hotkeys")
+expect(!contentViewSource.contains("keyboard.badge.exclamationmark"), "permission UI avoids unavailable SF Symbols that prevent the main window from rendering")
+
+let statusBarControllerURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/StatusBarController.swift")
+let statusBarControllerSource = (try? String(contentsOf: statusBarControllerURL, encoding: .utf8)) ?? ""
+expect(statusBarControllerSource.contains("AppWindowUtility.restoreOrCreateMainWindow()"), "status bar can recreate a missing main window")
 
 let microphoneCaptureServiceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/MicrophoneCaptureService.swift")
 let microphoneCaptureServiceSource = (try? String(contentsOf: microphoneCaptureServiceURL, encoding: .utf8)) ?? ""
