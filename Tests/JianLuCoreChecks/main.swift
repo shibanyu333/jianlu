@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+@preconcurrency import AVFoundation
 import JianLuCore
 
 func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
@@ -13,6 +14,7 @@ expect(CoreVersion.name == "JianLuCore", "core module exposes its name")
 runTimelineChecks()
 runPermissionGateChecks()
 runPreferenceChecks()
+runVideoCompositorChecks()
 print("JianLuCoreChecks passed")
 
 private func runTimelineChecks() {
@@ -236,6 +238,223 @@ private func runPreferenceChecks() {
     expect(legacyPreferences?.zoomShortcut == .controlOptionCommandZ, "legacy preferences get the default zoom shortcut")
     expect(legacyPreferences?.cameraEnabled == true, "legacy preferences keep camera enabled by default")
     expect(legacyPreferences?.recordingDirectoryPath == "/tmp/legacy-jianlu", "legacy preferences keep the recording path")
+}
+
+private func runVideoCompositorChecks() {
+    let directory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        .appendingPathComponent("jianlu-core-checks-\(UUID().uuidString)", isDirectory: true)
+    do {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let screenURL = directory.appendingPathComponent("screen.mov")
+        let cameraURL = directory.appendingPathComponent("camera.mov")
+        let outputURL = directory.appendingPathComponent("composited.mov")
+        try makeSolidColorMovie(url: screenURL, size: CGSize(width: 200, height: 200), color: (r: 20, g: 70, b: 220))
+        try makeSolidColorMovie(url: cameraURL, size: CGSize(width: 120, height: 120), color: (r: 230, g: 40, b: 30))
+        try exportSyntheticCompositorMovie(screenURL: screenURL, cameraURL: cameraURL, outputURL: outputURL)
+
+        let frame = try firstFrameImage(from: outputURL)
+        let center = pixelColor(in: frame, x: 100, y: 100)
+        let maskedCorner = pixelColor(in: frame, x: 52, y: 52)
+        expect(center.r > 170 && center.g < 90 && center.b < 90, "circle camera compositor keeps camera visible at the center")
+        expect(maskedCorner.b > 150 && maskedCorner.r < 100, "circle camera compositor masks the camera corners")
+    } catch {
+        fputs("Video compositor check failed: \(error.localizedDescription)\n", stderr)
+        exit(1)
+    }
+}
+
+private func makeSolidColorMovie(
+    url: URL,
+    size: CGSize,
+    color: (r: UInt8, g: UInt8, b: UInt8),
+    frameCount: Int = 6
+) throws {
+    if FileManager.default.fileExists(atPath: url.path) {
+        try FileManager.default.removeItem(at: url)
+    }
+
+    let width = Int(size.width)
+    let height = Int(size.height)
+    let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
+    let input = AVAssetWriterInput(
+        mediaType: .video,
+        outputSettings: [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: width,
+            AVVideoHeightKey: height
+        ]
+    )
+    let adaptor = AVAssetWriterInputPixelBufferAdaptor(
+        assetWriterInput: input,
+        sourcePixelBufferAttributes: [
+            kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA),
+            kCVPixelBufferWidthKey as String: width,
+            kCVPixelBufferHeightKey as String: height,
+            kCVPixelBufferIOSurfacePropertiesKey as String: [:]
+        ]
+    )
+
+    guard writer.canAdd(input) else {
+        throw CheckError("cannot add synthetic video input")
+    }
+    writer.add(input)
+    guard writer.startWriting() else {
+        throw writer.error ?? CheckError("cannot start synthetic writer")
+    }
+    writer.startSession(atSourceTime: .zero)
+
+    guard let pool = adaptor.pixelBufferPool else {
+        throw CheckError("cannot create synthetic pixel buffer pool")
+    }
+    for frameIndex in 0..<frameCount {
+        while !input.isReadyForMoreMediaData {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        var pixelBuffer: CVPixelBuffer?
+        let result = CVPixelBufferPoolCreatePixelBuffer(nil, pool, &pixelBuffer)
+        guard result == kCVReturnSuccess, let pixelBuffer else {
+            throw CheckError("cannot create synthetic pixel buffer")
+        }
+        fill(pixelBuffer, width: width, height: height, color: color)
+        let time = CMTime(value: CMTimeValue(frameIndex), timescale: 30)
+        guard adaptor.append(pixelBuffer, withPresentationTime: time) else {
+            throw writer.error ?? CheckError("cannot append synthetic frame")
+        }
+    }
+
+    input.markAsFinished()
+    let semaphore = DispatchSemaphore(value: 0)
+    writer.finishWriting {
+        semaphore.signal()
+    }
+    semaphore.wait()
+    guard writer.status == .completed else {
+        throw writer.error ?? CheckError("synthetic writer did not complete")
+    }
+}
+
+private func fill(
+    _ pixelBuffer: CVPixelBuffer,
+    width: Int,
+    height: Int,
+    color: (r: UInt8, g: UInt8, b: UInt8)
+) {
+    CVPixelBufferLockBaseAddress(pixelBuffer, [])
+    defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, []) }
+
+    guard let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else { return }
+    let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
+    for y in 0..<height {
+        let row = baseAddress.advanced(by: y * bytesPerRow).assumingMemoryBound(to: UInt8.self)
+        for x in 0..<width {
+            let offset = x * 4
+            row[offset] = color.b
+            row[offset + 1] = color.g
+            row[offset + 2] = color.r
+            row[offset + 3] = 255
+        }
+    }
+}
+
+private func exportSyntheticCompositorMovie(screenURL: URL, cameraURL: URL, outputURL: URL) throws {
+    let screenAsset = AVURLAsset(url: screenURL)
+    let cameraAsset = AVURLAsset(url: cameraURL)
+    guard let screenTrack = screenAsset.tracks(withMediaType: .video).first,
+          let cameraTrack = cameraAsset.tracks(withMediaType: .video).first else {
+        throw CheckError("synthetic assets are missing tracks")
+    }
+
+    let composition = AVMutableComposition()
+    guard let compositionScreen = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid),
+          let compositionCamera = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+        throw CheckError("cannot create synthetic composition tracks")
+    }
+
+    let duration = CMTime(value: 6, timescale: 30)
+    let range = CMTimeRange(start: .zero, duration: duration)
+    try compositionScreen.insertTimeRange(range, of: screenTrack, at: .zero)
+    try compositionCamera.insertTimeRange(range, of: cameraTrack, at: .zero)
+
+    let videoComposition = AVMutableVideoComposition()
+    videoComposition.customVideoCompositorClass = CameraShapeVideoCompositor.self
+    videoComposition.renderSize = CGSize(width: 200, height: 200)
+    videoComposition.frameDuration = CMTime(value: 1, timescale: 30)
+    videoComposition.instructions = [
+        CameraShapeVideoCompositionInstruction(
+            timeRange: range,
+            screenTrackID: compositionScreen.trackID,
+            cameraTrackID: compositionCamera.trackID,
+            renderSize: CGSize(width: 200, height: 200),
+            zoomStates: [],
+            cameraStates: [
+                CameraLayoutEvent(
+                    time: 0,
+                    frame: NormalizedRect(x: 0.25, y: 0.25, width: 0.5, height: 0.5),
+                    shape: .circle,
+                    isVisible: true
+                )
+            ]
+        )
+    ]
+
+    guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
+        throw CheckError("cannot create synthetic export session")
+    }
+    export.outputURL = outputURL
+    export.outputFileType = .mov
+    export.videoComposition = videoComposition
+
+    let semaphore = DispatchSemaphore(value: 0)
+    export.exportAsynchronously {
+        semaphore.signal()
+    }
+    semaphore.wait()
+    guard export.status == .completed else {
+        throw export.error ?? CheckError("synthetic export did not complete")
+    }
+}
+
+private func firstFrameImage(from url: URL) throws -> CGImage {
+    let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+    generator.appliesPreferredTrackTransform = true
+    generator.requestedTimeToleranceBefore = .zero
+    generator.requestedTimeToleranceAfter = .zero
+    return try generator.copyCGImage(at: CMTime(value: 1, timescale: 30), actualTime: nil)
+}
+
+private func pixelColor(in image: CGImage, x: Int, y: Int) -> (r: UInt8, g: UInt8, b: UInt8, a: UInt8) {
+    let width = image.width
+    let height = image.height
+    var bytes = [UInt8](repeating: 0, count: width * height * 4)
+    let colorSpace = CGColorSpaceCreateDeviceRGB()
+    let context = CGContext(
+        data: &bytes,
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bytesPerRow: width * 4,
+        space: colorSpace,
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    )
+    context?.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+    let clampedX = min(max(0, x), width - 1)
+    let clampedY = min(max(0, y), height - 1)
+    let offset = (clampedY * width + clampedX) * 4
+    return (bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3])
+}
+
+private struct CheckError: LocalizedError {
+    let message: String
+
+    init(_ message: String) {
+        self.message = message
+    }
+
+    var errorDescription: String? {
+        message
+    }
 }
 
 private func runPermissionGateChecks() {

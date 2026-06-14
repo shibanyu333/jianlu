@@ -68,16 +68,12 @@ final class ExportService: ObservableObject {
             cursor = cursor + sourceRange.duration
         }
 
-        let screenInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: compositionVideo)
-        applyZoomEvents(project: project, to: screenInstruction, renderSize: normalizedRenderSize(for: screenTrack))
-        var layerInstructions: [AVVideoCompositionLayerInstruction] = [screenInstruction]
-
+        var cameraTrackID: CMPersistentTrackID?
         if let cameraURL = project.cameraRecordingURL {
-            try addCameraTrack(
+            cameraTrackID = try addCameraTrack(
                 from: cameraURL,
                 to: composition,
-                project: project,
-                layerInstructions: &layerInstructions
+                project: project
             )
         }
         if let microphoneURL = project.microphoneRecordingURL {
@@ -85,14 +81,30 @@ final class ExportService: ObservableObject {
         }
 
         let renderSize = normalizedRenderSize(for: screenTrack)
-        let instruction = AVMutableVideoCompositionInstruction()
-        instruction.timeRange = CMTimeRange(start: .zero, duration: cursor)
-        instruction.layerInstructions = layerInstructions
 
         let videoComposition = AVMutableVideoComposition()
         videoComposition.renderSize = renderSize
         videoComposition.frameDuration = CMTime(value: 1, timescale: 30)
-        videoComposition.instructions = [instruction]
+        if let cameraTrackID {
+            videoComposition.customVideoCompositorClass = CameraShapeVideoCompositor.self
+            videoComposition.instructions = [
+                CameraShapeVideoCompositionInstruction(
+                    timeRange: CMTimeRange(start: .zero, duration: cursor),
+                    screenTrackID: compositionVideo.trackID,
+                    cameraTrackID: cameraTrackID,
+                    renderSize: renderSize,
+                    zoomStates: project.exportedZoomStates(),
+                    cameraStates: project.exportedCameraLayoutStates()
+                )
+            ]
+        } else {
+            let screenInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: compositionVideo)
+            applyZoomEvents(project: project, to: screenInstruction, renderSize: renderSize)
+            let instruction = AVMutableVideoCompositionInstruction()
+            instruction.timeRange = CMTimeRange(start: .zero, duration: cursor)
+            instruction.layerInstructions = [screenInstruction]
+            videoComposition.instructions = [instruction]
+        }
         videoComposition.animationTool = makeAnimationTool(project: project, renderSize: renderSize, duration: CMTimeGetSeconds(cursor))
 
         guard let exportSession = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
@@ -120,13 +132,12 @@ final class ExportService: ObservableObject {
     private func addCameraTrack(
         from cameraURL: URL,
         to composition: AVMutableComposition,
-        project: RecordingProject,
-        layerInstructions: inout [AVVideoCompositionLayerInstruction]
-    ) throws {
+        project: RecordingProject
+    ) throws -> CMPersistentTrackID? {
         let cameraAsset = AVURLAsset(url: cameraURL)
         guard let cameraTrack = cameraAsset.tracks(withMediaType: .video).first,
               let compositionCamera = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
-            return
+            return nil
         }
 
         let cameraDuration = CMTimeGetSeconds(cameraAsset.duration)
@@ -149,68 +160,10 @@ final class ExportService: ObservableObject {
         }
 
         guard insertedCameraVideo else {
-            return
+            return nil
         }
 
-        let instruction = AVMutableVideoCompositionLayerInstruction(assetTrack: compositionCamera)
-        let renderSize = normalizedRenderSize(for: composition.tracks(withMediaType: .video).first ?? cameraTrack)
-        let cameraSize = normalizedRenderSize(for: cameraTrack)
-        applyCameraLayoutStates(
-            project: project,
-            to: instruction,
-            cameraTrack: cameraTrack,
-            cameraSize: cameraSize,
-            renderSize: renderSize
-        )
-        layerInstructions.insert(instruction, at: 0)
-    }
-
-    private func applyCameraLayoutStates(
-        project: RecordingProject,
-        to instruction: AVMutableVideoCompositionLayerInstruction,
-        cameraTrack: AVAssetTrack,
-        cameraSize: CGSize,
-        renderSize: CGSize
-    ) {
-        let states = project.exportedCameraLayoutStates()
-        guard let first = states.first else {
-            instruction.setTransform(
-                cameraTransform(frame: .defaultCameraFrame, cameraTrack: cameraTrack, cameraSize: cameraSize, renderSize: renderSize),
-                at: .zero
-            )
-            instruction.setOpacity(project.cameraRecordingURL == nil ? 0 : 1, at: .zero)
-            return
-        }
-
-        instruction.setTransform(
-            cameraTransform(frame: first.frame, cameraTrack: cameraTrack, cameraSize: cameraSize, renderSize: renderSize),
-            at: .zero
-        )
-        instruction.setOpacity(first.isVisible ? 1 : 0, at: .zero)
-
-        for state in states.dropFirst() {
-            let time = CMTime(seconds: state.time, preferredTimescale: 600)
-            instruction.setTransform(
-                cameraTransform(frame: state.frame, cameraTrack: cameraTrack, cameraSize: cameraSize, renderSize: renderSize),
-                at: time
-            )
-            instruction.setOpacity(state.isVisible ? 1 : 0, at: time)
-        }
-    }
-
-    private func cameraTransform(
-        frame: NormalizedRect,
-        cameraTrack: AVAssetTrack,
-        cameraSize: CGSize,
-        renderSize: CGSize
-    ) -> CGAffineTransform {
-        let targetWidth = renderSize.width * frame.width
-        let targetHeight = renderSize.height * frame.height
-        let scale = min(targetWidth / max(1, cameraSize.width), targetHeight / max(1, cameraSize.height))
-        let translation = CGAffineTransform(translationX: renderSize.width * frame.x, y: renderSize.height * frame.y)
-        return cameraTrack.preferredTransform
-            .concatenating(CGAffineTransform(scaleX: scale, y: scale))
-            .concatenating(translation)
+        return compositionCamera.trackID
     }
 
     private func addMicrophoneTrack(
