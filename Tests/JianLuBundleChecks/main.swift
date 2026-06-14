@@ -11,6 +11,10 @@ func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
     }
 }
 
+func occurrenceCount(of needle: String, in haystack: String) -> Int {
+    haystack.components(separatedBy: needle).count - 1
+}
+
 let arguments = CommandLine.arguments
 guard arguments.count >= 2 else {
     fail("usage: JianLuBundleChecks /path/to/app.bundle")
@@ -89,5 +93,17 @@ expect(controlBarSource.contains("recordingRegion.displayID"), "recording contro
 let appStateSourceURL = projectRoot.appendingPathComponent("Sources/JianLu/App/AppState.swift")
 let appStateSource = (try? String(contentsOf: appStateSourceURL, encoding: .utf8)) ?? ""
 expect(!appStateSource.contains("cameraEnabled = false"), "camera startup degradation does not rewrite the user's camera preference")
+expect(occurrenceCount(of: "restartHotkeyMonitoringIfAuthorized()", in: appStateSource) >= 3, "hotkey event tap is restarted after Accessibility permission changes")
+expect(occurrenceCount(of: "startHotkeyMonitoring()", in: appStateSource) >= 2, "hotkey monitoring startup is reusable after permissions are granted")
+expect(appStateSource.contains("输入监控"), "recording startup explains that zoom hotkeys also need Input Monitoring permission")
+
+let permissionServiceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/PermissionService.swift")
+let permissionServiceSource = (try? String(contentsOf: permissionServiceURL, encoding: .utf8)) ?? ""
+expect(permissionServiceSource.contains("CGPreflightListenEventAccess()"), "shortcut permission checks include macOS Input Monitoring")
+expect(permissionServiceSource.contains("CGRequestListenEventAccess()"), "shortcut permission requests include macOS Input Monitoring")
+
+let contentViewURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/ContentView.swift")
+let contentViewSource = (try? String(contentsOf: contentViewURL, encoding: .utf8)) ?? ""
+expect(contentViewSource.contains("输入监控"), "permission UI names Input Monitoring for zoom hotkeys")
 
 print("JianLuBundleChecks passed")

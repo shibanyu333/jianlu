@@ -145,14 +145,14 @@ private struct MainDashboardView: View {
                 HStack {
                     Image(systemName: "keyboard.badge.exclamationmark")
                         .foregroundStyle(.orange)
-                    Text("按住缩放和点击缩放需要“辅助功能”权限，否则录制时收不到快捷键和鼠标点击。")
+                    Text("按住缩放和点击缩放需要“辅助功能”和“输入监控”权限，否则录制时收不到快捷键和鼠标点击。")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                     Spacer()
                     Button {
                         appState.openShortcutMonitoringSettings()
                     } label: {
-                        Label("打开辅助功能设置", systemImage: "gear")
+                        Label("打开快捷键权限设置", systemImage: "gear")
                     }
                 }
                 .padding(12)
@@ -269,7 +269,8 @@ private struct PermissionPanel: View {
                 PermissionBadge(title: "屏幕录制", isGranted: snapshot.screenRecordingGranted)
                 PermissionBadge(title: "摄像头", isGranted: snapshot.cameraGranted)
                 PermissionBadge(title: "麦克风", isGranted: snapshot.microphoneGranted)
-                PermissionBadge(title: "快捷键监听", isGranted: snapshot.shortcutMonitoringGranted)
+                PermissionBadge(title: "辅助功能", isGranted: snapshot.shortcutAccessibilityGranted)
+                PermissionBadge(title: "输入监控", isGranted: snapshot.shortcutInputMonitoringGranted)
             }
         }
         .padding(16)

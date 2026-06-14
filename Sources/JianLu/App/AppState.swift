@@ -57,6 +57,14 @@ final class AppState: ObservableObject {
     init() {
         cameraEnabled = preferences.cameraEnabled
         selectedProjectID = recentProjects.first?.id
+        startHotkeyMonitoring()
+        statusBarController = StatusBarController(appState: self)
+        if let firstProject = recentProjects.first {
+            ensureRenderedPreview(for: firstProject)
+        }
+    }
+
+    private func startHotkeyMonitoring() {
         hotkeyService.start(
             zoomShortcutProvider: { [weak self] in
                 self?.preferences.zoomShortcut ?? .controlOptionCommandZ
@@ -65,10 +73,13 @@ final class AppState: ObservableObject {
                 self?.handleHotkey(action)
             }
         )
-        statusBarController = StatusBarController(appState: self)
-        if let firstProject = recentProjects.first {
-            ensureRenderedPreview(for: firstProject)
+    }
+
+    private func restartHotkeyMonitoringIfAuthorized() {
+        guard PermissionService.snapshot().shortcutMonitoringGranted else {
+            return
         }
+        startHotkeyMonitoring()
     }
 
     func toggleRecordingIntent() {
@@ -112,7 +123,7 @@ final class AppState: ObservableObject {
         }
         if !snapshotBeforeRequest.shortcutMonitoringGranted {
             PermissionService.requestShortcutMonitoringAccess()
-            statusMessage = "请在系统设置中允许“简录”辅助功能权限，否则缩放快捷键不会生效"
+            statusMessage = "请在系统设置中允许“简录”辅助功能和输入监控权限，否则缩放快捷键不会生效"
         }
 
         Task {
@@ -120,6 +131,7 @@ final class AppState: ObservableObject {
                 cameraEnabled: cameraEnabled,
                 microphoneEnabled: preferences.microphoneEnabled
             )
+            restartHotkeyMonitoringIfAuthorized()
             if permissionSnapshot.missingDescriptions.isEmpty {
                 statusMessage = "权限已就绪，可以开始录制"
             } else {
@@ -130,6 +142,7 @@ final class AppState: ObservableObject {
 
     func refreshPermissions() {
         permissionSnapshot = PermissionService.snapshot()
+        restartHotkeyMonitoringIfAuthorized()
     }
 
     func openScreenRecordingSettings() {
@@ -184,8 +197,8 @@ final class AppState: ObservableObject {
         if !permissionSnapshot.shortcutMonitoringGranted {
             PermissionService.requestShortcutMonitoringAccess()
             refreshPermissions()
-            statusMessage = "请在系统设置中允许“简录”辅助功能权限，然后再开始录制"
-            lastErrorMessage = "缩放快捷键和点击缩放需要“辅助功能”权限；未授权时全局鼠标/键盘事件收不到。"
+            statusMessage = "请在系统设置中允许“简录”辅助功能和输入监控权限，然后再开始录制"
+            lastErrorMessage = "缩放快捷键和点击缩放需要“辅助功能”和“输入监控”权限；未授权时全局鼠标/键盘事件收不到。"
             isRecording = false
             return false
         }
