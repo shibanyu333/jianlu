@@ -36,14 +36,15 @@ private struct LiveZoomRegionView: View {
 
     var body: some View {
         let captureSize = captureRect.size
-        let diameter = ZoomLensGeometry.lensDiameter(for: captureSize)
-        let lensSize = CGSize(width: diameter, height: diameter)
-        let geometry = ZoomLensGeometry(lensSize: lensSize)
-        let lensCenter = geometry.clampedLensCenter(in: captureRect, focus: overlay.currentZoomFocus)
-        let imageFrame = geometry.zoomedImageFrame(
+        let geometry = ZoomLensGeometry(lensSize: captureSize)
+        let imageFrame = geometry.zoomedRegionImageFrame(
             captureSize: captureSize,
             focus: overlay.currentZoomFocus,
             magnification: overlay.zoomMagnification
+        )
+        let focusPoint = geometry.focusPoint(
+            in: CGRect(origin: .zero, size: captureSize),
+            focus: overlay.currentZoomFocus
         )
 
         ZStack(alignment: .topLeading) {
@@ -58,24 +59,23 @@ private struct LiveZoomRegionView: View {
                 Image(systemName: "plus.magnifyingglass")
                     .font(.system(size: 34, weight: .semibold))
                     .foregroundStyle(.white)
-                    .frame(width: lensSize.width, height: lensSize.height)
+                    .position(focusPoint)
             }
 
             FocusMarker()
                 .frame(width: 34, height: 34)
-                .position(x: lensSize.width / 2, y: lensSize.height / 2)
+                .position(focusPoint)
         }
-        .frame(width: lensSize.width, height: lensSize.height)
-        .clipShape(Circle())
+        .frame(width: captureRect.width, height: captureRect.height)
         .overlay {
-            Circle()
+            Rectangle()
                 .stroke(.white.opacity(0.95), lineWidth: 3)
-            Circle()
+            Rectangle()
                 .stroke(.blue.opacity(0.95), lineWidth: 4)
                 .padding(3)
         }
         .clipped()
-        .position(lensCenter)
+        .position(x: captureRect.midX, y: captureRect.midY)
         .shadow(color: .black.opacity(0.28), radius: 18, y: 7)
         .allowsHitTesting(false)
         .transition(.opacity)
