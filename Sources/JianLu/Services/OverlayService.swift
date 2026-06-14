@@ -29,6 +29,7 @@ final class OverlayService: ObservableObject {
     private var controlBarWindow: RecordingControlBarWindowController?
     private var onStop: (() -> Void)?
     private var onTogglePause: (() -> Void)?
+    private var onToggleClickZoomMode: (() -> Void)?
     private var screenFrameProvider: (() -> CGImage?)?
     private var zoomPreviewTimer: Timer?
     private var zoomSnapshotInFlight = false
@@ -48,7 +49,8 @@ final class OverlayService: ObservableObject {
         recordingRegion: RecordingRegion?,
         screenFrameProvider: @escaping () -> CGImage?,
         onStop: @escaping () -> Void,
-        onTogglePause: @escaping () -> Void
+        onTogglePause: @escaping () -> Void,
+        onToggleClickZoomMode: @escaping () -> Void
     ) {
         recordingStartedAt = Date()
         cameraVisible = cameraEnabled
@@ -66,6 +68,7 @@ final class OverlayService: ObservableObject {
         self.onTogglePause = onTogglePause
         self.screenFrameProvider = screenFrameProvider
         didLogMissingZoomFrame = false
+        self.onToggleClickZoomMode = onToggleClickZoomMode
         annotations = []
         currentStrokePoints = []
         events = []
@@ -84,6 +87,7 @@ final class OverlayService: ObservableObject {
         recordingRegion = nil
         onStop = nil
         onTogglePause = nil
+        onToggleClickZoomMode = nil
         screenFrameProvider = nil
         didLogMissingZoomFrame = false
         hide()
@@ -141,6 +145,10 @@ final class OverlayService: ObservableObject {
 
     func requestTogglePause() {
         onTogglePause?()
+    }
+
+    func requestToggleClickZoomMode() {
+        onToggleClickZoomMode?()
     }
 
     func updateCameraFrame(_ frame: NormalizedRect) {

@@ -315,6 +315,9 @@ final class AppState: ObservableObject {
                 },
                 onTogglePause: { [weak self] in
                     self?.togglePauseIntent()
+                },
+                onToggleClickZoomMode: { [weak self] in
+                    self?.toggleClickZoomModeIntent()
                 }
             )
             activeScreenRecordingURL = try await captureService.startDisplayRecording(
@@ -486,6 +489,20 @@ final class AppState: ObservableObject {
             overlayService.setPaused(true)
             statusMessage = "录制已暂停，导出会自动跳过暂停段"
         }
+    }
+
+    func toggleClickZoomModeIntent() {
+        guard isRecording, !isStoppingRecording else { return }
+        guard !isPaused else {
+            overlayService.toggleClickZoomMode()
+            statusMessage = "录制已暂停，继续后可使用点击放大"
+            return
+        }
+
+        overlayService.toggleClickZoomMode()
+        statusMessage = overlayService.zoomClickModeEnabled
+            ? "点击放大已开启，按住鼠标左键即可放大重点区域"
+            : "点击放大已关闭"
     }
 
     func chooseRecordingDirectory() {

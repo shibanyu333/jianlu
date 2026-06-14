@@ -131,6 +131,8 @@ expect(controlBarSource.contains("screenFrame.width - horizontalInset * 2"), "re
 expect(!controlBarSource.contains("max(560"), "recording control bar avoids a hard minimum width that can exceed small screens")
 expect(controlBarViewSource.contains("ScrollView(.horizontal, showsIndicators: false)"), "recording control bar keeps all named controls reachable on narrow screens")
 expect(controlBarViewSource.contains("fixedSize(horizontal: true, vertical: false)"), "recording control bar does not squeeze button labels until they disappear")
+expect(controlBarViewSource.contains("overlay.requestToggleClickZoomMode()"), "click zoom toolbar action goes through the app intent feedback path")
+expect(!controlBarViewSource.contains("overlay.toggleClickZoomMode()"), "click zoom toolbar action is not a silent direct state toggle")
 
 let regionSelectionSourceURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/CaptureRegionSelectionView.swift")
 let regionSelectionSource = (try? String(contentsOf: regionSelectionSourceURL, encoding: .utf8)) ?? ""
@@ -165,6 +167,8 @@ expect(!recordingOverlayViewSource.contains(".clipShape(Circle())"), "live zoom 
 let overlayServiceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/OverlayService.swift")
 let overlayServiceSource = (try? String(contentsOf: overlayServiceURL, encoding: .utf8)) ?? ""
 expect(overlayServiceSource.contains("func setCameraVisibility(_ isVisible: Bool)"), "overlay can set camera visibility without relying on toggle state")
+expect(overlayServiceSource.contains("private var onToggleClickZoomMode"), "overlay can route click zoom requests back to app state")
+expect(overlayServiceSource.contains("func requestToggleClickZoomMode()"), "overlay exposes a click zoom request instead of silent toolbar mutation")
 expect(
     overlayServiceSource.contains("if zoomClickModeEnabled {\n            selectedTool = nil\n            currentStrokePoints = []\n        }"),
     "click zoom mode exits annotation tools"
@@ -218,6 +222,11 @@ expect(appStateSource.contains("cameraCaptureService.hasActiveRecording"), "reco
 expect(appStateSource.contains("overlayService.setCameraVisibility"), "recording camera toggle sets overlay visibility explicitly")
 expect(!appStateSource.contains("overlayService.toggleCameraVisibility()"), "recording camera toggle does not blindly invert overlay state")
 expect(appStateSource.contains("下一次录制会开启摄像头"), "recording camera toggle explains when enabling applies only to the next recording")
+expect(appStateSource.contains("func toggleClickZoomModeIntent()"), "app state owns click zoom feedback")
+expect(appStateSource.contains("点击放大已开启"), "click zoom enable action has visible Chinese feedback")
+expect(appStateSource.contains("点击放大已关闭"), "click zoom disable action has visible Chinese feedback")
+expect(appStateSource.contains("录制已暂停，继续后可使用点击放大"), "paused click zoom action has visible Chinese feedback")
+expect(appStateSource.contains("onToggleClickZoomMode:"), "recording overlay receives a click zoom intent callback")
 expect(appStateSource.contains("private var activeRecordingPreferences"), "recording stores a snapshot of preferences used for the active capture")
 expectOrder(
     "preferences.lastSelectedRegion = region",
