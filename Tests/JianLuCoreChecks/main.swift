@@ -397,6 +397,22 @@ private func runPreferenceChecks() {
 
     let usableRegion = RecordingRegion(displayID: 1, x: 20, y: 30, width: 640, height: 360)
     expect(usableRegion.isUsable, "normal recording regions are usable")
+    let screenCaptureSourceRect = usableRegion.screenCaptureSourceRect(
+        displayPointWidth: 1440,
+        displayPointHeight: 900
+    )
+    expect(
+        screenCaptureSourceRect == CGRect(x: 20, y: 30, width: 640, height: 360),
+        "ScreenCaptureKit source rect remains in display points on retina displays"
+    )
+    let screenCaptureOutputSize = usableRegion.screenCaptureOutputSize(
+        displayPixelWidth: 2880,
+        displayPixelHeight: 1800,
+        displayPointWidth: 1440,
+        displayPointHeight: 900
+    )
+    expect(screenCaptureOutputSize == CGSize(width: 1280, height: 720), "ScreenCaptureKit output size scales region points to pixels")
+
     let retinaSourceRect = usableRegion.sourceRect(
         displayPixelWidth: 2880,
         displayPixelHeight: 1800,

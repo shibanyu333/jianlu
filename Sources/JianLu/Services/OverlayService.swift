@@ -349,6 +349,7 @@ final class OverlayService: ObservableObject {
         }
     }
 
+    @MainActor
     private static func captureFallbackZoomImage(region: RecordingRegion?) async throws -> CGImage {
         let content = try await SCShareableContent.current
         guard let display = display(in: content, matching: region) else {
@@ -366,6 +367,7 @@ final class OverlayService: ObservableObject {
         return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
     }
 
+    @MainActor
     private static func configureFallbackSnapshot(
         _ configuration: SCStreamConfiguration,
         display: SCDisplay,
@@ -377,14 +379,25 @@ final class OverlayService: ObservableObject {
             return
         }
 
-        configuration.sourceRect = CGRect(
-            x: region.x,
-            y: region.y,
-            width: region.width,
-            height: region.height
+        let displayPointSize = pointSize(for: display)
+        let sourceRect = region.screenCaptureSourceRect(
+            displayPointWidth: displayPointSize.width,
+            displayPointHeight: displayPointSize.height
         )
-        configuration.width = max(80, Int(region.width))
-        configuration.height = max(80, Int(region.height))
+        let outputSize = region.screenCaptureOutputSize(
+            displayPixelWidth: Double(display.width),
+            displayPixelHeight: Double(display.height),
+            displayPointWidth: displayPointSize.width,
+            displayPointHeight: displayPointSize.height
+        )
+        configuration.sourceRect = CGRect(
+            x: sourceRect.minX,
+            y: sourceRect.minY,
+            width: sourceRect.width,
+            height: sourceRect.height
+        )
+        configuration.width = max(80, Int(outputSize.width.rounded()))
+        configuration.height = max(80, Int(outputSize.height.rounded()))
     }
 
     private static func display(in content: SCShareableContent, matching region: RecordingRegion?) -> SCDisplay? {
@@ -392,6 +405,12 @@ final class OverlayService: ObservableObject {
             return content.displays.first
         }
         return content.displays.first { $0.displayID == region.displayID } ?? content.displays.first
+    }
+
+    @MainActor
+    private static func pointSize(for display: SCDisplay) -> CGSize {
+        let screen = NSScreen.screens.first { $0.displayID == display.displayID }
+        return screen?.frame.size ?? CGSize(width: display.width, height: display.height)
     }
 
     private func screenForCurrentCapture(mouseLocation: CGPoint) -> NSScreen? {

@@ -206,6 +206,31 @@ public struct RecordingRegion: Codable, Equatable, Sendable {
         self.height = max(0, height)
     }
 
+    public func screenCaptureSourceRect(
+        displayPointWidth: Double,
+        displayPointHeight: Double
+    ) -> CGRect {
+        let pointWidth = min(max(80, width), max(80, displayPointWidth))
+        let pointHeight = min(max(80, height), max(80, displayPointHeight))
+        let pointX = min(max(0, x), max(0, displayPointWidth - pointWidth))
+        let pointY = min(max(0, y), max(0, displayPointHeight - pointHeight))
+        return CGRect(x: pointX, y: pointY, width: pointWidth, height: pointHeight)
+    }
+
+    public func screenCaptureOutputSize(
+        displayPixelWidth: Double,
+        displayPixelHeight: Double,
+        displayPointWidth: Double,
+        displayPointHeight: Double
+    ) -> CGSize {
+        sourceRect(
+            displayPixelWidth: displayPixelWidth,
+            displayPixelHeight: displayPixelHeight,
+            displayPointWidth: displayPointWidth,
+            displayPointHeight: displayPointHeight
+        ).size
+    }
+
     public func sourceRect(
         displayPixelWidth: Double,
         displayPixelHeight: Double,
@@ -214,10 +239,14 @@ public struct RecordingRegion: Codable, Equatable, Sendable {
     ) -> CGRect {
         let scaleX = displayPixelWidth / max(1, displayPointWidth)
         let scaleY = displayPixelHeight / max(1, displayPointHeight)
-        let pixelWidth = min(max(80, width * scaleX), max(80, displayPixelWidth))
-        let pixelHeight = min(max(80, height * scaleY), max(80, displayPixelHeight))
-        let pixelX = min(max(0, x * scaleX), max(0, displayPixelWidth - pixelWidth))
-        let pixelY = min(max(0, y * scaleY), max(0, displayPixelHeight - pixelHeight))
+        let sourceRect = screenCaptureSourceRect(
+            displayPointWidth: displayPointWidth,
+            displayPointHeight: displayPointHeight
+        )
+        let pixelWidth = min(max(80, sourceRect.width * scaleX), max(80, displayPixelWidth))
+        let pixelHeight = min(max(80, sourceRect.height * scaleY), max(80, displayPixelHeight))
+        let pixelX = min(max(0, sourceRect.minX * scaleX), max(0, displayPixelWidth - pixelWidth))
+        let pixelY = min(max(0, sourceRect.minY * scaleY), max(0, displayPixelHeight - pixelHeight))
         return CGRect(x: pixelX, y: pixelY, width: pixelWidth, height: pixelHeight)
     }
 }

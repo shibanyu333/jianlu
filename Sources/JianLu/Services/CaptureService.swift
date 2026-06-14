@@ -64,8 +64,9 @@ final class CaptureService: NSObject, ObservableObject {
         if sourceRect != .zero {
             configuration.sourceRect = sourceRect
         }
-        configuration.width = max(80, Int(sourceRect == .zero ? Double(display.width) : sourceRect.width))
-        configuration.height = max(80, Int(sourceRect == .zero ? Double(display.height) : sourceRect.height))
+        let outputSize = outputSize(for: region, display: display)
+        configuration.width = max(80, Int(outputSize.width.rounded()))
+        configuration.height = max(80, Int(outputSize.height.rounded()))
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: 30)
         configuration.queueDepth = 8
         configuration.showsCursor = true
@@ -110,7 +111,19 @@ final class CaptureService: NSObject, ObservableObject {
         guard let region, region.isUsable else { return .zero }
 
         let displayPointSize = pointSize(for: display)
-        return region.sourceRect(
+        return region.screenCaptureSourceRect(
+            displayPointWidth: displayPointSize.width,
+            displayPointHeight: displayPointSize.height
+        )
+    }
+
+    private func outputSize(for region: RecordingRegion?, display: SCDisplay) -> CGSize {
+        guard let region, region.isUsable else {
+            return CGSize(width: display.width, height: display.height)
+        }
+
+        let displayPointSize = pointSize(for: display)
+        return region.screenCaptureOutputSize(
             displayPixelWidth: Double(display.width),
             displayPixelHeight: Double(display.height),
             displayPointWidth: displayPointSize.width,
