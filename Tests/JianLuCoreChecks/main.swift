@@ -489,18 +489,61 @@ private func runVideoCompositorChecks() async throws {
     let annotatedOutputURL = directory.appendingPathComponent("composited-annotated.mov")
     try makeSolidColorMovie(url: screenURL, size: CGSize(width: 200, height: 200), color: (r: 20, g: 70, b: 220))
     try makeSolidColorMovie(url: cameraURL, size: CGSize(width: 120, height: 120), color: (r: 230, g: 40, b: 30))
-    try await exportSyntheticCompositorMovie(screenURL: screenURL, cameraURL: cameraURL, outputURL: outputURL, overlaysAnnotation: false)
+    do {
+        try await exportSyntheticCompositorMovie(screenURL: screenURL, cameraURL: cameraURL, outputURL: outputURL, overlaysAnnotation: false)
+    } catch {
+        throw CheckError("camera compositor export failed: \(error.localizedDescription)")
+    }
 
-    let frame = try await firstFrameImage(from: outputURL)
+    let frame: CGImage
+    do {
+        frame = try await firstFrameImage(from: outputURL)
+    } catch {
+        throw CheckError("camera compositor frame read failed: \(error.localizedDescription)")
+    }
     let center = pixelColor(in: frame, x: 100, y: 100)
     let maskedCorner = pixelColor(in: frame, x: 52, y: 52)
     expect(center.r > 170 && center.g < 90 && center.b < 90, "circle camera compositor keeps camera visible at the center")
     expect(maskedCorner.b > 150 && maskedCorner.r < 100, "circle camera compositor masks the camera corners")
 
-    try await exportSyntheticCompositorMovie(screenURL: screenURL, cameraURL: cameraURL, outputURL: annotatedOutputURL, overlaysAnnotation: true)
-    let annotatedFrame = try await firstFrameImage(from: annotatedOutputURL)
+    do {
+        try await exportSyntheticCompositorMovie(screenURL: screenURL, cameraURL: cameraURL, outputURL: annotatedOutputURL, overlaysAnnotation: true)
+    } catch {
+        throw CheckError("annotated compositor export failed: \(error.localizedDescription)")
+    }
+    let annotatedFrame: CGImage
+    do {
+        annotatedFrame = try await firstFrameImage(from: annotatedOutputURL)
+    } catch {
+        throw CheckError("annotated compositor frame read failed: \(error.localizedDescription)")
+    }
     let annotatedCenter = pixelColor(in: annotatedFrame, x: 100, y: 100)
     expect(annotatedCenter.g > 150 && annotatedCenter.r < 120, "camera compositor still renders annotation overlays")
+
+    let zoomSourceURL = directory.appendingPathComponent("zoom-source.mov")
+    let zoomOutputURL = directory.appendingPathComponent("zoomed.mov")
+    do {
+        try makeQuadrantMovie(url: zoomSourceURL, size: CGSize(width: 200, height: 200))
+        try await exportSyntheticCompositorMovie(
+            screenURL: zoomSourceURL,
+            cameraURL: nil,
+            outputURL: zoomOutputURL,
+            zoomStates: [
+                ZoomEvent(time: 0, magnification: 2, focus: NormalizedPoint(x: 0.25, y: 0.25))
+            ],
+            overlaysAnnotation: false
+        )
+    } catch {
+        throw CheckError("custom compositor zoom-only export failed: \(error.localizedDescription)")
+    }
+    let zoomedFrame: CGImage
+    do {
+        zoomedFrame = try await firstFrameImage(from: zoomOutputURL)
+    } catch {
+        throw CheckError("custom compositor zoom-only frame read failed: \(error.localizedDescription)")
+    }
+    let zoomedCenter = pixelColor(in: zoomedFrame, x: 100, y: 100)
+    expect(zoomedCenter.g > 170 && zoomedCenter.r < 90 && zoomedCenter.b < 90, "custom compositor zooms the selected screen region into the center")
 }
 
 private func makeSolidColorMovie(
@@ -508,6 +551,23 @@ private func makeSolidColorMovie(
     size: CGSize,
     color: (r: UInt8, g: UInt8, b: UInt8),
     frameCount: Int = 6
+) throws {
+    try makeSyntheticMovie(url: url, size: size, frameCount: frameCount) { pixelBuffer, width, height in
+        fill(pixelBuffer, width: width, height: height, color: color)
+    }
+}
+
+private func makeQuadrantMovie(url: URL, size: CGSize, frameCount: Int = 6) throws {
+    try makeSyntheticMovie(url: url, size: size, frameCount: frameCount) { pixelBuffer, width, height in
+        fillQuadrants(pixelBuffer, width: width, height: height)
+    }
+}
+
+private func makeSyntheticMovie(
+    url: URL,
+    size: CGSize,
+    frameCount: Int,
+    fillFrame: (CVPixelBuffer, Int, Int) -> Void
 ) throws {
     if FileManager.default.fileExists(atPath: url.path) {
         try FileManager.default.removeItem(at: url)
@@ -555,7 +615,7 @@ private func makeSolidColorMovie(
         guard result == kCVReturnSuccess, let pixelBuffer else {
             throw CheckError("cannot create synthetic pixel buffer")
         }
-        fill(pixelBuffer, width: width, height: height, color: color)
+        fillFrame(pixelBuffer, width, height)
         let time = CMTime(value: CMTimeValue(frameIndex), timescale: 30)
         guard adaptor.append(pixelBuffer, withPresentationTime: time) else {
             throw writer.error ?? CheckError("cannot append synthetic frame")
@@ -596,24 +656,78 @@ private func fill(
     }
 }
 
-private func exportSyntheticCompositorMovie(screenURL: URL, cameraURL: URL, outputURL: URL, overlaysAnnotation: Bool) async throws {
+private func fillQuadrants(
+    _ pixelBuffer: CVPixelBuffer,
+    width: Int,
+    height: Int
+) {
+    CVPixelBufferLockBaseAddress(pixelBuffer, [])
+    defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, []) }
+
+    guard let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else { return }
+    let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
+    for y in 0..<height {
+        let row = baseAddress.advanced(by: y * bytesPerRow).assumingMemoryBound(to: UInt8.self)
+        for x in 0..<width {
+            let color: (r: UInt8, g: UInt8, b: UInt8)
+            if y < height / 2, x < width / 2 {
+                color = (r: 30, g: 220, b: 50)
+            } else if y < height / 2 {
+                color = (r: 30, g: 70, b: 220)
+            } else if x < width / 2 {
+                color = (r: 230, g: 40, b: 30)
+            } else {
+                color = (r: 230, g: 220, b: 30)
+            }
+
+            let offset = x * 4
+            row[offset] = color.b
+            row[offset + 1] = color.g
+            row[offset + 2] = color.r
+            row[offset + 3] = 255
+        }
+    }
+}
+
+private func exportSyntheticCompositorMovie(
+    screenURL: URL,
+    cameraURL: URL?,
+    outputURL: URL,
+    zoomStates: [ZoomEvent] = [],
+    overlaysAnnotation: Bool
+) async throws {
     let screenAsset = AVURLAsset(url: screenURL)
-    let cameraAsset = AVURLAsset(url: cameraURL)
-    guard let screenTrack = try await screenAsset.loadTracks(withMediaType: .video).first,
-          let cameraTrack = try await cameraAsset.loadTracks(withMediaType: .video).first else {
-        throw CheckError("synthetic assets are missing tracks")
+    guard let screenTrack = try await screenAsset.loadTracks(withMediaType: .video).first else {
+        throw CheckError("synthetic screen asset is missing a video track")
+    }
+
+    let cameraAsset = cameraURL.map { AVURLAsset(url: $0) }
+    let cameraTrack: AVAssetTrack?
+    if let cameraAsset {
+        cameraTrack = try await cameraAsset.loadTracks(withMediaType: .video).first
+        guard cameraTrack != nil else {
+            throw CheckError("synthetic camera asset is missing a video track")
+        }
+    } else {
+        cameraTrack = nil
     }
 
     let composition = AVMutableComposition()
-    guard let compositionScreen = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid),
-          let compositionCamera = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
-        throw CheckError("cannot create synthetic composition tracks")
+    guard let compositionScreen = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+        throw CheckError("cannot create synthetic screen composition track")
     }
 
     let duration = CMTime(value: 6, timescale: 30)
     let range = CMTimeRange(start: .zero, duration: duration)
     try compositionScreen.insertTimeRange(range, of: screenTrack, at: .zero)
-    try compositionCamera.insertTimeRange(range, of: cameraTrack, at: .zero)
+    var compositionCameraTrackID: CMPersistentTrackID?
+    if let cameraTrack {
+        guard let compositionCamera = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+            throw CheckError("cannot create synthetic camera composition track")
+        }
+        try compositionCamera.insertTimeRange(range, of: cameraTrack, at: .zero)
+        compositionCameraTrackID = compositionCamera.trackID
+    }
 
     let videoComposition = AVMutableVideoComposition()
     videoComposition.customVideoCompositorClass = CameraShapeVideoCompositor.self
@@ -623,9 +737,9 @@ private func exportSyntheticCompositorMovie(screenURL: URL, cameraURL: URL, outp
         CameraShapeVideoCompositionInstruction(
             timeRange: range,
             screenTrackID: compositionScreen.trackID,
-            cameraTrackID: compositionCamera.trackID,
+            cameraTrackID: compositionCameraTrackID,
             renderSize: CGSize(width: 200, height: 200),
-            zoomStates: [],
+            zoomStates: zoomStates,
             cameraStates: [
                 CameraLayoutEvent(
                     time: 0,
@@ -645,7 +759,11 @@ private func exportSyntheticCompositorMovie(screenURL: URL, cameraURL: URL, outp
     }
     export.videoComposition = videoComposition
 
-    try await export.export(to: outputURL, as: .mov)
+    do {
+        try await export.export(to: outputURL, as: .mov)
+    } catch {
+        throw CheckError("synthetic export failed: \(error.localizedDescription)")
+    }
 }
 
 private func annotationAnimationTool(renderSize: CGSize) -> AVVideoCompositionCoreAnimationTool {

@@ -91,7 +91,9 @@ final class ExportService: ObservableObject {
         let videoComposition = AVMutableVideoComposition()
         videoComposition.renderSize = renderSize
         videoComposition.frameDuration = CMTime(value: 1, timescale: 30)
-        if let cameraTrackID {
+        let zoomStates = project.exportedZoomStates()
+        let hasActiveZoom = zoomStates.contains { $0.magnification > 1.001 }
+        if cameraTrackID != nil || hasActiveZoom {
             videoComposition.customVideoCompositorClass = CameraShapeVideoCompositor.self
             videoComposition.instructions = [
                 CameraShapeVideoCompositionInstruction(
@@ -99,7 +101,7 @@ final class ExportService: ObservableObject {
                     screenTrackID: compositionVideo.trackID,
                     cameraTrackID: cameraTrackID,
                     renderSize: renderSize,
-                    zoomStates: project.exportedZoomStates(),
+                    zoomStates: zoomStates,
                     cameraStates: project.exportedCameraLayoutStates()
                 )
             ]
