@@ -162,7 +162,7 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
         self.cameraBackgroundStyle = cameraBackgroundStyle
         self.cameraBackgroundBlur = cameraBackgroundBlur
         self.cameraBeautyLevel = min(max(cameraBeautyLevel, 0), 1)
-        self.cameraFrame = cameraFrame
+        self.cameraFrame = cameraFrame.clampedCameraFrame
         self.cameraShape = cameraShape
         self.zoomShortcut = zoomShortcut
         self.recordingDirectoryPath = recordingDirectoryPath
@@ -178,7 +178,7 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
         cameraBackgroundStyle = (try? container.decodeIfPresent(CameraBackgroundStyle.self, forKey: .cameraBackgroundStyle)) ?? .original
         cameraBackgroundBlur = (try? container.decodeIfPresent(CameraBackgroundBlur.self, forKey: .cameraBackgroundBlur)) ?? .light
         cameraBeautyLevel = min(max(try container.decodeIfPresent(Double.self, forKey: .cameraBeautyLevel) ?? 0.25, 0), 1)
-        cameraFrame = try container.decodeIfPresent(NormalizedRect.self, forKey: .cameraFrame) ?? .defaultCameraFrame
+        cameraFrame = (try container.decodeIfPresent(NormalizedRect.self, forKey: .cameraFrame) ?? .defaultCameraFrame).clampedCameraFrame
         cameraShape = (try? container.decodeIfPresent(CameraFrameShape.self, forKey: .cameraShape)) ?? .circle
         zoomShortcut = (try? container.decodeIfPresent(ZoomShortcut.self, forKey: .zoomShortcut)) ?? .controlOptionCommandZ
         recordingDirectoryPath = try container.decodeIfPresent(String.self, forKey: .recordingDirectoryPath)

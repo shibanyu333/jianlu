@@ -509,6 +509,18 @@ private func runPreferenceChecks() {
     expect(AnnotationTool.ellipse.isShapeTool, "ellipse annotation is a shape tool")
     expect(CameraBackgroundStyle.allCases.contains(.office), "real office background is available")
 
+    let invalidCameraFramePreferences = RecordingPreferences(
+        includeAppInterface: false,
+        cameraBackgroundStyle: .original,
+        cameraBackgroundBlur: .off,
+        cameraBeautyLevel: 0.2,
+        cameraFrame: NormalizedRect(x: -0.5, y: 1.4, width: 0.02, height: 0.9)
+    )
+    expect(
+        invalidCameraFramePreferences.cameraFrame == NormalizedRect(x: 0, y: 0.55, width: 0.08, height: 0.45),
+        "camera avatar frame preference is clamped to a usable visible range"
+    )
+
     let legacyPreferencesJSON = """
     {
       "includeAppInterface": true,

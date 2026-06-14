@@ -455,16 +455,7 @@ final class OverlayService: ObservableObject {
     }
 
     private func clamp(_ frame: NormalizedRect) -> NormalizedRect {
-        let minSize = 0.08
-        let maxSize = 0.45
-        let width = min(maxSize, max(minSize, frame.width))
-        let height = min(maxSize, max(minSize, frame.height))
-        return NormalizedRect(
-            x: min(max(0, frame.x), 1 - width),
-            y: min(max(0, frame.y), 1 - height),
-            width: width,
-            height: height
-        )
+        frame.clampedCameraFrame
     }
 
     private func normalizedMouseFocus() -> NormalizedPoint {

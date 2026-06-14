@@ -14,6 +14,19 @@ public struct NormalizedRect: Codable, Equatable, Hashable, Sendable {
     }
 
     public static let defaultCameraFrame = NormalizedRect(x: 0.74, y: 0.64, width: 0.22, height: 0.22)
+
+    public var clampedCameraFrame: NormalizedRect {
+        let minSize = 0.08
+        let maxSize = 0.45
+        let clampedWidth = min(maxSize, max(minSize, width))
+        let clampedHeight = min(maxSize, max(minSize, height))
+        return NormalizedRect(
+            x: min(max(0, x), 1 - clampedWidth),
+            y: min(max(0, y), 1 - clampedHeight),
+            width: clampedWidth,
+            height: clampedHeight
+        )
+    }
 }
 
 public struct EditSegment: Codable, Identifiable, Equatable, Hashable, Sendable {
