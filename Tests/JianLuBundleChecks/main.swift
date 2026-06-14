@@ -155,6 +155,7 @@ expect(
     "annotation tools exit click zoom mode"
 )
 expect(overlayServiceSource.contains("func prewarmZoomPreview()"), "overlay can prewarm a live zoom frame before the user presses the shortcut")
+expect(overlayServiceSource.contains("isMouseInsideRecordingRegion()"), "click zoom starts only when the mouse is inside the recording region")
 expect(
     !overlayServiceSource.contains("""
         zoomPreviewImage = nil
@@ -167,6 +168,8 @@ let hotkeyServiceURL = projectRoot.appendingPathComponent("Sources/JianLu/Servic
 let hotkeyServiceSource = (try? String(contentsOf: hotkeyServiceURL, encoding: .utf8)) ?? ""
 expect(hotkeyServiceSource.contains("startShortcutPolling()"), "zoom hotkeys have a keyboard-state polling fallback")
 expect(hotkeyServiceSource.contains("CGEventSource.keyState"), "zoom hotkey polling reads the real key-down state")
+expect(!hotkeyServiceSource.contains("leftMouseDown"), "click zoom is driven by region-aware overlay polling instead of global mouse-down events")
+expect(!hotkeyServiceSource.contains("beginClickZoom"), "hotkey service does not start click zoom outside the recording region")
 
 let captureServiceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/CaptureService.swift")
 let captureServiceSource = (try? String(contentsOf: captureServiceURL, encoding: .utf8)) ?? ""

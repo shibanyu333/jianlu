@@ -514,13 +514,6 @@ final class AppState: ObservableObject {
             guard isRecording else { return }
             overlayService.endHoldZoom()
             statusMessage = "缩放已恢复"
-        case .beginClickZoom:
-            guard isRecording else { return }
-            guard !isPaused else { return }
-            overlayService.beginClickZoom()
-        case .endClickZoom:
-            guard isRecording else { return }
-            overlayService.endClickZoom()
         case .zoomIn:
             overlayService.adjustZoom(by: 0.2)
             statusMessage = "临时缩放倍率 \(String(format: "%.1f", overlayService.zoomMagnification))x"

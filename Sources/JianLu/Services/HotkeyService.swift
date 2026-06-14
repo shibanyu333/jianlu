@@ -7,8 +7,6 @@ import os
 enum HotkeyAction {
     case beginHoldZoom
     case endHoldZoom
-    case beginClickZoom
-    case endClickZoom
     case zoomIn
     case zoomOut
     case selectTool(AnnotationTool)
@@ -44,13 +42,13 @@ final class HotkeyService: @unchecked Sendable {
             return
         }
 
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged, .leftMouseDown, .leftMouseUp]) { [weak self] event in
+        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { [weak self] event in
             Task { @MainActor in
                 self?.handle(event)
             }
         }
 
-        localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged, .leftMouseDown, .leftMouseUp]) { [weak self] event in
+        localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) { [weak self] event in
             Task { @MainActor in
                 self?.handle(event)
             }
@@ -97,15 +95,6 @@ final class HotkeyService: @unchecked Sendable {
     fileprivate func handle(_ event: HotkeyEvent) {
         guard let eventType = event.type else { return }
         let zoomShortcut = zoomShortcutProvider?() ?? .controlOptionCommandZ
-
-        if eventType == .leftMouseDown {
-            handler?(.beginClickZoom)
-            return
-        }
-        if eventType == .leftMouseUp {
-            handler?(.endClickZoom)
-            return
-        }
 
         if eventType == .keyUp, event.keyCode == zoomShortcut.keyCode {
             handler?(.endHoldZoom)
@@ -164,9 +153,7 @@ final class HotkeyService: @unchecked Sendable {
         let eventMask =
             CGEventMask(1 << CGEventType.keyDown.rawValue) |
             CGEventMask(1 << CGEventType.keyUp.rawValue) |
-            CGEventMask(1 << CGEventType.flagsChanged.rawValue) |
-            CGEventMask(1 << CGEventType.leftMouseDown.rawValue) |
-            CGEventMask(1 << CGEventType.leftMouseUp.rawValue)
+            CGEventMask(1 << CGEventType.flagsChanged.rawValue)
         let refcon = Unmanaged.passUnretained(self).toOpaque()
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -269,8 +256,6 @@ private enum HotkeyEventType: Sendable {
     case keyDown
     case keyUp
     case flagsChanged
-    case leftMouseDown
-    case leftMouseUp
 
     init?(_ eventType: NSEvent.EventType) {
         switch eventType {
@@ -280,10 +265,6 @@ private enum HotkeyEventType: Sendable {
             self = .keyUp
         case .flagsChanged:
             self = .flagsChanged
-        case .leftMouseDown:
-            self = .leftMouseDown
-        case .leftMouseUp:
-            self = .leftMouseUp
         default:
             return nil
         }
@@ -297,10 +278,6 @@ private enum HotkeyEventType: Sendable {
             self = .keyUp
         case .flagsChanged:
             self = .flagsChanged
-        case .leftMouseDown:
-            self = .leftMouseDown
-        case .leftMouseUp:
-            self = .leftMouseUp
         default:
             return nil
         }

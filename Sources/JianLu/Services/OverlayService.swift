@@ -183,7 +183,7 @@ final class OverlayService: ObservableObject {
     }
 
     func beginClickZoom() {
-        guard zoomClickModeEnabled else { return }
+        guard zoomClickModeEnabled, isMouseInsideRecordingRegion() else { return }
         beginTransientZoom()
     }
 
@@ -458,6 +458,26 @@ final class OverlayService: ObservableObject {
             screenFrame: screenFrame,
             recordingRegion: recordingRegion
         )
+    }
+
+    private func isMouseInsideRecordingRegion() -> Bool {
+        let mouse = NSEvent.mouseLocation
+        let screen = screenForCurrentCapture(mouseLocation: mouse)
+        let screenFrame = screen?.frame ?? NSRect(x: 0, y: 0, width: 1280, height: 720)
+
+        guard let recordingRegion, recordingRegion.isUsable else {
+            return screenFrame.contains(mouse)
+        }
+
+        let minX = screenFrame.minX + recordingRegion.x
+        let maxY = screenFrame.maxY - recordingRegion.y
+        let captureRect = CGRect(
+            x: minX,
+            y: maxY - recordingRegion.height,
+            width: recordingRegion.width,
+            height: recordingRegion.height
+        )
+        return captureRect.contains(mouse)
     }
 }
 
