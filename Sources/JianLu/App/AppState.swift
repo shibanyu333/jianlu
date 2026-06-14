@@ -563,9 +563,12 @@ final class AppState: ObservableObject {
         }
         guard let project = recentProjects.first(where: { $0.id == id }) else { return }
         cancelRenderedPreview(for: id)
+        isExporting = true
+        exportMessages[id] = "正在导出..."
         Task {
-            isExporting = true
-            exportMessages[id] = "正在导出..."
+            defer {
+                isExporting = false
+            }
             do {
                 let outputURL = try await exportService.export(project: project)
                 if recentProjects.first(where: { $0.id == id }) == project {
@@ -579,7 +582,6 @@ final class AppState: ObservableObject {
                 exportMessages[id] = error.localizedDescription
                 statusMessage = "导出失败"
             }
-            isExporting = false
         }
     }
 
