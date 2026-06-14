@@ -131,6 +131,7 @@ private func runPreferenceChecks() {
 
     let preferences = RecordingPreferences(
         includeAppInterface: false,
+        cameraEnabled: false,
         microphoneEnabled: false,
         microphoneNoiseReductionEnabled: true,
         cameraBackgroundStyle: .graphite,
@@ -140,6 +141,7 @@ private func runPreferenceChecks() {
         recordingDirectoryPath: "/tmp/jianlu-checks",
         lastSelectedRegion: usableRegion
     )
+    expect(!preferences.cameraEnabled, "camera preference can be disabled")
     expect(!preferences.microphoneEnabled, "microphone preference can be disabled")
     expect(preferences.microphoneNoiseReductionEnabled, "microphone noise reduction preference can be enabled")
     expect(preferences.cameraBeautyLevel == 1, "beauty level is clamped")
@@ -167,6 +169,7 @@ private func runPreferenceChecks() {
         from: Data(legacyPreferencesJSON.utf8)
     )
     expect(legacyPreferences?.zoomShortcut == .controlOptionCommandZ, "legacy preferences get the default zoom shortcut")
+    expect(legacyPreferences?.cameraEnabled == true, "legacy preferences keep camera enabled by default")
     expect(legacyPreferences?.recordingDirectoryPath == "/tmp/legacy-jianlu", "legacy preferences keep the recording path")
 }
 

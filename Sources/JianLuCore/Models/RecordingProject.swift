@@ -113,6 +113,7 @@ public enum ZoomShortcut: String, Codable, CaseIterable, Sendable {
 
 public struct RecordingPreferences: Codable, Equatable, Sendable {
     public var includeAppInterface: Bool
+    public var cameraEnabled: Bool
     public var microphoneEnabled: Bool
     public var microphoneNoiseReductionEnabled: Bool
     public var cameraBackgroundStyle: CameraBackgroundStyle
@@ -124,6 +125,7 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case includeAppInterface
+        case cameraEnabled
         case microphoneEnabled
         case microphoneNoiseReductionEnabled
         case cameraBackgroundStyle
@@ -136,6 +138,7 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
 
     public init(
         includeAppInterface: Bool,
+        cameraEnabled: Bool = true,
         microphoneEnabled: Bool = true,
         microphoneNoiseReductionEnabled: Bool = false,
         cameraBackgroundStyle: CameraBackgroundStyle,
@@ -146,6 +149,7 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
         lastSelectedRegion: RecordingRegion? = nil
     ) {
         self.includeAppInterface = includeAppInterface
+        self.cameraEnabled = cameraEnabled
         self.microphoneEnabled = microphoneEnabled
         self.microphoneNoiseReductionEnabled = microphoneNoiseReductionEnabled
         self.cameraBackgroundStyle = cameraBackgroundStyle
@@ -159,6 +163,7 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         includeAppInterface = try container.decodeIfPresent(Bool.self, forKey: .includeAppInterface) ?? false
+        cameraEnabled = try container.decodeIfPresent(Bool.self, forKey: .cameraEnabled) ?? true
         microphoneEnabled = try container.decodeIfPresent(Bool.self, forKey: .microphoneEnabled) ?? true
         microphoneNoiseReductionEnabled = try container.decodeIfPresent(Bool.self, forKey: .microphoneNoiseReductionEnabled) ?? false
         cameraBackgroundStyle = (try? container.decodeIfPresent(CameraBackgroundStyle.self, forKey: .cameraBackgroundStyle)) ?? .original
@@ -171,6 +176,7 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
 
     public static let defaults = RecordingPreferences(
         includeAppInterface: false,
+        cameraEnabled: true,
         microphoneEnabled: true,
         microphoneNoiseReductionEnabled: false,
         cameraBackgroundStyle: .original,

@@ -5,7 +5,12 @@ import JianLuCore
 @MainActor
 final class AppState: ObservableObject {
     @Published var isRecording = false
-    @Published var cameraEnabled = true
+    @Published var cameraEnabled = true {
+        didSet {
+            guard preferences.cameraEnabled != cameraEnabled else { return }
+            preferences.cameraEnabled = cameraEnabled
+        }
+    }
     @Published var statusMessage = "准备录制客户方案讲解"
     @Published var permissionSnapshot = PermissionService.snapshot()
     @Published var recentProjects: [RecordingProject] = []
@@ -44,6 +49,7 @@ final class AppState: ObservableObject {
     private var renderedPreviewTasks: [UUID: Task<Void, Never>] = [:]
 
     init() {
+        cameraEnabled = preferences.cameraEnabled
         hotkeyService.start(
             zoomShortcutProvider: { [weak self] in
                 self?.preferences.zoomShortcut ?? .controlOptionCommandZ
@@ -92,7 +98,10 @@ final class AppState: ObservableObject {
         }
 
         Task {
-            permissionSnapshot = await PermissionService.requestMediaAccess()
+            permissionSnapshot = await PermissionService.requestMediaAccess(
+                cameraEnabled: cameraEnabled,
+                microphoneEnabled: preferences.microphoneEnabled
+            )
             if permissionSnapshot.missingDescriptions.isEmpty {
                 statusMessage = "权限已就绪，可以开始录制"
             } else {
