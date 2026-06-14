@@ -367,6 +367,7 @@ final class AppState: ObservableObject {
                 let timeline = timelineExcludingPausedRanges(duration: duration)
                 if timeline.segments.isEmpty {
                     noExportableSegmentMessage = "录制内容全部处于暂停状态，未生成剪辑项目。原始录屏已保存：\(screenURL.path)"
+                    deleteUnusedSidecarRecordings()
                 } else {
                     let project = RecordingProject(
                         screenRecordingURL: screenURL,
@@ -482,6 +483,15 @@ final class AppState: ObservableObject {
             sourceDuration: duration,
             ranges: pausedRanges.map { EditSegment(sourceStart: $0.start, sourceEnd: $0.end) }
         )
+    }
+
+    private func deleteUnusedSidecarRecordings() {
+        if let activeCameraRecordingURL {
+            try? FileManager.default.removeItem(at: activeCameraRecordingURL)
+        }
+        if let activeMicrophoneRecordingURL {
+            try? FileManager.default.removeItem(at: activeMicrophoneRecordingURL)
+        }
     }
 
     private func handleHotkey(_ action: HotkeyAction) {

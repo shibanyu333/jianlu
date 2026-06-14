@@ -145,6 +145,9 @@ expect(appStateSource.contains("microphoneNoiseReductionEnabled: microphoneNoise
 expect(appStateSource.contains("activeCameraRecordingOffset"), "recording projects store camera track alignment offset")
 expect(appStateSource.contains("activeMicrophoneRecordingOffset"), "recording projects store microphone track alignment offset")
 expect(appStateSource.contains("return recentProjects.first { $0.id == selectedProjectID } ?? recentProjects.first"), "stale selected project IDs fall back to the first available project")
+expect(appStateSource.contains("deleteUnusedSidecarRecordings()"), "recordings with no exportable segments clean unreferenced sidecar files")
+expect(appStateSource.contains("try? FileManager.default.removeItem(at: activeCameraRecordingURL)"), "no-export cleanup removes unused camera sidecars")
+expect(appStateSource.contains("try? FileManager.default.removeItem(at: activeMicrophoneRecordingURL)"), "no-export cleanup removes unused microphone sidecars")
 expect(appStateSource.contains("renderedPreviewURLs[id] = outputURL"), "successful exports become the current editor preview")
 expect(appStateSource.contains("renderedPreviewMessages[id] = \"导出完成，下面播放的是最新成片。\""), "successful exports explain that the preview is the final movie")
 expectOrder(
