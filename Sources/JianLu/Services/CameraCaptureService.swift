@@ -110,24 +110,32 @@ final class CameraCaptureService: NSObject, ObservableObject {
     }
 
     func startRecording(preferences: RecordingPreferences) async throws -> URL {
-        try configureIfNeeded()
-        await startSessionIfNeeded()
-        try await Task.sleep(nanoseconds: 300_000_000)
+        var outputURL: URL?
+        do {
+            try configureIfNeeded()
+            await startSessionIfNeeded()
+            try await Task.sleep(nanoseconds: 300_000_000)
 
-        let outputURL = try RecordingFileStore.makeRecordingURL(
-            prefix: "camera",
-            directoryPath: preferences.recordingDirectoryPath
-        )
-        let writer = try CameraSampleWriter(outputURL: outputURL, preferences: preferences)
-        sampleWriter = writer
-        currentOutputURL = outputURL
-        delegateProxy.sampleHandler = { [weak writer] sampleBuffer in
-            writer?.append(sampleBuffer)
+            let recordingURL = try RecordingFileStore.makeRecordingURL(
+                prefix: "camera",
+                directoryPath: preferences.recordingDirectoryPath
+            )
+            outputURL = recordingURL
+            let writer = try CameraSampleWriter(outputURL: recordingURL, preferences: preferences)
+            sampleWriter = writer
+            currentOutputURL = recordingURL
+            delegateProxy.sampleHandler = { [weak writer] sampleBuffer in
+                writer?.append(sampleBuffer)
+            }
+
+            isRecording = true
+            lastErrorMessage = nil
+            return recordingURL
+        } catch {
+            await cleanupAfterFailedStart(outputURL: outputURL)
+            lastErrorMessage = error.localizedDescription
+            throw error
         }
-
-        isRecording = true
-        lastErrorMessage = nil
-        return outputURL
     }
 
     private func startSessionIfNeeded() async {
@@ -182,6 +190,17 @@ final class CameraCaptureService: NSObject, ObservableObject {
                 }
                 continuation.resume()
             }
+        }
+    }
+
+    private func cleanupAfterFailedStart(outputURL: URL?) async {
+        isRecording = false
+        sampleWriter = nil
+        currentOutputURL = nil
+        delegateProxy.sampleHandler = { _ in }
+        await stopSessionIfRunning()
+        if let outputURL {
+            try? FileManager.default.removeItem(at: outputURL)
         }
     }
 }
