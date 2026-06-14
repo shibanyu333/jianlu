@@ -46,10 +46,12 @@ public enum RecordingProjectLibrary {
         if let cameraURL = project.cameraRecordingURL,
            !fileManager.fileExists(atPath: cameraURL.path) {
             project.cameraRecordingURL = nil
+            project.cameraRecordingOffset = 0
         }
         if let microphoneURL = project.microphoneRecordingURL,
            !fileManager.fileExists(atPath: microphoneURL.path) {
             project.microphoneRecordingURL = nil
+            project.microphoneRecordingOffset = 0
         }
         return project
     }

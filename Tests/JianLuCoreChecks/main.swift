@@ -372,6 +372,8 @@ private func runProjectLibraryChecks() {
             screenRecordingURL: screenWithMissingSidecars,
             cameraRecordingURL: cameraURL,
             microphoneRecordingURL: microphoneURL,
+            cameraRecordingOffset: 0.3,
+            microphoneRecordingOffset: 0.4,
             sourceDuration: 10,
             events: [
                 .cameraLayout(CameraLayoutEvent(time: 0, frame: .defaultCameraFrame, shape: .circle, isVisible: true))
@@ -386,6 +388,8 @@ private func runProjectLibraryChecks() {
         expect(loadedSidecarProjects.count == 1, "project library keeps screen recordings when optional sidecars are missing")
         expect(loadedSidecarProjects[0].cameraRecordingURL == nil, "project library clears missing camera sidecars")
         expect(loadedSidecarProjects[0].microphoneRecordingURL == nil, "project library clears missing microphone sidecars")
+        expect(loadedSidecarProjects[0].cameraRecordingOffset == 0, "project library clears missing camera offsets")
+        expect(loadedSidecarProjects[0].microphoneRecordingOffset == 0, "project library clears missing microphone offsets")
         expect(!loadedSidecarProjects[0].needsRenderedPreview, "missing camera sidecars do not force rendered previews")
 
         let missingStoreURL = directory.appendingPathComponent("missing.json")
