@@ -47,6 +47,12 @@ struct EditorView: View {
                     Text("正在导出成片 \(Int(appState.exportProgress * 100))%")
                         .font(.callout)
                         .foregroundStyle(.secondary)
+                    Button {
+                        appState.cancelExportIntent(for: project.id)
+                    } label: {
+                        Label(appState.isCancellingExport ? "正在取消" : "取消导出", systemImage: "xmark.circle")
+                    }
+                    .disabled(appState.isCancellingExport)
                 }
             }
 

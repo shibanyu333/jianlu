@@ -25,6 +25,7 @@ final class AppState: ObservableObject {
     @Published var exportMessages: [UUID: String] = [:]
     @Published var isExporting = false
     @Published var exportProgress: Double = 0
+    @Published var isCancellingExport = false
     @Published var isStoppingRecording = false
     @Published var isStartingRecording = false
     @Published var isPreparingRegionSelection = false
@@ -697,12 +698,14 @@ final class AppState: ObservableObject {
         cancelRenderedPreview(for: id)
         isExporting = true
         exportProgress = 0
+        isCancellingExport = false
         exportMessages[id] = "正在导出..."
         let progressTask = startExportProgressPolling(for: id)
         Task {
             defer {
                 progressTask.cancel()
                 exportProgress = 0
+                isCancellingExport = false
                 isExporting = false
             }
             do {
@@ -718,13 +721,26 @@ final class AppState: ObservableObject {
                     statusMessage = "旧版本导出完成"
                 }
             } catch {
-                exportMessages[id] = error.localizedDescription
-                statusMessage = "导出失败"
+                if isCancellingExport {
+                    exportMessages[id] = "已取消导出"
+                    statusMessage = "已取消导出"
+                } else {
+                    exportMessages[id] = error.localizedDescription
+                    statusMessage = "导出失败"
+                }
                 if let currentProject = recentProjects.first(where: { $0.id == id }) {
                     ensureRenderedPreview(for: currentProject)
                 }
             }
         }
+    }
+
+    func cancelExportIntent(for id: UUID) {
+        guard isExporting else { return }
+        isCancellingExport = true
+        exportMessages[id] = "正在取消导出..."
+        statusMessage = "正在取消导出"
+        exportService.cancelCurrentExport()
     }
 
     private func startExportProgressPolling(for id: UUID) -> Task<Void, Never> {
