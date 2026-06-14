@@ -120,9 +120,17 @@ final class AppState: ObservableObject {
 
     func toggleCameraIntent() {
         cameraEnabled.toggle()
-        statusMessage = cameraEnabled ? "摄像头头像框已开启" : "摄像头头像框已关闭"
-        if isRecording {
-            overlayService.toggleCameraVisibility()
+        guard isRecording else {
+            statusMessage = cameraEnabled ? "摄像头头像框已开启" : "摄像头头像框已关闭"
+            return
+        }
+
+        if cameraEnabled, cameraCaptureService.hasActiveRecording {
+            overlayService.setCameraVisibility(true)
+            statusMessage = "摄像头头像框已开启"
+        } else {
+            overlayService.setCameraVisibility(false)
+            statusMessage = cameraEnabled ? "本次录制未包含摄像头轨道，下一次录制会开启摄像头" : "摄像头头像框已关闭"
         }
     }
 

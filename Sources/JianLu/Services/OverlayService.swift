@@ -113,7 +113,12 @@ final class OverlayService: ObservableObject {
     }
 
     func toggleCameraVisibility() {
-        cameraVisible.toggle()
+        setCameraVisibility(!cameraVisible)
+    }
+
+    func setCameraVisibility(_ isVisible: Bool) {
+        guard cameraVisible != isVisible else { return }
+        cameraVisible = isVisible
         recordCameraLayout()
     }
 

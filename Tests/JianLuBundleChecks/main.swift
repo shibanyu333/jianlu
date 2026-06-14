@@ -159,6 +159,7 @@ expect(recordingOverlayViewSource.contains(".position(lensCenter)"), "live zoom 
 
 let overlayServiceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/OverlayService.swift")
 let overlayServiceSource = (try? String(contentsOf: overlayServiceURL, encoding: .utf8)) ?? ""
+expect(overlayServiceSource.contains("func setCameraVisibility(_ isVisible: Bool)"), "overlay can set camera visibility without relying on toggle state")
 expect(
     overlayServiceSource.contains("if zoomClickModeEnabled {\n            selectedTool = nil\n            currentStrokePoints = []\n        }"),
     "click zoom mode exits annotation tools"
@@ -204,6 +205,10 @@ expect(appStateSource.contains("guard !isStartingRecording else"), "recording in
 expect(appStateSource.contains("isStartingRecording = true"), "recording startup state is set before devices and overlay are started")
 expect(appStateSource.contains("isStartingRecording = false"), "recording startup state is cleared after success or failure")
 expect(!appStateSource.contains("cameraEnabled = false"), "camera startup degradation does not rewrite the user's camera preference")
+expect(appStateSource.contains("cameraCaptureService.hasActiveRecording"), "recording camera toggle checks that a camera track is actually being recorded")
+expect(appStateSource.contains("overlayService.setCameraVisibility"), "recording camera toggle sets overlay visibility explicitly")
+expect(!appStateSource.contains("overlayService.toggleCameraVisibility()"), "recording camera toggle does not blindly invert overlay state")
+expect(appStateSource.contains("下一次录制会开启摄像头"), "recording camera toggle explains when enabling applies only to the next recording")
 expect(occurrenceCount(of: "restartHotkeyMonitoringIfAuthorized()", in: appStateSource) >= 3, "hotkey event tap is restarted after Accessibility permission changes")
 expect(occurrenceCount(of: "startHotkeyMonitoring()", in: appStateSource) >= 2, "hotkey monitoring startup is reusable after permissions are granted")
 expect(appStateSource.contains("输入监控"), "recording startup explains that zoom hotkeys also need Input Monitoring permission")
