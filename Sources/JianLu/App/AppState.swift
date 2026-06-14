@@ -596,6 +596,7 @@ final class AppState: ObservableObject {
 
     private func refreshRenderedPreview(for project: RecordingProject, force: Bool = false) {
         renderedPreviewTasks[project.id]?.cancel()
+        renderedPreviewTasks[project.id] = nil
         renderedPreviewURLs[project.id] = nil
 
         guard force || project.needsRenderedPreview else {
