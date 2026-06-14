@@ -39,6 +39,12 @@ final class CaptureRegionSelectionWindowController {
         panel.ignoresMouseEvents = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.sharingType = .none
+        panel.onCancel = { [weak model] in
+            model?.cancel()
+        }
+        panel.onConfirm = { [weak model] in
+            model?.confirmSelection()
+        }
         panel.contentView = NSHostingView(rootView: CaptureRegionSelectionView(model: model))
 
         self.model = model
@@ -64,8 +70,22 @@ final class CaptureRegionSelectionWindowController {
 }
 
 private final class KeyablePanel: NSPanel {
+    var onCancel: (() -> Void)?
+    var onConfirm: (() -> Void)?
+
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
+
+    override func keyDown(with event: NSEvent) {
+        switch event.keyCode {
+        case 53:
+            onCancel?()
+        case 36, 76:
+            onConfirm?()
+        default:
+            super.keyDown(with: event)
+        }
+    }
 }
 
 private extension NSScreen {

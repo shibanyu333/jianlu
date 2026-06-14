@@ -127,6 +127,9 @@ expect(regionSelectionSource.contains("guard canStart, !isStarting else { return
 let regionSelectionControllerURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/CaptureRegionSelectionWindowController.swift")
 let regionSelectionController = (try? String(contentsOf: regionSelectionControllerURL, encoding: .utf8)) ?? ""
 expect(regionSelectionController.contains("NSEvent.mouseLocation"), "region selection opens on the display under the pointer")
+expect(regionSelectionController.contains("override func keyDown"), "region selection supports keyboard shortcuts")
+expect(regionSelectionController.contains("case 53"), "region selection lets Escape cancel selection")
+expect(regionSelectionController.contains("case 36, 76"), "region selection lets Return confirm selection")
 
 let overlayWindowSourceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/OverlayWindowController.swift")
 let overlayWindowSource = (try? String(contentsOf: overlayWindowSourceURL, encoding: .utf8)) ?? ""
