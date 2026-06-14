@@ -71,4 +71,9 @@ let controlBarSource = (try? String(contentsOf: controlBarSourceURL, encoding: .
 expect(controlBarSource.contains(".nonactivatingPanel"), "recording control bar does not activate JianLu while recording")
 expect(controlBarSource.contains("panel.orderFrontRegardless()"), "recording control bar is shown without becoming key")
 
+let regionSelectionSourceURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/CaptureRegionSelectionView.swift")
+let regionSelectionSource = (try? String(contentsOf: regionSelectionSourceURL, encoding: .utf8)) ?? ""
+expect(regionSelectionSource.contains("@Published var isStarting"), "region selection exposes a starting state for duplicate click prevention")
+expect(regionSelectionSource.contains("guard canStart, !isStarting else { return }"), "region selection confirms only once while recording starts")
+
 print("JianLuBundleChecks passed")

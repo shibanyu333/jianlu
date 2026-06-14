@@ -4,6 +4,7 @@ import SwiftUI
 @MainActor
 final class CaptureRegionSelectionModel: ObservableObject {
     @Published var selectionRect: CGRect
+    @Published var isStarting = false
 
     let displayID: UInt32
     let screenSize: CGSize
@@ -11,7 +12,7 @@ final class CaptureRegionSelectionModel: ObservableObject {
     private let onCancel: () -> Void
 
     var canStart: Bool {
-        selectionRect.width >= 80 && selectionRect.height >= 80
+        !isStarting && selectionRect.width >= 80 && selectionRect.height >= 80
     }
 
     init(
@@ -46,6 +47,7 @@ final class CaptureRegionSelectionModel: ObservableObject {
     }
 
     func updateSelection(from start: CGPoint, to end: CGPoint) {
+        guard !isStarting else { return }
         let minX = min(start.x, end.x)
         let minY = min(start.y, end.y)
         let maxX = max(start.x, end.x)
@@ -56,11 +58,13 @@ final class CaptureRegionSelectionModel: ObservableObject {
     }
 
     func selectFullScreen() {
+        guard !isStarting else { return }
         selectionRect = CGRect(origin: .zero, size: screenSize)
     }
 
     func confirmSelection() {
-        guard canStart else { return }
+        guard canStart, !isStarting else { return }
+        isStarting = true
         let rect = clamped(selectionRect)
         onStart(
             RecordingRegion(
@@ -74,6 +78,7 @@ final class CaptureRegionSelectionModel: ObservableObject {
     }
 
     func cancel() {
+        guard !isStarting else { return }
         onCancel()
     }
 
@@ -126,17 +131,19 @@ struct CaptureRegionSelectionView: View {
                         } label: {
                             Label("全屏", systemImage: "rectangle.inset.filled")
                         }
+                        .disabled(model.isStarting)
 
                         Button(role: .cancel) {
                             model.cancel()
                         } label: {
                             Label("取消", systemImage: "xmark")
                         }
+                        .disabled(model.isStarting)
 
                         Button {
                             model.confirmSelection()
                         } label: {
-                            Label("开始录制", systemImage: "record.circle")
+                            Label(model.isStarting ? "正在开始" : "开始录制", systemImage: "record.circle")
                         }
                         .buttonStyle(.borderedProminent)
                         .disabled(!model.canStart)
