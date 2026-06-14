@@ -18,50 +18,54 @@ struct RecordingControlBarView: View {
             Divider()
                 .frame(height: 24)
 
-            HStack(spacing: 8) {
-                ControlBarButton(title: overlay.isPaused ? "继续" : "暂停", symbol: overlay.isPaused ? "play.fill" : "pause.fill", isActive: overlay.isPaused) {
-                    overlay.requestTogglePause()
-                }
-                ControlBarButton(title: "结束", symbol: "stop.fill", isActive: true, tint: .red) {
-                    overlay.requestStop()
-                }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ControlBarButton(title: overlay.isPaused ? "继续" : "暂停", symbol: overlay.isPaused ? "play.fill" : "pause.fill", isActive: overlay.isPaused) {
+                        overlay.requestTogglePause()
+                    }
+                    ControlBarButton(title: "结束", symbol: "stop.fill", isActive: true, tint: .red) {
+                        overlay.requestStop()
+                    }
 
-                Divider()
-                    .frame(height: 24)
+                    Divider()
+                        .frame(height: 24)
 
-                ControlBarButton(title: overlay.zoomClickModeEnabled ? "放大已开" : "点击放大", symbol: "cursorarrow.click.2", isActive: overlay.zoomClickModeEnabled) {
-                    overlay.toggleClickZoomMode()
-                }
+                    ControlBarButton(title: overlay.zoomClickModeEnabled ? "放大已开" : "点击放大", symbol: "cursorarrow.click.2", isActive: overlay.zoomClickModeEnabled) {
+                        overlay.toggleClickZoomMode()
+                    }
 
-                Divider()
-                    .frame(height: 24)
+                    Divider()
+                        .frame(height: 24)
 
-                ControlBarButton(title: "画笔", symbol: "pencil", isActive: overlay.selectedTool == .pen) {
-                    overlay.selectTool(.pen)
-                }
-                ControlBarButton(title: "箭头", symbol: "arrow.up.right", isActive: overlay.selectedTool == .arrow) {
-                    overlay.selectTool(.arrow)
-                }
-                ControlBarButton(title: "清除", symbol: "trash.slash", isActive: false, isDisabled: overlay.isPaused) {
-                    overlay.clearAllAnnotations()
-                }
+                    ControlBarButton(title: "画笔", symbol: "pencil", isActive: overlay.selectedTool == .pen) {
+                        overlay.selectTool(.pen)
+                    }
+                    ControlBarButton(title: "箭头", symbol: "arrow.up.right", isActive: overlay.selectedTool == .arrow) {
+                        overlay.selectTool(.arrow)
+                    }
+                    ControlBarButton(title: "清除", symbol: "trash.slash", isActive: false, isDisabled: overlay.isPaused) {
+                        overlay.clearAllAnnotations()
+                    }
 
-                MoreControlMenu(overlay: overlay)
+                    MoreControlMenu(overlay: overlay)
+
+                    if overlay.isTransientZoomActive {
+                        Text("缩放中 \(String(format: "%.1f", overlay.zoomMagnification))x")
+                            .font(.callout.weight(.semibold))
+                            .foregroundStyle(.blue)
+                            .padding(.horizontal, 6)
+                    }
+
+                    if overlay.isPaused {
+                        Text("已暂停")
+                            .font(.callout.weight(.semibold))
+                            .foregroundStyle(.orange)
+                            .padding(.horizontal, 8)
+                    }
+                }
+                .fixedSize(horizontal: true, vertical: false)
             }
-
-            if overlay.isTransientZoomActive {
-                Text("缩放中 \(String(format: "%.1f", overlay.zoomMagnification))x")
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(.blue)
-                    .padding(.horizontal, 6)
-            }
-
-            if overlay.isPaused {
-                Text("已暂停")
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(.orange)
-                    .padding(.horizontal, 8)
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(8)
         .background(.regularMaterial, in: Capsule())
