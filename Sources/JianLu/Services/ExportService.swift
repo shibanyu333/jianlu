@@ -28,11 +28,20 @@ enum ExportServiceError: LocalizedError {
 final class ExportService: ObservableObject {
     @Published private(set) var isExporting = false
     @Published private(set) var progress: Double = 0
+    private var activeExportSession: AVAssetExportSession?
+
+    func cancelCurrentExport() {
+        activeExportSession?.cancelExport()
+        activeExportSession = nil
+        isExporting = false
+        progress = 0
+    }
 
     func export(project: RecordingProject, prefix: String = "export") async throws -> URL {
         isExporting = true
         progress = 0
         defer {
+            activeExportSession = nil
             isExporting = false
             progress = 0
         }
@@ -121,6 +130,7 @@ final class ExportService: ObservableObject {
 
         exportSession.videoComposition = videoComposition
         exportSession.shouldOptimizeForNetworkUse = true
+        activeExportSession = exportSession
 
         do {
             try await exportSession.export(to: outputURL, as: .mov)

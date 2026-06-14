@@ -696,6 +696,7 @@ final class AppState: ObservableObject {
     private func cancelRenderedPreview(for projectID: UUID) {
         guard renderedPreviewTasks[projectID] != nil else { return }
         renderedPreviewTasks[projectID]?.cancel()
+        previewExportService.cancelCurrentExport()
         renderedPreviewTasks[projectID] = nil
         if renderedPreviewURLs[projectID] == nil {
             renderedPreviewMessages[projectID] = nil

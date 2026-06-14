@@ -122,6 +122,7 @@ expect(appStateSource.contains("activeMicrophoneRecordingOffset"), "recording pr
 expect(appStateSource.contains("renderedPreviewURLs[id] = outputURL"), "successful exports become the current editor preview")
 expect(appStateSource.contains("renderedPreviewMessages[id] = \"导出完成，下面播放的是最新成片。\""), "successful exports explain that the preview is the final movie")
 expect(appStateSource.contains("if let currentProject = recentProjects.first(where: { $0.id == id }) {\n                    ensureRenderedPreview(for: currentProject)\n                }"), "failed exports restart the rendered preview that export cancelled")
+expect(appStateSource.contains("previewExportService.cancelCurrentExport()"), "cancelling rendered previews also cancels the export session")
 expectOrder(
     "microphoneCaptureService.startRecording(preferences: preferences)",
     before: "captureService.startDisplayRecording",
@@ -134,6 +135,8 @@ let exportServiceSource = (try? String(contentsOf: exportServiceURL, encoding: .
 expect(exportServiceSource.contains("project.cameraRecordingOffset"), "camera export uses the stored alignment offset")
 expect(exportServiceSource.contains("project.microphoneRecordingOffset"), "microphone export uses the stored alignment offset")
 expect(exportServiceSource.contains("alignedMediaRange"), "separate media tracks share an offset-aware source range helper")
+expect(exportServiceSource.contains("func cancelCurrentExport()"), "export service exposes cancellation for stale previews")
+expect(exportServiceSource.contains("activeExportSession?.cancelExport()"), "export service cancels the underlying AVAssetExportSession")
 
 let permissionServiceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/PermissionService.swift")
 let permissionServiceSource = (try? String(contentsOf: permissionServiceURL, encoding: .utf8)) ?? ""
