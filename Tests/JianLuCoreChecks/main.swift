@@ -281,6 +281,24 @@ private func runTimelineChecks() {
         lineWidth: annotation.lineWidth
     )), "active annotations carry into later kept segments")
     expect(exportedAnnotationEvents.last == .annotationClear(AnnotationClearEvent(time: 5)), "annotation clear events are remapped for export")
+
+    let gapClearProject = RecordingProject(
+        screenRecordingURL: URL(fileURLWithPath: "/tmp/gap-clear.mov"),
+        cameraRecordingURL: nil,
+        events: [
+            .annotation(annotation),
+            .annotationClear(AnnotationClearEvent(time: 3))
+        ],
+        timeline: EditTimeline(
+            segments: [
+                EditSegment(sourceStart: 0, sourceEnd: 2),
+                EditSegment(sourceStart: 5, sourceEnd: 7)
+            ]
+        )
+    )
+    let gapClearEvents = gapClearProject.exportedAnnotationEvents()
+    expect(gapClearEvents.map(\.time) == [1, 2], "clear events in removed ranges are applied at the next kept boundary")
+    expect(gapClearEvents.last == .annotationClear(AnnotationClearEvent(time: 2)), "gap clear prevents old annotations from carrying forward")
 }
 
 private func runProjectLibraryChecks() {

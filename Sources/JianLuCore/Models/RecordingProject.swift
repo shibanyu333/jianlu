@@ -556,8 +556,20 @@ public extension RecordingProject {
         var exported: [EffectEvent] = []
         var exportCursor: TimeInterval = 0
         var activeAnnotations: [AnnotationEvent] = []
+        var previousSourceEnd: TimeInterval?
 
         for segment in timeline.segments {
+            if let previousSourceEnd, segment.sourceStart > previousSourceEnd {
+                applyRemovedRangeAnnotationClears(
+                    sourceAnnotationEvents,
+                    from: previousSourceEnd,
+                    to: segment.sourceStart,
+                    exportTime: exportCursor,
+                    activeAnnotations: &activeAnnotations,
+                    exported: &exported
+                )
+            }
+
             for annotation in activeAnnotations.sorted(by: { $0.time < $1.time }) {
                 exported.append(
                     .annotation(
@@ -603,9 +615,29 @@ public extension RecordingProject {
             }
 
             exportCursor += segment.duration
+            previousSourceEnd = segment.sourceEnd
         }
 
         return exported.sorted { $0.time < $1.time }
+    }
+
+    private func applyRemovedRangeAnnotationClears(
+        _ sourceAnnotationEvents: [EffectEvent],
+        from sourceStart: TimeInterval,
+        to sourceEnd: TimeInterval,
+        exportTime: TimeInterval,
+        activeAnnotations: inout [AnnotationEvent],
+        exported: inout [EffectEvent]
+    ) {
+        var didEmitClear = false
+        for event in sourceAnnotationEvents where event.time >= sourceStart && event.time < sourceEnd {
+            guard case .annotationClear = event else { continue }
+            if !activeAnnotations.isEmpty, !didEmitClear {
+                exported.append(.annotationClear(AnnotationClearEvent(time: exportTime)))
+                didEmitClear = true
+            }
+            activeAnnotations.removeAll()
+        }
     }
 
     private func latestCameraLayoutState(at sourceTime: TimeInterval, in events: [CameraLayoutEvent]) -> CameraLayoutEvent {
