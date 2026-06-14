@@ -201,6 +201,8 @@ expect(appStateSource.contains("microphoneNoiseReductionEnabledForRecording = fa
 expect(appStateSource.contains("microphoneNoiseReductionEnabled: microphoneNoiseReductionEnabledForRecording"), "screen capture uses the noise reduction startup fallback state")
 expect(appStateSource.contains("activeCameraRecordingOffset"), "recording projects store camera track alignment offset")
 expect(appStateSource.contains("activeMicrophoneRecordingOffset"), "recording projects store microphone track alignment offset")
+expect(appStateSource.contains("func deleteSegment(_ segmentID: UUID, in projectID: UUID)"), "editor can delete a specifically selected segment")
+expect(!appStateSource.contains("func deleteLastSegment"), "editor deletion is not limited to the last segment")
 expect(appStateSource.contains("return recentProjects.first { $0.id == selectedProjectID } ?? recentProjects.first"), "stale selected project IDs fall back to the first available project")
 expect(appStateSource.contains("deleteUnusedSidecarRecordings()"), "recordings with no exportable segments clean unreferenced sidecar files")
 expect(
@@ -277,6 +279,14 @@ let contentViewURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/Co
 let contentViewSource = (try? String(contentsOf: contentViewURL, encoding: .utf8)) ?? ""
 expect(contentViewSource.contains("输入监控"), "permission UI names Input Monitoring for zoom hotkeys")
 expect(!contentViewSource.contains("keyboard.badge.exclamationmark"), "permission UI avoids unavailable SF Symbols that prevent the main window from rendering")
+
+let editorViewURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/EditorView.swift")
+let editorViewSource = (try? String(contentsOf: editorViewURL, encoding: .utf8)) ?? ""
+expect(editorViewSource.contains("@State private var selectedSegmentID"), "editor tracks the selected clip segment")
+expect(editorViewSource.contains("deleteSegment(selectedSegmentID"), "editor deletes the selected segment instead of always deleting the tail")
+expect(editorViewSource.contains("删除选中片段"), "editor labels segment deletion clearly")
+expect(editorViewSource.contains("@Binding var selectedSegmentID: UUID?"), "segment strip exposes selection to the editor")
+expect(!editorViewSource.contains("删除末段"), "editor no longer advertises tail-only deletion")
 
 let statusBarControllerURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/StatusBarController.swift")
 let statusBarControllerSource = (try? String(contentsOf: statusBarControllerURL, encoding: .utf8)) ?? ""

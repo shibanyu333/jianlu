@@ -5,6 +5,7 @@ import SwiftUI
 struct EditorView: View {
     @EnvironmentObject private var appState: AppState
     @State private var playheadRatio = 0.5
+    @State private var selectedSegmentID: UUID?
 
     let project: RecordingProject
 
@@ -58,15 +59,17 @@ struct EditorView: View {
                     }
                     .disabled(appState.isExporting || !project.timeline.canSplit(atExportRatio: playheadRatio))
                     Button {
-                        appState.deleteLastSegment(project.id)
+                        if let selectedSegmentID {
+                            appState.deleteSegment(selectedSegmentID, in: project.id)
+                        }
                     } label: {
-                        Label("删除末段", systemImage: "trash")
+                        Label("删除选中片段", systemImage: "trash")
                     }
-                    .disabled(appState.isExporting || project.timeline.segments.count <= 1)
+                    .disabled(appState.isExporting || project.timeline.segments.count <= 1 || selectedSegmentID == nil)
                 }
             }
 
-            SegmentStripView(segments: project.timeline.segments)
+            SegmentStripView(segments: project.timeline.segments, selectedSegmentID: $selectedSegmentID)
 
             if let exportMessage = appState.exportMessage(for: project) {
                 Text(exportMessage)
@@ -76,6 +79,23 @@ struct EditorView: View {
         }
         .padding(16)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .onAppear {
+            ensureSelectedSegment()
+        }
+        .onChange(of: project.id) { _, _ in
+            selectedSegmentID = project.timeline.segments.first?.id
+        }
+        .onChange(of: project.timeline.segments) { _, _ in
+            ensureSelectedSegment()
+        }
+    }
+
+    private func ensureSelectedSegment() {
+        guard let selectedSegmentID,
+              project.timeline.segments.contains(where: { $0.id == selectedSegmentID }) else {
+            self.selectedSegmentID = project.timeline.segments.first?.id
+            return
+        }
     }
 }
 
@@ -111,20 +131,30 @@ private struct PlayerPreview: NSViewRepresentable {
 
 private struct SegmentStripView: View {
     let segments: [EditSegment]
+    @Binding var selectedSegmentID: UUID?
 
     var body: some View {
         HStack(spacing: 4) {
             ForEach(segments) { segment in
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("\(Int(segment.duration.rounded())) 秒")
-                        .font(.caption.weight(.medium))
-                    Text("\(Int(segment.sourceStart))-\(Int(segment.sourceEnd))")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                Button {
+                    selectedSegmentID = segment.id
+                } label: {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("\(Int(segment.duration.rounded())) 秒")
+                            .font(.caption.weight(.medium))
+                        Text("\(Int(segment.sourceStart))-\(Int(segment.sourceEnd))")
+                            .font(.caption2)
+                            .foregroundStyle(selectedSegmentID == segment.id ? .white.opacity(0.82) : .secondary)
+                    }
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.accentColor.opacity(0.16), in: RoundedRectangle(cornerRadius: 6))
+                .buttonStyle(.plain)
+                .foregroundStyle(selectedSegmentID == segment.id ? .white : .primary)
+                .background(
+                    selectedSegmentID == segment.id ? Color.accentColor : Color.accentColor.opacity(0.16),
+                    in: RoundedRectangle(cornerRadius: 6)
+                )
             }
         }
     }

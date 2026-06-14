@@ -594,23 +594,24 @@ final class AppState: ObservableObject {
         }
     }
 
-    func deleteLastSegment(_ id: UUID) {
+    func deleteSegment(_ segmentID: UUID, in projectID: UUID) {
         guard !isExporting else {
             statusMessage = "正在导出，完成后再剪辑"
             return
         }
-        guard let index = recentProjects.firstIndex(where: { $0.id == id }),
-              let lastSegment = recentProjects[index].timeline.segments.last,
+        guard let index = recentProjects.firstIndex(where: { $0.id == projectID }),
               recentProjects[index].timeline.segments.count > 1 else {
             statusMessage = "至少保留一个片段"
             return
         }
 
-        if recentProjects[index].timeline.deleteSegment(id: lastSegment.id) {
+        if recentProjects[index].timeline.deleteSegment(id: segmentID) {
             recentProjects = recentProjects
-            exportMessages[id] = nil
+            exportMessages[projectID] = nil
             refreshRenderedPreview(for: recentProjects[index], force: true)
-            statusMessage = "已删除最后一个片段"
+            statusMessage = "已删除选中片段"
+        } else {
+            statusMessage = "请选择要删除的片段"
         }
     }
 
