@@ -27,6 +27,7 @@ struct JianLuCoreChecks {
         runPreferenceChecks()
         runZoomLensGeometryChecks()
         runCameraFrameProcessorChecks()
+        runAnnotationImageRendererChecks()
 
         do {
             try await runVideoCompositorChecks()
@@ -498,6 +499,7 @@ private func runPreferenceChecks() {
         cameraFrame: savedCameraFrame,
         cameraShape: .square,
         zoomShortcut: .controlOptionSpace,
+        captureShortcutPreset: .macReplacement,
         recordingDirectoryPath: "/tmp/jianlu-checks",
         lastSelectedRegion: usableRegion
     )
@@ -508,6 +510,8 @@ private func runPreferenceChecks() {
     expect(preferences.cameraFrame == savedCameraFrame, "camera avatar frame preference is stored")
     expect(preferences.cameraShape == .square, "camera avatar shape preference is stored")
     expect(preferences.zoomShortcut == .controlOptionSpace, "zoom shortcut preference is stored")
+    expect(preferences.captureShortcutPreset == .macReplacement, "capture shortcut preset preference is stored")
+    expect(preferences.captureShortcutPreset.detail.contains("⇧⌘4"), "mac replacement preset names the screenshot shortcut")
     expect(!preferences.zoomShortcut.displayName.isEmpty, "zoom shortcut has a display name")
     expect(preferences.recordingDirectoryPath == "/tmp/jianlu-checks", "recording directory path is stored")
     expect(preferences.lastSelectedRegion == usableRegion, "last selected region is stored")
@@ -557,10 +561,55 @@ private func runPreferenceChecks() {
         from: Data(legacyPreferencesJSON.utf8)
     )
     expect(legacyPreferences?.zoomShortcut == .controlOptionCommandZ, "legacy preferences get the default zoom shortcut")
+    expect(legacyPreferences?.captureShortcutPreset == .jianLuDefault, "legacy preferences get the default capture shortcut preset")
     expect(legacyPreferences?.cameraEnabled == true, "legacy preferences keep camera enabled by default")
     expect(legacyPreferences?.cameraFrame == .defaultCameraFrame, "legacy preferences get the default camera frame")
     expect(legacyPreferences?.cameraShape == .circle, "legacy preferences get the default camera shape")
     expect(legacyPreferences?.recordingDirectoryPath == "/tmp/legacy-jianlu", "legacy preferences keep the recording path")
+}
+
+private func runAnnotationImageRendererChecks() {
+    guard let baseImage = makeSolidImage(width: 80, height: 80, color: (r: 255, g: 255, b: 255)) else {
+        expect(false, "annotation image renderer test creates a base image")
+        return
+    }
+    let annotation = AnnotationEvent(
+        time: 0,
+        tool: .pen,
+        points: [
+            StrokePoint(time: 0, point: NormalizedPoint(x: 0.10, y: 0.50)),
+            StrokePoint(time: 0, point: NormalizedPoint(x: 0.90, y: 0.50))
+        ],
+        colorHex: "#FF3B30",
+        lineWidth: 10
+    )
+    guard let rendered = AnnotationImageRenderer.render(baseImage: baseImage, annotations: [annotation]) else {
+        expect(false, "annotation image renderer produces an output image")
+        return
+    }
+    let center = pixelColor(in: rendered, x: 40, y: 40)
+    let untouchedCorner = pixelColor(in: rendered, x: 4, y: 4)
+    expect(center.r > 180 && center.g < 120 && center.b < 120, "annotation image renderer burns doodles into the screenshot image")
+    expect(untouchedCorner.r > 230 && untouchedCorner.g > 230 && untouchedCorner.b > 230, "annotation image renderer leaves untouched pixels intact")
+
+    let topAnnotation = AnnotationEvent(
+        time: 0,
+        tool: .line,
+        points: [
+            StrokePoint(time: 0, point: NormalizedPoint(x: 0.10, y: 0.10)),
+            StrokePoint(time: 0, point: NormalizedPoint(x: 0.90, y: 0.10))
+        ],
+        colorHex: "#FF3B30",
+        lineWidth: 8
+    )
+    guard let topRendered = AnnotationImageRenderer.render(baseImage: baseImage, annotations: [topAnnotation]) else {
+        expect(false, "annotation image renderer produces a top-line output image")
+        return
+    }
+    let topPixel = pixelColor(in: topRendered, x: 40, y: 8)
+    let bottomPixel = pixelColor(in: topRendered, x: 40, y: 72)
+    expect(topPixel.r > 180 && topPixel.g < 120 && topPixel.b < 120, "screenshot annotations use top-origin normalized coordinates")
+    expect(bottomPixel.r > 230 && bottomPixel.g > 230 && bottomPixel.b > 230, "screenshot annotations are not vertically flipped when saved")
 }
 
 private func runZoomLensGeometryChecks() {
@@ -1113,6 +1162,30 @@ private func firstFrameImage(from url: URL) async throws -> CGImage {
     generator.requestedTimeToleranceBefore = .zero
     generator.requestedTimeToleranceAfter = .zero
     return try await generator.image(at: CMTime(value: 1, timescale: 30)).image
+}
+
+private func makeSolidImage(width: Int, height: Int, color: (r: UInt8, g: UInt8, b: UInt8)) -> CGImage? {
+    var bytes = [UInt8](repeating: 0, count: width * height * 4)
+    for y in 0..<height {
+        for x in 0..<width {
+            let offset = (y * width + x) * 4
+            bytes[offset] = color.r
+            bytes[offset + 1] = color.g
+            bytes[offset + 2] = color.b
+            bytes[offset + 3] = 255
+        }
+    }
+
+    let context = CGContext(
+        data: &bytes,
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bytesPerRow: width * 4,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    )
+    return context?.makeImage()
 }
 
 private func pixelColor(in image: CGImage, x: Int, y: Int) -> (r: UInt8, g: UInt8, b: UInt8, a: UInt8) {

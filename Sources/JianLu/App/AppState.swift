@@ -32,6 +32,8 @@ final class AppState: ObservableObject {
     @Published var isStartingRecording = false
     @Published var isPreparingRegionSelection = false
     @Published var isSelectingRegion = false
+    @Published var isPreparingScreenshot = false
+    @Published var isSelectingScreenshot = false
     @Published var isPaused = false
     @Published var renderedPreviewURLs: [UUID: URL] = [:]
     @Published var renderedPreviewMessages: [UUID: String] = [:]
@@ -39,6 +41,7 @@ final class AppState: ObservableObject {
         didSet {
             AppState.savePreferences(preferences)
             syncCameraPreferences(preferences)
+            hotkeyService.updateCaptureShortcutPreset(preferences.captureShortcutPreset)
         }
     }
 
@@ -46,10 +49,12 @@ final class AppState: ObservableObject {
     let cameraCaptureService = CameraCaptureService()
     let microphoneCaptureService = MicrophoneCaptureService()
     let overlayService = OverlayService()
+    private let screenshotCaptureService = ScreenshotCaptureService()
     private let exportService = ExportService()
     private let previewExportService = ExportService()
     private let hotkeyService = HotkeyService()
     private let regionSelectionController = CaptureRegionSelectionWindowController()
+    private let screenshotEditorController = ScreenshotEditorWindowController()
     private var statusBarController: StatusBarController?
     private static let preferencesKey = "com.local.JianLu.recordingPreferences"
     private static let recentProjectLimit = 20
@@ -83,6 +88,9 @@ final class AppState: ObservableObject {
             zoomShortcutProvider: { [weak self] in
                 self?.preferences.zoomShortcut ?? .controlOptionCommandZ
             },
+            captureShortcutPresetProvider: { [weak self] in
+                self?.preferences.captureShortcutPreset ?? .jianLuDefault
+            },
             handler: { [weak self] action in
                 self?.handleHotkey(action)
             }
@@ -115,6 +123,10 @@ final class AppState: ObservableObject {
             statusMessage = "正在准备选择区域，请稍候"
             return
         }
+        guard !isPreparingScreenshot, !isSelectingScreenshot else {
+            statusMessage = "请先完成或取消当前截图"
+            return
+        }
 
         if isSelectingRegion {
             regionSelectionController.confirmSelection()
@@ -124,6 +136,55 @@ final class AppState: ObservableObject {
             Task {
                 await beginRegionSelection()
             }
+        }
+    }
+
+    func takeScreenshotIntent() {
+        guard !isRecording, !isStoppingRecording, !isStartingRecording else {
+            statusMessage = "录制进行中，请先停止录制后再截图"
+            return
+        }
+        guard !isPreparingScreenshot else {
+            statusMessage = "正在准备截图，请稍候"
+            return
+        }
+        guard !isPreparingRegionSelection else {
+            statusMessage = "正在准备录制区域，请稍候"
+            return
+        }
+
+        if isSelectingScreenshot {
+            regionSelectionController.confirmSelection()
+        } else if isSelectingRegion {
+            statusMessage = "请先完成或取消当前录制区域选择"
+        } else {
+            isPreparingScreenshot = true
+            statusMessage = "正在准备截图..."
+            Task {
+                await beginScreenshotSelection()
+            }
+        }
+    }
+
+    func takeFullScreenshotIntent() {
+        guard !isRecording, !isStoppingRecording, !isStartingRecording else {
+            statusMessage = "录制进行中，请先停止录制后再截图"
+            return
+        }
+        guard !isPreparingScreenshot, !isSelectingScreenshot else {
+            statusMessage = "正在处理截图，请稍候"
+            return
+        }
+        guard !isPreparingRegionSelection, !isSelectingRegion else {
+            statusMessage = "请先完成或取消当前录制区域选择"
+            return
+        }
+
+        isPreparingScreenshot = true
+        statusMessage = "正在截取全屏..."
+        AppWindowUtility.minimizeMainWindows()
+        Task {
+            await captureFullScreenshot()
         }
     }
 
@@ -258,6 +319,129 @@ final class AppState: ObservableObject {
         isSelectingRegion = false
         statusMessage = "已取消录制"
         AppWindowUtility.restoreMainWindows()
+    }
+
+    private func beginScreenshotSelection() async {
+        refreshPermissions()
+        guard permissionSnapshot.screenRecordingGranted else {
+            PermissionService.requestScreenRecordingAccess()
+            refreshPermissions()
+            isPreparingScreenshot = false
+            statusMessage = "请在系统设置中允许“简录”屏幕录制权限，然后重新打开 App 再截图"
+            lastErrorMessage = "截图需要屏幕录制权限。macOS 授权后通常需要重新打开 App。"
+            return
+        }
+
+        isPreparingScreenshot = false
+        isSelectingScreenshot = true
+        lastErrorMessage = nil
+        statusMessage = "拖拽选择截图区域，然后点击“截图”"
+        regionSelectionController.show(
+            initialRegion: preferences.lastSelectedRegion,
+            purpose: .screenshot,
+            onStart: { [weak self] region in
+                Task { @MainActor [weak self] in
+                    await self?.captureScreenshot(region: region)
+                }
+            },
+            onCancel: { [weak self] in
+                self?.cancelScreenshotSelection()
+            }
+        )
+        AppWindowUtility.minimizeMainWindows()
+    }
+
+    private func cancelScreenshotSelection() {
+        regionSelectionController.hide()
+        isSelectingScreenshot = false
+        isPreparingScreenshot = false
+        statusMessage = "已取消截图"
+        AppWindowUtility.restoreMainWindows()
+    }
+
+    private func captureFullScreenshot() async {
+        refreshPermissions()
+        guard permissionSnapshot.screenRecordingGranted else {
+            PermissionService.requestScreenRecordingAccess()
+            refreshPermissions()
+            isPreparingScreenshot = false
+            AppWindowUtility.restoreMainWindows()
+            statusMessage = "请在系统设置中允许“简录”屏幕录制权限，然后重新打开 App 再截图"
+            lastErrorMessage = "截图需要屏幕录制权限。macOS 授权后通常需要重新打开 App。"
+            return
+        }
+
+        try? await Task.sleep(nanoseconds: 120_000_000)
+        await captureScreenshot(region: nil)
+    }
+
+    private func captureScreenshot(region: RecordingRegion?) async {
+        regionSelectionController.hide()
+        isSelectingScreenshot = false
+        isPreparingScreenshot = false
+        if let region {
+            preferences.lastSelectedRegion = region
+        }
+        statusMessage = "正在生成截图..."
+
+        do {
+            let image = try await screenshotCaptureService.capture(
+                region: region,
+                includeAppWindows: preferences.includeAppInterface
+            )
+            AppWindowUtility.restoreMainWindows()
+            showScreenshotEditor(image: image)
+            statusMessage = "截图已打开，可标注、涂鸦、复制或保存"
+            lastErrorMessage = nil
+        } catch {
+            AppWindowUtility.restoreMainWindows()
+            lastErrorMessage = error.localizedDescription
+            statusMessage = "截图失败：\(error.localizedDescription)"
+        }
+    }
+
+    private func showScreenshotEditor(image: CGImage) {
+        screenshotEditorController.show(
+            image: image,
+            onSave: { [weak self] renderedImage in
+                self?.saveScreenshot(renderedImage)
+            },
+            onCopy: { [weak self] renderedImage in
+                self?.copyScreenshot(renderedImage)
+            },
+            onClose: { [weak self] in
+                self?.statusMessage = "截图编辑已关闭"
+            }
+        )
+    }
+
+    private func saveScreenshot(_ image: CGImage) {
+        do {
+            let url = try RecordingFileStore.makeRecordingURL(
+                prefix: "screenshot",
+                extension: "png",
+                directoryPath: preferences.recordingDirectoryPath
+            )
+            try screenshotCaptureService.writePNG(image, to: url)
+            statusMessage = "截图已保存：\(url.lastPathComponent)"
+            lastErrorMessage = nil
+        } catch {
+            lastErrorMessage = error.localizedDescription
+            statusMessage = "保存截图失败：\(error.localizedDescription)"
+        }
+    }
+
+    private func copyScreenshot(_ image: CGImage) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        let nsImage = NSImage(cgImage: image, size: CGSize(width: image.width, height: image.height))
+        if pasteboard.writeObjects([nsImage]) {
+            statusMessage = "已复制带标注的截图"
+            lastErrorMessage = nil
+        } else {
+            statusMessage = "复制截图失败"
+            lastErrorMessage = "系统剪贴板暂时不可用。"
+        }
     }
 
     private func ensureRecordingPermissions() async -> Bool {
@@ -626,6 +810,12 @@ final class AppState: ObservableObject {
 
     private func handleHotkey(_ action: HotkeyAction) {
         switch action {
+        case .takeScreenshot:
+            takeScreenshotIntent()
+        case .takeFullScreenshot:
+            takeFullScreenshotIntent()
+        case .toggleRecording:
+            toggleRecordingIntent()
         case .beginHoldZoom:
             guard isRecording else { return }
             guard !isPaused else {
@@ -670,10 +860,6 @@ final class AppState: ObservableObject {
         case .toggleCameraShape:
             overlayService.toggleCameraShape()
             statusMessage = "摄像头形状：\(overlayService.cameraShape.displayName)"
-        case .stopRecording:
-            if isRecording {
-                toggleRecordingIntent()
-            }
         }
     }
 

@@ -7,6 +7,9 @@ import os
 enum HotkeyAction {
     case beginHoldZoom
     case endHoldZoom
+    case takeScreenshot
+    case takeFullScreenshot
+    case toggleRecording
     case zoomIn
     case zoomOut
     case selectTool(AnnotationTool)
@@ -14,7 +17,6 @@ enum HotkeyAction {
     case clearAnnotations
     case toggleCamera
     case toggleCameraShape
-    case stopRecording
 }
 
 @MainActor
@@ -28,12 +30,17 @@ final class HotkeyService: @unchecked Sendable {
     private var isPollingHoldZoomActive = false
     private var handler: ((HotkeyAction) -> Void)?
     private var zoomShortcutProvider: (() -> ZoomShortcut)?
+    private var captureShortcutPresetProvider: (() -> CaptureShortcutPreset)?
+    private let shortcutState = HotkeyShortcutState()
 
     func start(
         zoomShortcutProvider: @escaping () -> ZoomShortcut,
+        captureShortcutPresetProvider: @escaping () -> CaptureShortcutPreset,
         handler: @escaping (HotkeyAction) -> Void
     ) {
         self.zoomShortcutProvider = zoomShortcutProvider
+        self.captureShortcutPresetProvider = captureShortcutPresetProvider
+        shortcutState.setCaptureShortcutPreset(captureShortcutPresetProvider())
         self.handler = handler
         stopMonitoring()
         startShortcutPolling()
@@ -95,6 +102,7 @@ final class HotkeyService: @unchecked Sendable {
     fileprivate func handle(_ event: HotkeyEvent) {
         guard let eventType = event.type else { return }
         let zoomShortcut = zoomShortcutProvider?() ?? .controlOptionCommandZ
+        let capturePreset = captureShortcutPresetProvider?() ?? shortcutState.captureShortcutPreset()
 
         if eventType == .keyUp, event.keyCode == zoomShortcut.keyCode {
             handler?(.endHoldZoom)
@@ -107,6 +115,11 @@ final class HotkeyService: @unchecked Sendable {
         }
 
         guard eventType == .keyDown, !event.isRepeat else { return }
+        if let action = captureAction(for: event, preset: capturePreset) {
+            handler?(action)
+            return
+        }
+
         if zoomShortcut.matches(keyCode: event.keyCode, modifierFlags: modifierFlags) {
             handler?(.beginHoldZoom)
             return
@@ -143,10 +156,21 @@ final class HotkeyService: @unchecked Sendable {
         case 1:
             handler?(.toggleCameraShape)
         case 15:
-            handler?(.stopRecording)
+            handler?(.toggleRecording)
         default:
             break
         }
+    }
+
+    func updateCaptureShortcutPreset(_ preset: CaptureShortcutPreset) {
+        shortcutState.setCaptureShortcutPreset(preset)
+    }
+
+    fileprivate nonisolated func shouldSuppressSystemShortcut(for event: HotkeyEvent) -> Bool {
+        guard event.type == .keyDown, !event.isRepeat else { return false }
+        let preset = shortcutState.captureShortcutPreset()
+        guard preset == .macReplacement else { return false }
+        return captureAction(for: event, preset: preset) != nil
     }
 
     private func startEventTap() -> Bool {
@@ -158,7 +182,7 @@ final class HotkeyService: @unchecked Sendable {
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
-            options: .listenOnly,
+            options: .defaultTap,
             eventsOfInterest: eventMask,
             callback: hotkeyEventTapCallback,
             userInfo: refcon
@@ -210,6 +234,47 @@ final class HotkeyService: @unchecked Sendable {
 
         isPollingHoldZoomActive = isActive
         handler?(isActive ? .beginHoldZoom : .endHoldZoom)
+    }
+}
+
+private func captureAction(for event: HotkeyEvent, preset: CaptureShortcutPreset) -> HotkeyAction? {
+    let modifierFlags = NSEvent.ModifierFlags(rawValue: event.modifierFlagsRawValue)
+    let flags = modifierFlags.intersection(.deviceIndependentFlagsMask)
+    switch preset {
+    case .jianLuDefault:
+        guard flags.contains(.control), flags.contains(.option), flags.contains(.command), event.keyCode == 21 else {
+            return nil
+        }
+        return .takeScreenshot
+    case .macReplacement:
+        guard flags.contains(.shift), flags.contains(.command) else { return nil }
+        switch event.keyCode {
+        case 20:
+            return .takeFullScreenshot
+        case 21:
+            return .takeScreenshot
+        case 23:
+            return .toggleRecording
+        default:
+            return nil
+        }
+    }
+}
+
+private final class HotkeyShortcutState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedCaptureShortcutPreset: CaptureShortcutPreset = .jianLuDefault
+
+    func setCaptureShortcutPreset(_ preset: CaptureShortcutPreset) {
+        lock.lock()
+        storedCaptureShortcutPreset = preset
+        lock.unlock()
+    }
+
+    func captureShortcutPreset() -> CaptureShortcutPreset {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedCaptureShortcutPreset
     }
 }
 
@@ -308,8 +373,9 @@ private func hotkeyEventTapCallback(
         modifierFlagsRawValue: NSEvent.ModifierFlags(rawValue: UInt(event.flags.rawValue)).rawValue,
         isRepeat: event.getIntegerValueField(.keyboardEventAutorepeat) != 0
     )
+    let shouldSuppress = service.shouldSuppressSystemShortcut(for: hotkeyEvent)
     Task { @MainActor in
         service.handle(hotkeyEvent)
     }
-    return Unmanaged.passUnretained(event)
+    return shouldSuppress ? nil : Unmanaged.passUnretained(event)
 }

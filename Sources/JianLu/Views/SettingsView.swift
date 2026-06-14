@@ -76,7 +76,19 @@ struct SettingsView: View {
                         Text(shortcut.displayName).tag(shortcut)
                     }
                 }
+                Picker("截图/录屏快捷键", selection: $appState.preferences.captureShortcutPreset) {
+                    ForEach(CaptureShortcutPreset.allCases, id: \.self) { preset in
+                        Text(preset.displayName).tag(preset)
+                    }
+                }
+                Text(appState.preferences.captureShortcutPreset.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 ShortcutRow(title: "鼠标放大模式", shortcut: "顶部栏按钮")
+                ShortcutRow(title: "区域截图", shortcut: appState.preferences.captureShortcutPreset == .macReplacement ? "⇧⌘4" : "^ + ⌥ + ⌘ + 4")
+                ShortcutRow(title: "全屏截图", shortcut: appState.preferences.captureShortcutPreset == .macReplacement ? "⇧⌘3" : "截图按钮")
+                ShortcutRow(title: "录屏入口", shortcut: appState.preferences.captureShortcutPreset == .macReplacement ? "⇧⌘5" : "^ + ⌥ + ⌘ + R")
                 ShortcutRow(title: "画笔/高亮/直线/箭头", shortcut: "^ + ⌥ + ⌘ + P/H/L/A")
                 ShortcutRow(title: "方框/圆框", shortcut: "^ + ⌥ + ⌘ + B/O")
                 ShortcutRow(title: "清除全部标注", shortcut: "^ + ⌥ + ⌘ + X")

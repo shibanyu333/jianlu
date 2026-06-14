@@ -9,6 +9,7 @@ final class CaptureRegionSelectionWindowController {
 
     func show(
         initialRegion: RecordingRegion?,
+        purpose: CaptureRegionSelectionPurpose = .recording,
         onStart: @escaping (RecordingRegion) -> Void,
         onCancel: @escaping () -> Void
     ) {
@@ -21,6 +22,7 @@ final class CaptureRegionSelectionWindowController {
             displayID: displayID,
             screenSize: screenFrame.size,
             initialRegion: initialRegion?.displayID == displayID ? initialRegion : nil,
+            purpose: purpose,
             onStart: onStart,
             onCancel: onCancel
         )

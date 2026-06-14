@@ -152,6 +152,8 @@ let appSourceURL = projectRoot.appendingPathComponent("Sources/JianLu/App/JianLu
 let appSource = (try? String(contentsOf: appSourceURL, encoding: .utf8)) ?? ""
 expect(appSource.contains("applicationShouldHandleReopen"), "Dock reopen restores the main JianLu window")
 expect(appSource.contains("AppState.shared"), "WindowGroup and fallback AppKit window share one app state")
+expect(appSource.contains("Button(\"区域截图\")"), "app menu exposes a screenshot command")
+expect(appSource.contains("appState.takeScreenshotIntent()"), "app menu routes screenshots through app state")
 expect(!appSource.contains("init()"), "JianLu lets SwiftUI create its WindowGroup before fallback checks")
 expect(appSource.contains("asyncAfter(deadline: .now() + 0.15)"), "JianLu delays fallback checks until after launch window restoration")
 expect(appSource.contains("AppWindowUtility.restoreOrCreateMainWindow()"), "app activation paths bring the main window forward")
@@ -213,9 +215,14 @@ expect(settingsViewSource.contains("ForEach(CameraFrameShape.allCases"), "defaul
 expect(settingsViewSource.contains("默认头像大小"), "settings expose a default camera avatar size control")
 expect(settingsViewSource.contains("NormalizedRect.minCameraFrameSize...NormalizedRect.maxCameraFrameSize"), "camera avatar size slider uses the core clamped range")
 expect(settingsViewSource.contains("appState.updateDefaultCameraSize(size)"), "camera avatar size slider persists through app state")
+expect(settingsViewSource.contains("Picker(\"截图/录屏快捷键\", selection: $appState.preferences.captureShortcutPreset)"), "settings expose screenshot and recording shortcut mode")
+expect(settingsViewSource.contains("CaptureShortcutPreset.allCases"), "shortcut mode picker lists all capture shortcut presets")
+expect(settingsViewSource.contains("captureShortcutPreset.detail"), "settings explain capture shortcut replacement behavior")
 
 let regionSelectionSourceURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/CaptureRegionSelectionView.swift")
 let regionSelectionSource = (try? String(contentsOf: regionSelectionSourceURL, encoding: .utf8)) ?? ""
+expect(regionSelectionSource.contains("enum CaptureRegionSelectionPurpose"), "region selection supports different recording and screenshot modes")
+expect(regionSelectionSource.contains("case screenshot"), "region selection can label screenshot capture")
 expect(regionSelectionSource.contains("@Published var isStarting"), "region selection exposes a starting state for duplicate click prevention")
 expect(regionSelectionSource.contains("guard canStart, !isStarting else { return }"), "region selection confirms only once while recording starts")
 expect(regionSelectionSource.contains("Self.clamped("), "region selection clamps restored regions to the current screen")
@@ -335,8 +342,32 @@ let hotkeyServiceURL = projectRoot.appendingPathComponent("Sources/JianLu/Servic
 let hotkeyServiceSource = (try? String(contentsOf: hotkeyServiceURL, encoding: .utf8)) ?? ""
 expect(hotkeyServiceSource.contains("startShortcutPolling()"), "zoom hotkeys have a keyboard-state polling fallback")
 expect(hotkeyServiceSource.contains("CGEventSource.keyState"), "zoom hotkey polling reads the real key-down state")
+expect(hotkeyServiceSource.contains("CaptureShortcutPreset"), "hotkey service reads screenshot and recording shortcut mode")
+expect(hotkeyServiceSource.contains("case .macReplacement"), "hotkey service supports Mac-style shortcut replacement")
+expect(hotkeyServiceSource.contains("shouldSuppressSystemShortcut"), "Mac-style replacement can suppress the original system shortcut when the event tap allows it")
+expect(hotkeyServiceSource.contains("options: .defaultTap"), "hotkey event tap is capable of suppressing handled system shortcuts")
+expect(hotkeyServiceSource.contains("return shouldSuppress ? nil : Unmanaged.passUnretained(event)"), "handled replacement shortcuts are swallowed before macOS receives them")
+expect(hotkeyServiceSource.contains("case 15:\n            handler?(.toggleRecording)"), "default recording shortcut toggles recording instead of only stopping")
 expect(!hotkeyServiceSource.contains("leftMouseDown"), "click zoom is driven by region-aware overlay polling instead of global mouse-down events")
 expect(!hotkeyServiceSource.contains("beginClickZoom"), "hotkey service does not start click zoom outside the recording region")
+
+let screenshotCaptureServiceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/ScreenshotCaptureService.swift")
+let screenshotCaptureServiceSource = (try? String(contentsOf: screenshotCaptureServiceURL, encoding: .utf8)) ?? ""
+expect(screenshotCaptureServiceSource.contains("SCScreenshotManager.captureImage"), "screenshot capture uses ScreenCaptureKit image capture")
+expect(screenshotCaptureServiceSource.contains("includeAppWindows"), "screenshot capture respects the include-app-window preference")
+expect(screenshotCaptureServiceSource.contains("CGImageDestinationFinalize"), "screenshot capture service can write PNG output")
+
+let screenshotEditorViewURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/ScreenshotEditorView.swift")
+let screenshotEditorViewSource = (try? String(contentsOf: screenshotEditorViewURL, encoding: .utf8)) ?? ""
+expect(screenshotEditorViewSource.contains("final class ScreenshotEditorModel"), "screenshot editor owns annotation state")
+expect(screenshotEditorViewSource.contains("AnnotationImageRenderer.render"), "screenshot editor saves and copies rendered annotations")
+expect(screenshotEditorViewSource.contains("ToolButton(title: \"画笔\""), "screenshot editor exposes doodle pen")
+expect(screenshotEditorViewSource.contains("ToolButton(title: \"高亮\""), "screenshot editor exposes highlight annotation")
+expect(screenshotEditorViewSource.contains("ToolButton(title: \"圆形\""), "screenshot editor exposes circle annotation")
+expect(screenshotEditorViewSource.contains("Label(\"复制\""), "screenshot editor can copy annotated screenshots")
+expect(screenshotEditorViewSource.contains("Label(\"保存\""), "screenshot editor can save annotated screenshots")
+expect(screenshotEditorViewSource.contains(".keyboardShortcut(\"c\", modifiers: [.shift, .command])"), "screenshot editor supports the common annotated-copy shortcut")
+expect(screenshotEditorViewSource.contains(".keyboardShortcut(\"s\", modifiers: .command)"), "screenshot editor supports the common save shortcut")
 
 let captureServiceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/CaptureService.swift")
 let captureServiceSource = (try? String(contentsOf: captureServiceURL, encoding: .utf8)) ?? ""
@@ -388,6 +419,16 @@ expect(captureServiceSource.contains("stream = nil\n        recordingOutput = ni
 let appStateSourceURL = projectRoot.appendingPathComponent("Sources/JianLu/App/AppState.swift")
 let appStateSource = (try? String(contentsOf: appStateSourceURL, encoding: .utf8)) ?? ""
 expect(appStateSource.contains("@Published var isStartingRecording"), "app state exposes recording startup state")
+expect(appStateSource.contains("@Published var isPreparingScreenshot"), "app state exposes screenshot preparation state")
+expect(appStateSource.contains("@Published var isSelectingScreenshot"), "app state exposes screenshot region selection state")
+expect(appStateSource.contains("private let screenshotCaptureService = ScreenshotCaptureService()"), "app state owns screenshot capture service")
+expect(appStateSource.contains("private let screenshotEditorController = ScreenshotEditorWindowController()"), "app state owns screenshot editor window")
+expect(appStateSource.contains("func takeScreenshotIntent()"), "app state exposes a screenshot intent")
+expect(appStateSource.contains("func takeFullScreenshotIntent()"), "app state exposes full-screen screenshot intent")
+expect(appStateSource.contains("private func beginScreenshotSelection() async"), "app state can open screenshot region selection")
+expect(appStateSource.contains("private func captureScreenshot(region: RecordingRegion?) async"), "app state can capture selected or full screenshots")
+expect(appStateSource.contains("try screenshotCaptureService.writePNG(image, to: url)"), "app state saves annotated screenshots through PNG writer")
+expect(appStateSource.contains("NSPasteboard.general"), "app state copies annotated screenshots to the clipboard")
 expect(appStateSource.contains("syncCameraProcessingPreferences(preferences)"), "preference changes immediately sync camera processing")
 expect(appStateSource.contains("cameraCaptureService.updatePreviewPreferences(preferences)"), "camera background settings update live preview preferences")
 expect(appStateSource.contains("cameraCaptureService.updateRecordingPreferences(preferences)"), "camera background settings update the active recording writer")
@@ -570,6 +611,9 @@ expect(permissionServiceSource.contains("openInputMonitoringSettings()"), "permi
 let contentViewURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/ContentView.swift")
 let contentViewSource = (try? String(contentsOf: contentViewURL, encoding: .utf8)) ?? ""
 expect(contentViewSource.contains("appState.isStartingRecording"), "main recording button reflects startup state")
+expect(contentViewSource.contains("appState.takeScreenshotIntent()"), "main header exposes screenshot capture")
+expect(contentViewSource.contains("screenshotButtonTitle"), "main header reflects screenshot selection state")
+expect(contentViewSource.contains("截图标注"), "dashboard surfaces screenshot annotation as a first-class feature")
 expect(contentViewSource.contains("正在启动"), "main recording button labels startup state in Chinese")
 expect(contentViewSource.contains(".disabled(appState.isStartingRecording)"), "main camera toggle is disabled while recording startup is in progress")
 expect(contentViewSource.contains("输入监控"), "permission UI names Input Monitoring for zoom hotkeys")

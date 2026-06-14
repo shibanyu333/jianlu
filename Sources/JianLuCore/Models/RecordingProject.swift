@@ -112,6 +112,29 @@ public enum ZoomShortcut: String, Codable, CaseIterable, Sendable {
     }
 }
 
+public enum CaptureShortcutPreset: String, Codable, CaseIterable, Sendable {
+    case jianLuDefault
+    case macReplacement
+
+    public var displayName: String {
+        switch self {
+        case .jianLuDefault:
+            "简录默认"
+        case .macReplacement:
+            "Mac 同款替代"
+        }
+    }
+
+    public var detail: String {
+        switch self {
+        case .jianLuDefault:
+            "截图 ⌃⌥⌘4，录屏 ⌃⌥⌘R"
+        case .macReplacement:
+            "截图 ⇧⌘4，录屏 ⇧⌘5；若系统快捷键仍开启，建议在系统设置里关闭原快捷键"
+        }
+    }
+}
+
 public struct RecordingPreferences: Codable, Equatable, Sendable {
     public var includeAppInterface: Bool
     public var cameraEnabled: Bool
@@ -123,6 +146,7 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
     public var cameraFrame: NormalizedRect
     public var cameraShape: CameraFrameShape
     public var zoomShortcut: ZoomShortcut
+    public var captureShortcutPreset: CaptureShortcutPreset
     public var recordingDirectoryPath: String?
     public var lastSelectedRegion: RecordingRegion?
 
@@ -137,6 +161,7 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
         case cameraFrame
         case cameraShape
         case zoomShortcut
+        case captureShortcutPreset
         case recordingDirectoryPath
         case lastSelectedRegion
     }
@@ -152,6 +177,7 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
         cameraFrame: NormalizedRect = .defaultCameraFrame,
         cameraShape: CameraFrameShape = .circle,
         zoomShortcut: ZoomShortcut = .controlOptionCommandZ,
+        captureShortcutPreset: CaptureShortcutPreset = .jianLuDefault,
         recordingDirectoryPath: String? = nil,
         lastSelectedRegion: RecordingRegion? = nil
     ) {
@@ -165,6 +191,7 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
         self.cameraFrame = cameraFrame.clampedCameraFrame
         self.cameraShape = cameraShape
         self.zoomShortcut = zoomShortcut
+        self.captureShortcutPreset = captureShortcutPreset
         self.recordingDirectoryPath = recordingDirectoryPath
         self.lastSelectedRegion = lastSelectedRegion
     }
@@ -181,6 +208,7 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
         cameraFrame = (try container.decodeIfPresent(NormalizedRect.self, forKey: .cameraFrame) ?? .defaultCameraFrame).clampedCameraFrame
         cameraShape = (try? container.decodeIfPresent(CameraFrameShape.self, forKey: .cameraShape)) ?? .circle
         zoomShortcut = (try? container.decodeIfPresent(ZoomShortcut.self, forKey: .zoomShortcut)) ?? .controlOptionCommandZ
+        captureShortcutPreset = (try? container.decodeIfPresent(CaptureShortcutPreset.self, forKey: .captureShortcutPreset)) ?? .jianLuDefault
         recordingDirectoryPath = try container.decodeIfPresent(String.self, forKey: .recordingDirectoryPath)
         lastSelectedRegion = try container.decodeIfPresent(RecordingRegion.self, forKey: .lastSelectedRegion)
     }
@@ -195,7 +223,8 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
         cameraBeautyLevel: 0.25,
         cameraFrame: .defaultCameraFrame,
         cameraShape: .circle,
-        zoomShortcut: .controlOptionCommandZ
+        zoomShortcut: .controlOptionCommandZ,
+        captureShortcutPreset: .jianLuDefault
     )
 }
 

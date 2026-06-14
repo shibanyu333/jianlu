@@ -15,6 +15,11 @@ struct JianLuApp: App {
         .windowResizability(.contentMinSize)
         .commands {
             CommandMenu("录制") {
+                Button("区域截图") {
+                    appState.takeScreenshotIntent()
+                }
+                .keyboardShortcut("4", modifiers: [.control, .option, .command])
+
                 Button("选择区域/开始/停止录制") {
                     appState.toggleRecordingIntent()
                 }

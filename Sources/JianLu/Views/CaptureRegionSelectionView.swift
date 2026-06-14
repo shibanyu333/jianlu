@@ -1,6 +1,65 @@
 import JianLuCore
 import SwiftUI
 
+enum CaptureRegionSelectionPurpose {
+    case recording
+    case screenshot
+
+    var minimumSize: CGFloat {
+        switch self {
+        case .recording:
+            80
+        case .screenshot:
+            20
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .recording:
+            "拖拽选择录制区域"
+        case .screenshot:
+            "拖拽选择截图区域"
+        }
+    }
+
+    var confirmTitle: String {
+        switch self {
+        case .recording:
+            "开始录制"
+        case .screenshot:
+            "截图"
+        }
+    }
+
+    var startingTitle: String {
+        switch self {
+        case .recording:
+            "正在开始"
+        case .screenshot:
+            "正在截图"
+        }
+    }
+
+    var confirmSystemImage: String {
+        switch self {
+        case .recording:
+            "record.circle"
+        case .screenshot:
+            "camera.viewfinder"
+        }
+    }
+
+    var hint: String {
+        switch self {
+        case .recording:
+            "Return 开始录制，Esc 取消，⌃⌥⌘R 也可确认当前区域"
+        case .screenshot:
+            "Return 截图，Esc 取消；截图后可继续标注和涂鸦"
+        }
+    }
+}
+
 @MainActor
 final class CaptureRegionSelectionModel: ObservableObject {
     @Published var selectionRect: CGRect
@@ -8,22 +67,25 @@ final class CaptureRegionSelectionModel: ObservableObject {
 
     let displayID: UInt32
     let screenSize: CGSize
+    let purpose: CaptureRegionSelectionPurpose
     private let onStart: (RecordingRegion) -> Void
     private let onCancel: () -> Void
 
     var canStart: Bool {
-        !isStarting && selectionRect.width >= 80 && selectionRect.height >= 80
+        !isStarting && selectionRect.width >= purpose.minimumSize && selectionRect.height >= purpose.minimumSize
     }
 
     init(
         displayID: UInt32,
         screenSize: CGSize,
         initialRegion: RecordingRegion?,
+        purpose: CaptureRegionSelectionPurpose = .recording,
         onStart: @escaping (RecordingRegion) -> Void,
         onCancel: @escaping () -> Void
     ) {
         self.displayID = displayID
         self.screenSize = screenSize
+        self.purpose = purpose
         self.onStart = onStart
         self.onCancel = onCancel
 
@@ -121,7 +183,7 @@ struct CaptureRegionSelectionView: View {
 
                 VStack(spacing: 10) {
                     HStack(spacing: 10) {
-                        Label("拖拽选择录制区域", systemImage: "rectangle.dashed")
+                        Label(model.purpose.title, systemImage: "rectangle.dashed")
                             .font(.callout.weight(.medium))
                             .foregroundStyle(.primary)
 
@@ -150,7 +212,10 @@ struct CaptureRegionSelectionView: View {
                         Button {
                             model.confirmSelection()
                         } label: {
-                            Label(model.isStarting ? "正在开始" : "开始录制", systemImage: "record.circle")
+                            Label(
+                                model.isStarting ? model.purpose.startingTitle : model.purpose.confirmTitle,
+                                systemImage: model.purpose.confirmSystemImage
+                            )
                         }
                         .buttonStyle(.borderedProminent)
                         .disabled(!model.canStart)
@@ -161,7 +226,7 @@ struct CaptureRegionSelectionView: View {
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
                     .shadow(radius: 12)
 
-                    Text("Return 开始录制，Esc 取消，⌃⌥⌘R 也可确认当前区域")
+                    Text(model.purpose.hint)
                         .font(.caption)
                         .foregroundStyle(.white.opacity(0.86))
                         .shadow(radius: 4)
