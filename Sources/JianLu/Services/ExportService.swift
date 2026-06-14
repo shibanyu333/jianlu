@@ -43,7 +43,7 @@ final class ExportService: ObservableObject {
         }
 
         let screenAsset = AVURLAsset(url: project.screenRecordingURL)
-        guard let screenTrack = screenAsset.tracks(withMediaType: .video).first else {
+        guard let screenTrack = try await screenAsset.loadTracks(withMediaType: .video).first else {
             throw ExportServiceError.missingVideoTrack
         }
 
@@ -53,7 +53,7 @@ final class ExportService: ObservableObject {
         }
 
         let compositionAudio = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
-        let screenAudioTracks = screenAsset.tracks(withMediaType: .audio)
+        let screenAudioTracks = try await screenAsset.loadTracks(withMediaType: .audio)
 
         var cursor = CMTime.zero
         for segment in project.timeline.segments {
@@ -70,17 +70,17 @@ final class ExportService: ObservableObject {
 
         var cameraTrackID: CMPersistentTrackID?
         if let cameraURL = project.cameraRecordingURL {
-            cameraTrackID = try addCameraTrack(
+            cameraTrackID = try await addCameraTrack(
                 from: cameraURL,
                 to: composition,
                 project: project
             )
         }
         if let microphoneURL = project.microphoneRecordingURL {
-            try addMicrophoneTrack(from: microphoneURL, to: composition, project: project)
+            try await addMicrophoneTrack(from: microphoneURL, to: composition, project: project)
         }
 
-        let renderSize = normalizedRenderSize(for: screenTrack)
+        let renderSize = try await normalizedRenderSize(for: screenTrack)
 
         let videoComposition = AVMutableVideoComposition()
         videoComposition.renderSize = renderSize
@@ -111,39 +111,32 @@ final class ExportService: ObservableObject {
             throw ExportServiceError.cannotCreateExportSession
         }
 
-        exportSession.outputURL = outputURL
-        exportSession.outputFileType = .mov
         exportSession.videoComposition = videoComposition
         exportSession.shouldOptimizeForNetworkUse = true
 
-        await withCheckedContinuation { continuation in
-            exportSession.exportAsynchronously {
-                continuation.resume()
-            }
-        }
-
-        if exportSession.status == .completed {
+        do {
+            try await exportSession.export(to: outputURL, as: .mov)
             return outputURL
+        } catch {
+            throw ExportServiceError.exportFailed(error.localizedDescription)
         }
-
-        throw ExportServiceError.exportFailed(exportSession.error?.localizedDescription ?? "未知错误")
     }
 
     private func addCameraTrack(
         from cameraURL: URL,
         to composition: AVMutableComposition,
         project: RecordingProject
-    ) throws -> CMPersistentTrackID? {
+    ) async throws -> CMPersistentTrackID? {
         let cameraAsset = AVURLAsset(url: cameraURL)
-        guard let cameraTrack = cameraAsset.tracks(withMediaType: .video).first,
+        guard let cameraTrack = try await cameraAsset.loadTracks(withMediaType: .video).first,
               let compositionCamera = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
             return nil
         }
 
-        let cameraDuration = CMTimeGetSeconds(cameraAsset.duration)
+        let cameraDuration = CMTimeGetSeconds(try await cameraAsset.load(.duration))
         var cursor = CMTime.zero
         var insertedCameraVideo = false
-        for segment in project.timeline.segments where segment.sourceStart < cameraDuration {
+        for segment in project.timeline.segments {
             let availableDuration = max(0, min(segment.duration, cameraDuration - segment.sourceStart))
             guard availableDuration > 0 else {
                 cursor = cursor + CMTime(seconds: segment.duration, preferredTimescale: 600)
@@ -170,18 +163,21 @@ final class ExportService: ObservableObject {
         from microphoneURL: URL,
         to composition: AVMutableComposition,
         project: RecordingProject
-    ) throws {
+    ) async throws {
         let microphoneAsset = AVURLAsset(url: microphoneURL)
-        guard let microphoneTrack = microphoneAsset.tracks(withMediaType: .audio).first,
+        guard let microphoneTrack = try await microphoneAsset.loadTracks(withMediaType: .audio).first,
               let compositionMicrophone = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else {
             return
         }
 
-        let microphoneDuration = CMTimeGetSeconds(microphoneAsset.duration)
+        let microphoneDuration = CMTimeGetSeconds(try await microphoneAsset.load(.duration))
         var cursor = CMTime.zero
-        for segment in project.timeline.segments where segment.sourceStart < microphoneDuration {
+        for segment in project.timeline.segments {
             let availableDuration = max(0, min(segment.duration, microphoneDuration - segment.sourceStart))
-            guard availableDuration > 0 else { continue }
+            guard availableDuration > 0 else {
+                cursor = cursor + CMTime(seconds: segment.duration, preferredTimescale: 600)
+                continue
+            }
 
             let sourceRange = CMTimeRange(
                 start: CMTime(seconds: segment.sourceStart, preferredTimescale: 600),
@@ -343,8 +339,10 @@ final class ExportService: ObservableObject {
         annotation.tool == .highlight ? NSColor.systemYellow.withAlphaComponent(0.35) : .systemRed
     }
 
-    private func normalizedRenderSize(for track: AVAssetTrack) -> CGSize {
-        let size = track.naturalSize.applying(track.preferredTransform)
+    private func normalizedRenderSize(for track: AVAssetTrack) async throws -> CGSize {
+        let naturalSize = try await track.load(.naturalSize)
+        let preferredTransform = try await track.load(.preferredTransform)
+        let size = naturalSize.applying(preferredTransform)
         return CGSize(width: abs(size.width), height: abs(size.height))
     }
 }

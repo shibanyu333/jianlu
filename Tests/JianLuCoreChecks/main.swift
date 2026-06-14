@@ -11,13 +11,25 @@ func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
     }
 }
 
-expect(CoreVersion.name == "JianLuCore", "core module exposes its name")
-runTimelineChecks()
-runPermissionGateChecks()
-runPreferenceChecks()
-runZoomLensGeometryChecks()
-runVideoCompositorChecks()
-print("JianLuCoreChecks passed")
+@main
+struct JianLuCoreChecks {
+    static func main() async {
+        expect(CoreVersion.name == "JianLuCore", "core module exposes its name")
+        runTimelineChecks()
+        runPermissionGateChecks()
+        runPreferenceChecks()
+        runZoomLensGeometryChecks()
+
+        do {
+            try await runVideoCompositorChecks()
+        } catch {
+            fputs("Video compositor check failed: \(error.localizedDescription)\n", stderr)
+            exit(1)
+        }
+
+        print("JianLuCoreChecks passed")
+    }
+}
 
 private func runTimelineChecks() {
     var timeline = EditTimeline.fullLength(duration: 12)
@@ -284,35 +296,30 @@ private func runZoomLensGeometryChecks() {
     expect(largeDiameter == 280, "zoom lens has a stable maximum size")
 }
 
-private func runVideoCompositorChecks() {
+private func runVideoCompositorChecks() async throws {
     let directory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
         .appendingPathComponent("jianlu-core-checks-\(UUID().uuidString)", isDirectory: true)
-    do {
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
 
-        let screenURL = directory.appendingPathComponent("screen.mov")
-        let cameraURL = directory.appendingPathComponent("camera.mov")
-        let outputURL = directory.appendingPathComponent("composited.mov")
-        let annotatedOutputURL = directory.appendingPathComponent("composited-annotated.mov")
-        try makeSolidColorMovie(url: screenURL, size: CGSize(width: 200, height: 200), color: (r: 20, g: 70, b: 220))
-        try makeSolidColorMovie(url: cameraURL, size: CGSize(width: 120, height: 120), color: (r: 230, g: 40, b: 30))
-        try exportSyntheticCompositorMovie(screenURL: screenURL, cameraURL: cameraURL, outputURL: outputURL, overlaysAnnotation: false)
+    let screenURL = directory.appendingPathComponent("screen.mov")
+    let cameraURL = directory.appendingPathComponent("camera.mov")
+    let outputURL = directory.appendingPathComponent("composited.mov")
+    let annotatedOutputURL = directory.appendingPathComponent("composited-annotated.mov")
+    try makeSolidColorMovie(url: screenURL, size: CGSize(width: 200, height: 200), color: (r: 20, g: 70, b: 220))
+    try makeSolidColorMovie(url: cameraURL, size: CGSize(width: 120, height: 120), color: (r: 230, g: 40, b: 30))
+    try await exportSyntheticCompositorMovie(screenURL: screenURL, cameraURL: cameraURL, outputURL: outputURL, overlaysAnnotation: false)
 
-        let frame = try firstFrameImage(from: outputURL)
-        let center = pixelColor(in: frame, x: 100, y: 100)
-        let maskedCorner = pixelColor(in: frame, x: 52, y: 52)
-        expect(center.r > 170 && center.g < 90 && center.b < 90, "circle camera compositor keeps camera visible at the center")
-        expect(maskedCorner.b > 150 && maskedCorner.r < 100, "circle camera compositor masks the camera corners")
+    let frame = try await firstFrameImage(from: outputURL)
+    let center = pixelColor(in: frame, x: 100, y: 100)
+    let maskedCorner = pixelColor(in: frame, x: 52, y: 52)
+    expect(center.r > 170 && center.g < 90 && center.b < 90, "circle camera compositor keeps camera visible at the center")
+    expect(maskedCorner.b > 150 && maskedCorner.r < 100, "circle camera compositor masks the camera corners")
 
-        try exportSyntheticCompositorMovie(screenURL: screenURL, cameraURL: cameraURL, outputURL: annotatedOutputURL, overlaysAnnotation: true)
-        let annotatedFrame = try firstFrameImage(from: annotatedOutputURL)
-        let annotatedCenter = pixelColor(in: annotatedFrame, x: 100, y: 100)
-        expect(annotatedCenter.g > 150 && annotatedCenter.r < 120, "camera compositor still renders annotation overlays")
-    } catch {
-        fputs("Video compositor check failed: \(error.localizedDescription)\n", stderr)
-        exit(1)
-    }
+    try await exportSyntheticCompositorMovie(screenURL: screenURL, cameraURL: cameraURL, outputURL: annotatedOutputURL, overlaysAnnotation: true)
+    let annotatedFrame = try await firstFrameImage(from: annotatedOutputURL)
+    let annotatedCenter = pixelColor(in: annotatedFrame, x: 100, y: 100)
+    expect(annotatedCenter.g > 150 && annotatedCenter.r < 120, "camera compositor still renders annotation overlays")
 }
 
 private func makeSolidColorMovie(
@@ -408,11 +415,11 @@ private func fill(
     }
 }
 
-private func exportSyntheticCompositorMovie(screenURL: URL, cameraURL: URL, outputURL: URL, overlaysAnnotation: Bool) throws {
+private func exportSyntheticCompositorMovie(screenURL: URL, cameraURL: URL, outputURL: URL, overlaysAnnotation: Bool) async throws {
     let screenAsset = AVURLAsset(url: screenURL)
     let cameraAsset = AVURLAsset(url: cameraURL)
-    guard let screenTrack = screenAsset.tracks(withMediaType: .video).first,
-          let cameraTrack = cameraAsset.tracks(withMediaType: .video).first else {
+    guard let screenTrack = try await screenAsset.loadTracks(withMediaType: .video).first,
+          let cameraTrack = try await cameraAsset.loadTracks(withMediaType: .video).first else {
         throw CheckError("synthetic assets are missing tracks")
     }
 
@@ -455,18 +462,9 @@ private func exportSyntheticCompositorMovie(screenURL: URL, cameraURL: URL, outp
     guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
         throw CheckError("cannot create synthetic export session")
     }
-    export.outputURL = outputURL
-    export.outputFileType = .mov
     export.videoComposition = videoComposition
 
-    let semaphore = DispatchSemaphore(value: 0)
-    export.exportAsynchronously {
-        semaphore.signal()
-    }
-    semaphore.wait()
-    guard export.status == .completed else {
-        throw export.error ?? CheckError("synthetic export did not complete")
-    }
+    try await export.export(to: outputURL, as: .mov)
 }
 
 private func annotationAnimationTool(renderSize: CGSize) -> AVVideoCompositionCoreAnimationTool {
@@ -486,12 +484,12 @@ private func annotationAnimationTool(renderSize: CGSize) -> AVVideoCompositionCo
     return AVVideoCompositionCoreAnimationTool(postProcessingAsVideoLayer: videoLayer, in: parentLayer)
 }
 
-private func firstFrameImage(from url: URL) throws -> CGImage {
+private func firstFrameImage(from url: URL) async throws -> CGImage {
     let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
     generator.appliesPreferredTrackTransform = true
     generator.requestedTimeToleranceBefore = .zero
     generator.requestedTimeToleranceAfter = .zero
-    return try generator.copyCGImage(at: CMTime(value: 1, timescale: 30), actualTime: nil)
+    return try await generator.image(at: CMTime(value: 1, timescale: 30)).image
 }
 
 private func pixelColor(in image: CGImage, x: Int, y: Int) -> (r: UInt8, g: UInt8, b: UInt8, a: UInt8) {
