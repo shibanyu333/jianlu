@@ -133,6 +133,7 @@ expect(controlBarSource.contains("screenFrame.width - horizontalInset * 2"), "re
 expect(!controlBarSource.contains("max(560"), "recording control bar avoids a hard minimum width that can exceed small screens")
 expect(controlBarViewSource.contains("ScrollView(.horizontal, showsIndicators: false)"), "recording control bar keeps all named controls reachable on narrow screens")
 expect(controlBarViewSource.contains("fixedSize(horizontal: true, vertical: false)"), "recording control bar does not squeeze button labels until they disappear")
+expect(controlBarViewSource.contains("overlay.toggleFollowZoomMode()"), "main zoom toolbar button directly toggles visible follow zoom")
 expect(controlBarViewSource.contains("overlay.requestToggleClickZoomMode()"), "click zoom toolbar action goes through the app intent feedback path")
 expect(!controlBarViewSource.contains("overlay.toggleClickZoomMode()"), "click zoom toolbar action is not a silent direct state toggle")
 expect(settingsViewSource.contains("Picker(\"默认头像形状\", selection: $appState.preferences.cameraShape)"), "settings expose the default camera avatar shape")
@@ -175,15 +176,36 @@ let overlayServiceSource = (try? String(contentsOf: overlayServiceURL, encoding:
 expect(overlayServiceSource.contains("func setCameraVisibility(_ isVisible: Bool)"), "overlay can set camera visibility without relying on toggle state")
 expect(overlayServiceSource.contains("private var onToggleClickZoomMode"), "overlay can route click zoom requests back to app state")
 expect(overlayServiceSource.contains("func requestToggleClickZoomMode()"), "overlay exposes a click zoom request instead of silent toolbar mutation")
+expect(overlayServiceSource.contains("@Published var zoomFollowModeEnabled"), "overlay exposes a simple follow zoom mode")
+expect(overlayServiceSource.contains("func toggleFollowZoomMode()"), "overlay can toggle direct visible zoom from the toolbar")
 expect(overlayServiceSource.contains("private var onCameraLayoutChanged"), "overlay can report camera avatar layout changes")
 expect(overlayServiceSource.contains("onCameraLayoutChanged?(cameraFrame, cameraShape)"), "overlay reports persisted camera avatar frame and shape")
 expect(
-    overlayServiceSource.contains("if zoomClickModeEnabled {\n            selectedTool = nil\n            currentStrokePoints = []\n        }"),
+    overlayServiceSource.contains("""
+        if zoomFollowModeEnabled {
+            zoomClickModeEnabled = false
+            selectedTool = nil
+            currentStrokePoints = []
+            beginTransientZoom()
+        } else {
+            endTransientZoom()
+        }
+"""),
+    "follow zoom immediately starts visible live zoom and exits click/annotation tools"
+)
+expect(
+    overlayServiceSource.contains("if zoomClickModeEnabled {")
+        && overlayServiceSource.contains("zoomFollowModeEnabled = false")
+        && overlayServiceSource.contains("selectedTool = nil")
+        && overlayServiceSource.contains("currentStrokePoints = []"),
     "click zoom mode exits annotation tools"
 )
 expect(
-    overlayServiceSource.contains("if selectedTool != nil {\n            zoomClickModeEnabled = false\n            endTransientZoom()\n        }"),
-    "annotation tools exit click zoom mode"
+    overlayServiceSource.contains("if selectedTool != nil {")
+        && overlayServiceSource.contains("zoomFollowModeEnabled = false")
+        && overlayServiceSource.contains("zoomClickModeEnabled = false")
+        && overlayServiceSource.contains("endTransientZoom()"),
+    "annotation tools exit zoom modes"
 )
 expect(overlayServiceSource.contains("func prewarmZoomPreview()"), "overlay can prewarm a live zoom frame before the user presses the shortcut")
 expect(overlayServiceSource.contains("isMouseInsideRecordingRegion()"), "click zoom starts only when the mouse is inside the recording region")

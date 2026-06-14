@@ -15,6 +15,7 @@ final class OverlayService: ObservableObject {
     @Published var selectedTool: AnnotationTool?
     @Published var zoomMagnification: Double = 1.8
     @Published var zoomClickModeEnabled = false
+    @Published var zoomFollowModeEnabled = false
     @Published var isTransientZoomActive = false
     @Published var currentZoomFocus = NormalizedPoint(x: 0.5, y: 0.5)
     @Published var zoomPreviewImage: CGImage?
@@ -60,6 +61,7 @@ final class OverlayService: ObservableObject {
         selectedTool = nil
         zoomMagnification = max(1.2, zoomMagnification)
         zoomClickModeEnabled = false
+        zoomFollowModeEnabled = false
         isTransientZoomActive = false
         currentZoomFocus = NormalizedPoint(x: 0.5, y: 0.5)
         zoomPreviewImage = nil
@@ -83,6 +85,7 @@ final class OverlayService: ObservableObject {
         recordingStartedAt = nil
         isPaused = false
         zoomClickModeEnabled = false
+        zoomFollowModeEnabled = false
         isTransientZoomActive = false
         zoomPreviewImage = nil
         zoomSnapshotInFlight = false
@@ -137,6 +140,8 @@ final class OverlayService: ObservableObject {
 
     func setPaused(_ isPaused: Bool) {
         if isPaused {
+            zoomFollowModeEnabled = false
+            zoomClickModeEnabled = false
             endTransientZoom()
             currentStrokePoints = []
         }
@@ -178,15 +183,37 @@ final class OverlayService: ObservableObject {
     func toggleClickZoomMode() {
         guard !isPaused else {
             zoomClickModeEnabled = false
+            zoomFollowModeEnabled = false
             endTransientZoom()
             return
         }
         zoomClickModeEnabled.toggle()
         if zoomClickModeEnabled {
+            zoomFollowModeEnabled = false
             selectedTool = nil
             currentStrokePoints = []
+            endTransientZoom()
         }
         if !zoomClickModeEnabled {
+            endTransientZoom()
+        }
+    }
+
+    func toggleFollowZoomMode() {
+        guard !isPaused else {
+            zoomFollowModeEnabled = false
+            zoomClickModeEnabled = false
+            endTransientZoom()
+            return
+        }
+
+        zoomFollowModeEnabled.toggle()
+        if zoomFollowModeEnabled {
+            zoomClickModeEnabled = false
+            selectedTool = nil
+            currentStrokePoints = []
+            beginTransientZoom()
+        } else {
             endTransientZoom()
         }
     }
@@ -196,7 +223,9 @@ final class OverlayService: ObservableObject {
     }
 
     func endHoldZoom() {
-        endTransientZoom()
+        if !zoomFollowModeEnabled {
+            endTransientZoom()
+        }
     }
 
     func beginClickZoom() {
@@ -206,7 +235,9 @@ final class OverlayService: ObservableObject {
 
     func endClickZoom() {
         guard zoomClickModeEnabled else { return }
-        endTransientZoom()
+        if !zoomFollowModeEnabled {
+            endTransientZoom()
+        }
     }
 
     private func beginTransientZoom() {
@@ -235,6 +266,7 @@ final class OverlayService: ObservableObject {
     func selectTool(_ tool: AnnotationTool?) {
         selectedTool = selectedTool == tool ? nil : tool
         if selectedTool != nil {
+            zoomFollowModeEnabled = false
             zoomClickModeEnabled = false
             endTransientZoom()
         }

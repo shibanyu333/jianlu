@@ -30,7 +30,10 @@ struct RecordingControlBarView: View {
                     Divider()
                         .frame(height: 24)
 
-                    ControlBarButton(title: overlay.zoomClickModeEnabled ? "放大已开" : "点击放大", symbol: "cursorarrow.click.2", isActive: overlay.zoomClickModeEnabled) {
+                    ControlBarButton(title: overlay.zoomFollowModeEnabled ? "放大已开" : "放大", symbol: "plus.magnifyingglass", isActive: overlay.zoomFollowModeEnabled) {
+                        overlay.toggleFollowZoomMode()
+                    }
+                    ControlBarButton(title: overlay.zoomClickModeEnabled ? "点击已开" : "点击模式", symbol: "cursorarrow.click.2", isActive: overlay.zoomClickModeEnabled) {
                         overlay.requestToggleClickZoomMode()
                     }
 
