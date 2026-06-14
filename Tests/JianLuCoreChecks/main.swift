@@ -564,6 +564,16 @@ private func runZoomLensGeometryChecks() {
     expect(abs(regionZoom.minX + 400) < 0.001, "full-region zoom keeps the focus centered horizontally")
     expect(abs(regionZoom.minY + 200) < 0.001, "full-region zoom keeps the focus centered vertically")
 
+    let liveRegionZoom = ZoomLensGeometry(lensSize: CGSize(width: 1000, height: 500)).zoomedRegionImageFrame(
+        captureSize: CGSize(width: 1000, height: 500),
+        focus: NormalizedPoint(x: 0.25, y: 0.4),
+        magnification: 1.8
+    )
+    expect(abs(liveRegionZoom.width - 1800) < 0.001, "full-region live zoom expands the visible recording width")
+    expect(abs(liveRegionZoom.height - 900) < 0.001, "full-region live zoom expands the visible recording height")
+    expect(abs(liveRegionZoom.minX + 200) < 0.001, "full-region live zoom keeps the mouse focus in place horizontally")
+    expect(abs(liveRegionZoom.minY + 160) < 0.001, "full-region live zoom keeps the mouse focus in place vertically")
+
     let clampedCenter = lens.clampedLensCenter(
         in: CGRect(x: 10, y: 20, width: 800, height: 400),
         focus: NormalizedPoint(x: 0.02, y: 0.03)

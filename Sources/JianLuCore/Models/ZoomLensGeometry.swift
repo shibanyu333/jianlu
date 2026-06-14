@@ -75,4 +75,24 @@ public struct ZoomLensGeometry: Equatable, Sendable {
             height: imageSize.height
         )
     }
+
+    public func zoomedRegionImageFrame(
+        captureSize: CGSize,
+        focus: NormalizedPoint,
+        magnification: Double
+    ) -> CGRect {
+        let scale = max(1.2, CGFloat(magnification))
+        let baseWidth = max(1, captureSize.width)
+        let baseHeight = max(1, captureSize.height)
+        let imageSize = CGSize(
+            width: baseWidth * scale,
+            height: baseHeight * scale
+        )
+        return CGRect(
+            x: (1 - scale) * CGFloat(focus.x) * baseWidth,
+            y: (1 - scale) * CGFloat(focus.y) * baseHeight,
+            width: imageSize.width,
+            height: imageSize.height
+        )
+    }
 }

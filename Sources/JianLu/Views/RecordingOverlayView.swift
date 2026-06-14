@@ -36,15 +36,13 @@ private struct LiveZoomRegionView: View {
 
     var body: some View {
         let captureSize = captureRect.size
-        let lensDiameter = ZoomLensGeometry.lensDiameter(for: captureSize)
-        let lensSize = CGSize(width: lensDiameter, height: lensDiameter)
-        let geometry = ZoomLensGeometry(lensSize: lensSize)
-        let captureBounds = CGRect(origin: .zero, size: captureSize)
-        let lensCenter = geometry.clampedLensCenter(
-            in: captureBounds,
-            focus: overlay.currentZoomFocus
+        let zoomViewportSize = captureSize
+        let geometry = ZoomLensGeometry(lensSize: zoomViewportSize)
+        let focusPoint = CGPoint(
+            x: CGFloat(overlay.currentZoomFocus.x) * zoomViewportSize.width,
+            y: CGFloat(overlay.currentZoomFocus.y) * zoomViewportSize.height
         )
-        let imageFrame = geometry.zoomedImageFrame(
+        let imageFrame = geometry.zoomedRegionImageFrame(
             captureSize: captureSize,
             focus: overlay.currentZoomFocus,
             magnification: overlay.zoomMagnification
@@ -65,12 +63,12 @@ private struct LiveZoomRegionView: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
                     .background(.blue.opacity(0.88), in: Capsule())
-                    .position(x: lensSize.width / 2, y: lensSize.height / 2)
+                    .position(x: zoomViewportSize.width / 2, y: zoomViewportSize.height / 2)
             }
 
             FocusMarker()
                 .frame(width: 34, height: 34)
-                .position(x: lensSize.width / 2, y: lensSize.height / 2)
+                .position(focusPoint)
 
             Text("放大 \(String(format: "%.1f", overlay.zoomMagnification))x")
                 .font(.callout.weight(.semibold).monospacedDigit())
@@ -80,20 +78,17 @@ private struct LiveZoomRegionView: View {
                 .background(.blue.opacity(0.9), in: Capsule())
                 .padding(12)
         }
-        .frame(width: lensSize.width, height: lensSize.height)
-        .clipShape(Circle())
+        .frame(width: captureSize.width, height: captureSize.height)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay {
-            Circle()
+            RoundedRectangle(cornerRadius: 8)
                 .stroke(.white.opacity(0.95), lineWidth: 3)
-            Circle()
+            RoundedRectangle(cornerRadius: 6)
                 .stroke(.blue.opacity(0.95), lineWidth: 4)
                 .padding(3)
         }
         .clipped()
-        .position(
-            x: captureRect.minX + lensCenter.x,
-            y: captureRect.minY + lensCenter.y
-        )
+        .position(x: captureRect.midX, y: captureRect.midY)
         .shadow(color: .black.opacity(0.28), radius: 18, y: 7)
         .allowsHitTesting(false)
         .transition(.opacity)
