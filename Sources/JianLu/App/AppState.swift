@@ -20,7 +20,7 @@ final class AppState: ObservableObject {
     }
     @Published var lastErrorMessage: String?
     @Published var selectedProjectID: UUID?
-    @Published var exportMessage: String?
+    @Published var exportMessages: [UUID: String] = [:]
     @Published var isExporting = false
     @Published var isStoppingRecording = false
     @Published var isSelectingRegion = false
@@ -523,6 +523,7 @@ final class AppState: ObservableObject {
 
         if recentProjects[index].timeline.split(at: sourceTime) {
             recentProjects = recentProjects
+            exportMessages[id] = nil
             refreshRenderedPreview(for: recentProjects[index], force: true)
             statusMessage = "已在 \(Int(sourceTime)) 秒处分割"
         }
@@ -538,6 +539,7 @@ final class AppState: ObservableObject {
 
         if recentProjects[index].timeline.deleteSegment(id: lastSegment.id) {
             recentProjects = recentProjects
+            exportMessages[id] = nil
             refreshRenderedPreview(for: recentProjects[index], force: true)
             statusMessage = "已删除最后一个片段"
         }
@@ -547,17 +549,21 @@ final class AppState: ObservableObject {
         guard let project = recentProjects.first(where: { $0.id == id }) else { return }
         Task {
             isExporting = true
-            exportMessage = "正在导出..."
+            exportMessages[id] = "正在导出..."
             do {
                 let outputURL = try await exportService.export(project: project)
-                exportMessage = "导出完成：\(outputURL.path)"
+                exportMessages[id] = "导出完成：\(outputURL.path)"
                 statusMessage = "导出完成"
             } catch {
-                exportMessage = error.localizedDescription
+                exportMessages[id] = error.localizedDescription
                 statusMessage = "导出失败"
             }
             isExporting = false
         }
+    }
+
+    func exportMessage(for project: RecordingProject) -> String? {
+        exportMessages[project.id]
     }
 
     func previewURL(for project: RecordingProject) -> URL {

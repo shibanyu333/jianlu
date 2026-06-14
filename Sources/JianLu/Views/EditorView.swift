@@ -68,7 +68,7 @@ struct EditorView: View {
 
             SegmentStripView(segments: project.timeline.segments)
 
-            if let exportMessage = appState.exportMessage {
+            if let exportMessage = appState.exportMessage(for: project) {
                 Text(exportMessage)
                     .font(.callout)
                     .foregroundStyle(.secondary)
