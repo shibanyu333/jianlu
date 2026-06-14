@@ -56,6 +56,7 @@ struct EditorView: View {
                     } label: {
                         Label("分割", systemImage: "scissors")
                     }
+                    .disabled(!project.timeline.canSplit(atExportRatio: playheadRatio))
                     Button {
                         appState.deleteLastSegment(project.id)
                     } label: {

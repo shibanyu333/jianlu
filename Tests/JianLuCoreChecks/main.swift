@@ -46,6 +46,9 @@ private func runTimelineChecks() {
     expect(timeline.totalExportDuration == 5, "deleting trailing segment shortens export")
     expect(timeline.exportTime(forSourceTime: 4) == 4, "maps kept source time into export time")
     expect(timeline.exportTime(forSourceTime: 7) == nil, "deleted source time is not exportable")
+    expect(!timeline.canSplit(atExportRatio: 0), "timeline cannot split at the start")
+    expect(timeline.canSplit(atExportRatio: 0.5), "timeline can split inside a kept segment")
+    expect(!timeline.canSplit(atExportRatio: 1), "timeline cannot split at the end")
 
     let onlySegmentID = timeline.segments[0].id
     expect(!timeline.deleteSegment(id: onlySegmentID), "timeline refuses to delete the final remaining segment")
@@ -64,6 +67,8 @@ private func runTimelineChecks() {
         "pause ranges are removed from the source timeline"
     )
     expect(pauseTrimmedTimeline.totalExportDuration == 7, "pause removal shortens export duration")
+    expect(!pauseTrimmedTimeline.canSplit(atExportTime: 2), "timeline cannot split at a kept segment boundary")
+    expect(pauseTrimmedTimeline.canSplit(atExportTime: 3), "timeline can split inside later kept segments")
 
     let allPausedTimeline = EditTimeline.excluding(
         sourceDuration: 6,

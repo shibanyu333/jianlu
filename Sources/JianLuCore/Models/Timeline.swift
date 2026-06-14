@@ -154,4 +154,16 @@ public struct EditTimeline: Codable, Equatable, Sendable {
 
         return nil
     }
+
+    public func canSplit(atExportTime exportTime: TimeInterval) -> Bool {
+        guard let sourceTime = sourceTime(forExportTime: exportTime) else {
+            return false
+        }
+        return segments.contains { $0.canSplit(at: sourceTime) }
+    }
+
+    public func canSplit(atExportRatio ratio: Double) -> Bool {
+        let clampedRatio = min(max(0, ratio), 1)
+        return canSplit(atExportTime: totalExportDuration * clampedRatio)
+    }
 }

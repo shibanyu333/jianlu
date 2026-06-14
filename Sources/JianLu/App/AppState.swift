@@ -513,6 +513,10 @@ final class AppState: ObservableObject {
         guard let index = recentProjects.firstIndex(where: { $0.id == id }) else { return }
         let clampedRatio = min(max(0, ratio), 1)
         let exportTime = recentProjects[index].timeline.totalExportDuration * clampedRatio
+        guard recentProjects[index].timeline.canSplit(atExportTime: exportTime) else {
+            statusMessage = "请选择片段中间位置再分割"
+            return
+        }
         guard let sourceTime = recentProjects[index].timeline.sourceTime(forExportTime: exportTime) else {
             return
         }
