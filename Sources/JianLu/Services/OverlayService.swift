@@ -30,6 +30,7 @@ final class OverlayService: ObservableObject {
     private var onStop: (() -> Void)?
     private var onTogglePause: (() -> Void)?
     private var onToggleClickZoomMode: (() -> Void)?
+    private var onCameraLayoutChanged: ((NormalizedRect, CameraFrameShape) -> Void)?
     private var screenFrameProvider: (() -> CGImage?)?
     private var zoomPreviewTimer: Timer?
     private var zoomSnapshotInFlight = false
@@ -50,7 +51,8 @@ final class OverlayService: ObservableObject {
         screenFrameProvider: @escaping () -> CGImage?,
         onStop: @escaping () -> Void,
         onTogglePause: @escaping () -> Void,
-        onToggleClickZoomMode: @escaping () -> Void
+        onToggleClickZoomMode: @escaping () -> Void,
+        onCameraLayoutChanged: @escaping (NormalizedRect, CameraFrameShape) -> Void
     ) {
         recordingStartedAt = Date()
         cameraVisible = cameraEnabled
@@ -69,6 +71,7 @@ final class OverlayService: ObservableObject {
         self.screenFrameProvider = screenFrameProvider
         didLogMissingZoomFrame = false
         self.onToggleClickZoomMode = onToggleClickZoomMode
+        self.onCameraLayoutChanged = onCameraLayoutChanged
         annotations = []
         currentStrokePoints = []
         events = []
@@ -88,6 +91,7 @@ final class OverlayService: ObservableObject {
         onStop = nil
         onTogglePause = nil
         onToggleClickZoomMode = nil
+        onCameraLayoutChanged = nil
         screenFrameProvider = nil
         didLogMissingZoomFrame = false
         hide()
@@ -287,6 +291,7 @@ final class OverlayService: ObservableObject {
     }
 
     private func recordCameraLayout() {
+        onCameraLayoutChanged?(cameraFrame, cameraShape)
         let event = CameraLayoutEvent(
             time: currentRecordingTime,
             frame: cameraFrame,

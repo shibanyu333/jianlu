@@ -171,6 +171,8 @@ let overlayServiceSource = (try? String(contentsOf: overlayServiceURL, encoding:
 expect(overlayServiceSource.contains("func setCameraVisibility(_ isVisible: Bool)"), "overlay can set camera visibility without relying on toggle state")
 expect(overlayServiceSource.contains("private var onToggleClickZoomMode"), "overlay can route click zoom requests back to app state")
 expect(overlayServiceSource.contains("func requestToggleClickZoomMode()"), "overlay exposes a click zoom request instead of silent toolbar mutation")
+expect(overlayServiceSource.contains("private var onCameraLayoutChanged"), "overlay can report camera avatar layout changes")
+expect(overlayServiceSource.contains("onCameraLayoutChanged?(cameraFrame, cameraShape)"), "overlay reports persisted camera avatar frame and shape")
 expect(
     overlayServiceSource.contains("if zoomClickModeEnabled {\n            selectedTool = nil\n            currentStrokePoints = []\n        }"),
     "click zoom mode exits annotation tools"
@@ -212,6 +214,11 @@ expect(captureServiceSource.contains("stream = nil\n        recordingOutput = ni
 let appStateSourceURL = projectRoot.appendingPathComponent("Sources/JianLu/App/AppState.swift")
 let appStateSource = (try? String(contentsOf: appStateSourceURL, encoding: .utf8)) ?? ""
 expect(appStateSource.contains("@Published var isStartingRecording"), "app state exposes recording startup state")
+expect(appStateSource.contains("overlayService.cameraFrame = preferences.cameraFrame"), "app restores the saved camera avatar frame on launch")
+expect(appStateSource.contains("overlayService.cameraShape = preferences.cameraShape"), "app restores the saved camera avatar shape on launch")
+expect(appStateSource.contains("private func updateDefaultCameraLayout(frame: NormalizedRect, shape: CameraFrameShape)"), "app can persist camera avatar layout changes")
+expect(appStateSource.contains("preferences.cameraFrame = frame"), "camera avatar frame changes are saved to preferences")
+expect(appStateSource.contains("preferences.cameraShape = shape"), "camera avatar shape changes are saved to preferences")
 expect(appStateSource.contains("guard !isStartingRecording else"), "recording intent ignores duplicate actions while startup is in progress")
 expect(appStateSource.contains("isStartingRecording = true"), "recording startup state is set before devices and overlay are started")
 expect(appStateSource.contains("isStartingRecording = false"), "recording startup state is cleared after success or failure")
@@ -238,6 +245,7 @@ expect(appStateSource.contains("点击放大已开启"), "click zoom enable acti
 expect(appStateSource.contains("点击放大已关闭"), "click zoom disable action has visible Chinese feedback")
 expect(appStateSource.contains("录制已暂停，继续后可使用点击放大"), "paused click zoom action has visible Chinese feedback")
 expect(appStateSource.contains("onToggleClickZoomMode:"), "recording overlay receives a click zoom intent callback")
+expect(appStateSource.contains("onCameraLayoutChanged:"), "recording overlay reports avatar layout changes for persistence")
 expect(appStateSource.contains("private var activeRecordingPreferences"), "recording stores a snapshot of preferences used for the active capture")
 expectOrder(
     "preferences.lastSelectedRegion = region",

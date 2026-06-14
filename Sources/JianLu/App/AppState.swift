@@ -62,6 +62,8 @@ final class AppState: ObservableObject {
 
     init() {
         cameraEnabled = preferences.cameraEnabled
+        overlayService.cameraFrame = preferences.cameraFrame
+        overlayService.cameraShape = preferences.cameraShape
         selectedProjectID = recentProjects.first?.id
         startHotkeyMonitoring()
         statusBarController = StatusBarController(appState: self)
@@ -144,6 +146,12 @@ final class AppState: ObservableObject {
         let nextVisibility = !overlayService.cameraVisible
         overlayService.setCameraVisibility(nextVisibility)
         statusMessage = nextVisibility ? "摄像头头像框已显示" : "摄像头头像框已隐藏"
+    }
+
+    private func updateDefaultCameraLayout(frame: NormalizedRect, shape: CameraFrameShape) {
+        guard preferences.cameraFrame != frame || preferences.cameraShape != shape else { return }
+        preferences.cameraFrame = frame
+        preferences.cameraShape = shape
     }
 
     func requestPermissions() {
@@ -324,6 +332,9 @@ final class AppState: ObservableObject {
                 },
                 onToggleClickZoomMode: { [weak self] in
                     self?.toggleClickZoomModeIntent()
+                },
+                onCameraLayoutChanged: { [weak self] frame, shape in
+                    self?.updateDefaultCameraLayout(frame: frame, shape: shape)
                 }
             )
             activeScreenRecordingURL = try await captureService.startDisplayRecording(

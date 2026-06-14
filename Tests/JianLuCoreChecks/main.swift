@@ -480,6 +480,7 @@ private func runPreferenceChecks() {
     )
     expect(clampedSourceRect == CGRect(x: 2480, y: 1400, width: 400, height: 400), "source rect clamps after scaling to pixels")
 
+    let savedCameraFrame = NormalizedRect(x: 0.12, y: 0.18, width: 0.28, height: 0.28)
     let preferences = RecordingPreferences(
         includeAppInterface: false,
         cameraEnabled: false,
@@ -488,6 +489,8 @@ private func runPreferenceChecks() {
         cameraBackgroundStyle: .graphite,
         cameraBackgroundBlur: .medium,
         cameraBeautyLevel: 4,
+        cameraFrame: savedCameraFrame,
+        cameraShape: .square,
         zoomShortcut: .controlOptionSpace,
         recordingDirectoryPath: "/tmp/jianlu-checks",
         lastSelectedRegion: usableRegion
@@ -496,6 +499,8 @@ private func runPreferenceChecks() {
     expect(!preferences.microphoneEnabled, "microphone preference can be disabled")
     expect(preferences.microphoneNoiseReductionEnabled, "microphone noise reduction preference can be enabled")
     expect(preferences.cameraBeautyLevel == 1, "beauty level is clamped")
+    expect(preferences.cameraFrame == savedCameraFrame, "camera avatar frame preference is stored")
+    expect(preferences.cameraShape == .square, "camera avatar shape preference is stored")
     expect(preferences.zoomShortcut == .controlOptionSpace, "zoom shortcut preference is stored")
     expect(!preferences.zoomShortcut.displayName.isEmpty, "zoom shortcut has a display name")
     expect(preferences.recordingDirectoryPath == "/tmp/jianlu-checks", "recording directory path is stored")
@@ -521,6 +526,8 @@ private func runPreferenceChecks() {
     )
     expect(legacyPreferences?.zoomShortcut == .controlOptionCommandZ, "legacy preferences get the default zoom shortcut")
     expect(legacyPreferences?.cameraEnabled == true, "legacy preferences keep camera enabled by default")
+    expect(legacyPreferences?.cameraFrame == .defaultCameraFrame, "legacy preferences get the default camera frame")
+    expect(legacyPreferences?.cameraShape == .circle, "legacy preferences get the default camera shape")
     expect(legacyPreferences?.recordingDirectoryPath == "/tmp/legacy-jianlu", "legacy preferences keep the recording path")
 }
 
