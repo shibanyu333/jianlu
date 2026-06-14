@@ -253,7 +253,9 @@ final class AppState: ObservableObject {
                     startupWarnings.append("麦克风降噪不可用，已继续录制屏幕和系统声音：\(error.localizedDescription)")
                 }
             }
-            recordingStartedAt = Date()
+            let startedAt = Date()
+            recordingStartedAt = startedAt
+            overlayService.alignRecordingClock(to: startedAt)
             pauseStartedAt = nil
             pausedRanges = []
             isPaused = false

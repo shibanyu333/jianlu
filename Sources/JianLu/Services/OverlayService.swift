@@ -85,6 +85,11 @@ final class OverlayService: ObservableObject {
         hide()
     }
 
+    func alignRecordingClock(to startedAt: Date) {
+        recordingStartedAt = startedAt
+        lastZoomFocusRecordTime = 0
+    }
+
     func show(cameraSession: AVCaptureSession) {
         if overlayWindow == nil {
             overlayWindow = OverlayWindowController(overlayService: self, cameraSession: cameraSession)
