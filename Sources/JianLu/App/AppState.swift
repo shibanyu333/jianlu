@@ -13,7 +13,11 @@ final class AppState: ObservableObject {
     }
     @Published var statusMessage = "准备录制客户方案讲解"
     @Published var permissionSnapshot = PermissionService.snapshot()
-    @Published var recentProjects: [RecordingProject] = []
+    @Published var recentProjects: [RecordingProject] = AppState.loadRecentProjects() {
+        didSet {
+            AppState.saveRecentProjects(recentProjects)
+        }
+    }
     @Published var lastErrorMessage: String?
     @Published var selectedProjectID: UUID?
     @Published var exportMessage: String?
@@ -39,6 +43,7 @@ final class AppState: ObservableObject {
     private let regionSelectionController = CaptureRegionSelectionWindowController()
     private var statusBarController: StatusBarController?
     private static let preferencesKey = "com.local.JianLu.recordingPreferences"
+    private static let recentProjectLimit = 20
 
     private var activeScreenRecordingURL: URL?
     private var activeCameraRecordingURL: URL?
@@ -50,6 +55,7 @@ final class AppState: ObservableObject {
 
     init() {
         cameraEnabled = preferences.cameraEnabled
+        selectedProjectID = recentProjects.first?.id
         hotkeyService.start(
             zoomShortcutProvider: { [weak self] in
                 self?.preferences.zoomShortcut ?? .controlOptionCommandZ
@@ -59,6 +65,9 @@ final class AppState: ObservableObject {
             }
         )
         statusBarController = StatusBarController(appState: self)
+        if let firstProject = recentProjects.first {
+            refreshRenderedPreview(for: firstProject)
+        }
     }
 
     func toggleRecordingIntent() {
@@ -324,6 +333,7 @@ final class AppState: ObservableObject {
                         timeline: timeline
                     )
                     recentProjects.insert(project, at: 0)
+                    recentProjects = Array(recentProjects.prefix(Self.recentProjectLimit))
                     selectedProjectID = project.id
                     refreshRenderedPreview(for: project)
                 }
@@ -574,5 +584,21 @@ final class AppState: ObservableObject {
     private static func savePreferences(_ preferences: RecordingPreferences) {
         guard let data = try? JSONEncoder().encode(preferences) else { return }
         UserDefaults.standard.set(data, forKey: preferencesKey)
+    }
+
+    private static func loadRecentProjects() -> [RecordingProject] {
+        (try? RecordingProjectLibrary.load(from: recentProjectsURL, limit: recentProjectLimit)) ?? []
+    }
+
+    private static func saveRecentProjects(_ projects: [RecordingProject]) {
+        try? RecordingProjectLibrary.save(projects, to: recentProjectsURL, limit: recentProjectLimit)
+    }
+
+    private static var recentProjectsURL: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        return base
+            .appendingPathComponent("简录", isDirectory: true)
+            .appendingPathComponent("projects.json")
     }
 }

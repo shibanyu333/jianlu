@@ -16,6 +16,7 @@ struct JianLuCoreChecks {
     static func main() async {
         expect(CoreVersion.name == "JianLuCore", "core module exposes its name")
         runTimelineChecks()
+        runProjectLibraryChecks()
         runPermissionGateChecks()
         runPreferenceChecks()
         runZoomLensGeometryChecks()
@@ -256,6 +257,48 @@ private func runTimelineChecks() {
         lineWidth: annotation.lineWidth
     )), "active annotations carry into later kept segments")
     expect(exportedAnnotationEvents.last == .annotationClear(AnnotationClearEvent(time: 5)), "annotation clear events are remapped for export")
+}
+
+private func runProjectLibraryChecks() {
+    let directory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        .appendingPathComponent("jianlu-project-library-\(UUID().uuidString)", isDirectory: true)
+    do {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        var projects: [RecordingProject] = []
+        for index in 0..<4 {
+            let screenURL = directory.appendingPathComponent("screen-\(index).mov")
+            FileManager.default.createFile(atPath: screenURL.path, contents: Data("screen-\(index)".utf8))
+            projects.append(
+                RecordingProject(
+                    createdAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                    screenRecordingURL: screenURL,
+                    cameraRecordingURL: nil,
+                    sourceDuration: 10,
+                    events: [],
+                    timeline: .fullLength(duration: 10)
+                )
+            )
+        }
+
+        let storeURL = directory.appendingPathComponent("projects.json")
+        try RecordingProjectLibrary.save(projects, to: storeURL, limit: 3)
+        let loadedProjects = try RecordingProjectLibrary.load(from: storeURL, limit: 10)
+        expect(loadedProjects.count == 3, "project library saves only the recent project limit")
+        expect(loadedProjects.map(\.screenRecordingURL.lastPathComponent) == ["screen-0.mov", "screen-1.mov", "screen-2.mov"], "project library preserves recent ordering")
+
+        try FileManager.default.removeItem(at: projects[1].screenRecordingURL)
+        let filteredProjects = try RecordingProjectLibrary.load(from: storeURL, limit: 10)
+        expect(filteredProjects.map(\.screenRecordingURL.lastPathComponent) == ["screen-0.mov", "screen-2.mov"], "project library filters missing screen recordings")
+
+        let missingStoreURL = directory.appendingPathComponent("missing.json")
+        let missingProjects = try RecordingProjectLibrary.load(from: missingStoreURL, limit: 10)
+        expect(missingProjects.isEmpty, "missing project library starts empty")
+    } catch {
+        fputs("Project library check failed: \(error.localizedDescription)\n", stderr)
+        exit(1)
+    }
 }
 
 private func runPreferenceChecks() {
