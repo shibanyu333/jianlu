@@ -76,4 +76,14 @@ let regionSelectionSource = (try? String(contentsOf: regionSelectionSourceURL, e
 expect(regionSelectionSource.contains("@Published var isStarting"), "region selection exposes a starting state for duplicate click prevention")
 expect(regionSelectionSource.contains("guard canStart, !isStarting else { return }"), "region selection confirms only once while recording starts")
 
+let regionSelectionControllerURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/CaptureRegionSelectionWindowController.swift")
+let regionSelectionController = (try? String(contentsOf: regionSelectionControllerURL, encoding: .utf8)) ?? ""
+expect(regionSelectionController.contains("NSEvent.mouseLocation"), "region selection opens on the display under the pointer")
+
+let overlayWindowSourceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/OverlayWindowController.swift")
+let overlayWindowSource = (try? String(contentsOf: overlayWindowSourceURL, encoding: .utf8)) ?? ""
+expect(overlayWindowSource.contains("recordingRegion.displayID"), "recording overlay follows the selected display")
+
+expect(controlBarSource.contains("recordingRegion.displayID"), "recording control bar follows the selected display")
+
 print("JianLuBundleChecks passed")

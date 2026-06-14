@@ -1,4 +1,5 @@
 import AppKit
+import JianLuCore
 import SwiftUI
 
 @MainActor
@@ -6,7 +7,7 @@ final class RecordingControlBarWindowController {
     private let panel: NSPanel
 
     init(overlayService: OverlayService) {
-        let screenFrame = NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 1280, height: 720)
+        let screenFrame = Self.screenFrame(for: overlayService.recordingRegion)
         let width: CGFloat = min(780, max(560, screenFrame.width - 80))
         let height: CGFloat = 58
         let rect = NSRect(
@@ -57,6 +58,20 @@ final class RecordingControlBarWindowController {
         frame.origin.x = min(max(screenFrame.minX + 12, frame.origin.x), screenFrame.maxX - frame.width - 12)
         frame.origin.y = min(max(screenFrame.minY + 12, frame.origin.y), screenFrame.maxY - frame.height - 12)
         panel.setFrame(frame, display: true)
+    }
+
+    private static func screenFrame(for recordingRegion: RecordingRegion?) -> NSRect {
+        guard let recordingRegion,
+              let screen = NSScreen.screens.first(where: { $0.displayID == recordingRegion.displayID }) else {
+            return NSScreen.main?.frame ?? NSScreen.screens.first?.frame ?? NSRect(x: 0, y: 0, width: 1280, height: 720)
+        }
+        return screen.frame
+    }
+}
+
+private extension NSScreen {
+    var displayID: UInt32 {
+        deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32 ?? 0
     }
 }
 

@@ -1,6 +1,7 @@
 import AVFoundation
 import AppKit
 import Combine
+import JianLuCore
 import SwiftUI
 
 @MainActor
@@ -13,7 +14,7 @@ final class OverlayWindowController {
 
     init(overlayService: OverlayService, cameraSession: AVCaptureSession) {
         self.overlayService = overlayService
-        let screenFrame = NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 1280, height: 720)
+        let screenFrame = Self.screenFrame(for: overlayService.recordingRegion)
         panel = KeyableRecordingPanel(
             contentRect: screenFrame,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -129,9 +130,23 @@ final class OverlayWindowController {
             height: frame.height * captureRect.height
         ).insetBy(dx: -8, dy: -8)
     }
+
+    private static func screenFrame(for recordingRegion: RecordingRegion?) -> NSRect {
+        guard let recordingRegion,
+              let screen = NSScreen.screens.first(where: { $0.displayID == recordingRegion.displayID }) else {
+            return NSScreen.main?.frame ?? NSScreen.screens.first?.frame ?? NSRect(x: 0, y: 0, width: 1280, height: 720)
+        }
+        return screen.frame
+    }
 }
 
 private final class KeyableRecordingPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+}
+
+private extension NSScreen {
+    var displayID: UInt32 {
+        deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32 ?? 0
+    }
 }

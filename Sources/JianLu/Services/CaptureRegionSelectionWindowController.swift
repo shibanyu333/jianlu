@@ -14,7 +14,7 @@ final class CaptureRegionSelectionWindowController {
     ) {
         hide()
 
-        let screen = NSScreen.main ?? NSScreen.screens.first
+        let screen = preferredScreen()
         let screenFrame = screen?.frame ?? NSRect(x: 0, y: 0, width: 1280, height: 720)
         let displayID = screen?.displayID ?? 0
         let model = CaptureRegionSelectionModel(
@@ -55,6 +55,11 @@ final class CaptureRegionSelectionWindowController {
         panel?.orderOut(nil)
         panel = nil
         model = nil
+    }
+
+    private func preferredScreen() -> NSScreen? {
+        let pointerLocation = NSEvent.mouseLocation
+        return NSScreen.screens.first { $0.frame.contains(pointerLocation) } ?? NSScreen.main ?? NSScreen.screens.first
     }
 }
 
