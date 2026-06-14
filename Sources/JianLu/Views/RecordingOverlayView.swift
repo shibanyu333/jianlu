@@ -35,14 +35,17 @@ private struct LiveZoomRegionView: View {
     let captureRect: CGRect
 
     var body: some View {
-        let regionSize = captureRect.size
-        let geometry = ZoomLensGeometry(lensSize: regionSize)
-        let localFocus = geometry.focusPoint(
-            in: CGRect(origin: .zero, size: regionSize),
+        let captureSize = captureRect.size
+        let lensDiameter = ZoomLensGeometry.lensDiameter(for: captureSize)
+        let lensSize = CGSize(width: lensDiameter, height: lensDiameter)
+        let geometry = ZoomLensGeometry(lensSize: lensSize)
+        let captureBounds = CGRect(origin: .zero, size: captureSize)
+        let lensCenter = geometry.clampedLensCenter(
+            in: captureBounds,
             focus: overlay.currentZoomFocus
         )
         let imageFrame = geometry.zoomedImageFrame(
-            captureSize: regionSize,
+            captureSize: captureSize,
             focus: overlay.currentZoomFocus,
             magnification: overlay.zoomMagnification
         )
@@ -55,22 +58,19 @@ private struct LiveZoomRegionView: View {
                     .frame(width: imageFrame.width, height: imageFrame.height)
                     .offset(x: imageFrame.minX, y: imageFrame.minY)
             } else {
-                Color.black.opacity(0.16)
+                Color.blue.opacity(0.22)
                 Text("等待画面帧")
                     .font(.callout.weight(.semibold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
                     .background(.blue.opacity(0.88), in: Capsule())
-                    .position(x: regionSize.width / 2, y: regionSize.height / 2)
+                    .position(x: lensSize.width / 2, y: lensSize.height / 2)
             }
-
-            Rectangle()
-                .stroke(.blue.opacity(0.92), lineWidth: 3)
 
             FocusMarker()
                 .frame(width: 34, height: 34)
-                .position(localFocus)
+                .position(x: lensSize.width / 2, y: lensSize.height / 2)
 
             Text("放大 \(String(format: "%.1f", overlay.zoomMagnification))x")
                 .font(.callout.weight(.semibold).monospacedDigit())
@@ -80,10 +80,21 @@ private struct LiveZoomRegionView: View {
                 .background(.blue.opacity(0.9), in: Capsule())
                 .padding(12)
         }
-        .frame(width: regionSize.width, height: regionSize.height)
+        .frame(width: lensSize.width, height: lensSize.height)
+        .clipShape(Circle())
+        .overlay {
+            Circle()
+                .stroke(.white.opacity(0.95), lineWidth: 3)
+            Circle()
+                .stroke(.blue.opacity(0.95), lineWidth: 4)
+                .padding(3)
+        }
         .clipped()
-        .position(x: captureRect.midX, y: captureRect.midY)
-        .shadow(color: .black.opacity(0.2), radius: 14, y: 5)
+        .position(
+            x: captureRect.minX + lensCenter.x,
+            y: captureRect.minY + lensCenter.y
+        )
+        .shadow(color: .black.opacity(0.28), radius: 18, y: 7)
         .allowsHitTesting(false)
         .transition(.opacity)
     }

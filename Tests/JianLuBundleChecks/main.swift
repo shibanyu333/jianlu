@@ -95,8 +95,17 @@ expect(regionSelectionController.contains("NSEvent.mouseLocation"), "region sele
 let overlayWindowSourceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/OverlayWindowController.swift")
 let overlayWindowSource = (try? String(contentsOf: overlayWindowSourceURL, encoding: .utf8)) ?? ""
 expect(overlayWindowSource.contains("recordingRegion.displayID"), "recording overlay follows the selected display")
+expect(overlayWindowSource.contains("handleClickZoomPolling"), "click zoom mode has a mouse-state polling fallback")
+expect(overlayWindowSource.contains("overlayService.beginClickZoom()"), "click zoom polling can start transient zoom")
+expect(overlayWindowSource.contains("overlayService.endClickZoom()"), "click zoom polling can end transient zoom")
 
 expect(controlBarSource.contains("recordingRegion.displayID"), "recording control bar follows the selected display")
+
+let recordingOverlayViewURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/RecordingOverlayView.swift")
+let recordingOverlayViewSource = (try? String(contentsOf: recordingOverlayViewURL, encoding: .utf8)) ?? ""
+expect(recordingOverlayViewSource.contains("ZoomLensGeometry.lensDiameter"), "live zoom renders as a local mouse-area lens")
+expect(recordingOverlayViewSource.contains("clampedLensCenter"), "live zoom lens follows the mouse focus inside the capture rect")
+expect(recordingOverlayViewSource.contains(".clipShape(Circle())"), "live zoom lens has an obvious circular magnifier frame")
 
 let overlayServiceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/OverlayService.swift")
 let overlayServiceSource = (try? String(contentsOf: overlayServiceURL, encoding: .utf8)) ?? ""
@@ -108,6 +117,11 @@ expect(
     overlayServiceSource.contains("if selectedTool != nil {\n            zoomClickModeEnabled = false\n            endTransientZoom()\n        }"),
     "annotation tools exit click zoom mode"
 )
+
+let hotkeyServiceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/HotkeyService.swift")
+let hotkeyServiceSource = (try? String(contentsOf: hotkeyServiceURL, encoding: .utf8)) ?? ""
+expect(hotkeyServiceSource.contains("startShortcutPolling()"), "zoom hotkeys have a keyboard-state polling fallback")
+expect(hotkeyServiceSource.contains("CGEventSource.keyState"), "zoom hotkey polling reads the real key-down state")
 
 let appStateSourceURL = projectRoot.appendingPathComponent("Sources/JianLu/App/AppState.swift")
 let appStateSource = (try? String(contentsOf: appStateSourceURL, encoding: .utf8)) ?? ""

@@ -26,6 +26,8 @@ final class HotkeyService: @unchecked Sendable {
     private var localMonitor: Any?
     private var eventTap: CFMachPort?
     private var eventTapSource: CFRunLoopSource?
+    private var shortcutPollTimer: Timer?
+    private var isPollingHoldZoomActive = false
     private var handler: ((HotkeyAction) -> Void)?
     private var zoomShortcutProvider: (() -> ZoomShortcut)?
 
@@ -36,6 +38,7 @@ final class HotkeyService: @unchecked Sendable {
         self.zoomShortcutProvider = zoomShortcutProvider
         self.handler = handler
         stopMonitoring()
+        startShortcutPolling()
 
         if startEventTap() {
             return
@@ -67,6 +70,12 @@ final class HotkeyService: @unchecked Sendable {
         }
         if let localMonitor {
             NSEvent.removeMonitor(localMonitor)
+        }
+        shortcutPollTimer?.invalidate()
+        shortcutPollTimer = nil
+        if isPollingHoldZoomActive {
+            handler?(.endHoldZoom)
+            isPollingHoldZoomActive = false
         }
         globalMonitor = nil
         localMonitor = nil
@@ -188,6 +197,32 @@ final class HotkeyService: @unchecked Sendable {
     fileprivate func restartEventTapAfterTimeout() {
         guard let eventTap else { return }
         CGEvent.tapEnable(tap: eventTap, enable: true)
+    }
+
+    private func startShortcutPolling() {
+        let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.pollZoomShortcutState()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        shortcutPollTimer = timer
+    }
+
+    private func pollZoomShortcutState() {
+        let zoomShortcut = zoomShortcutProvider?() ?? .controlOptionCommandZ
+        let keyIsDown = CGEventSource.keyState(
+            .combinedSessionState,
+            key: CGKeyCode(zoomShortcut.keyCode)
+        )
+        let modifierFlags = NSEvent.ModifierFlags(
+            rawValue: UInt(CGEventSource.flagsState(.combinedSessionState).rawValue)
+        )
+        let isActive = keyIsDown && zoomShortcut.matchesModifiers(modifierFlags)
+        guard isActive != isPollingHoldZoomActive else { return }
+
+        isPollingHoldZoomActive = isActive
+        handler?(isActive ? .beginHoldZoom : .endHoldZoom)
     }
 }
 

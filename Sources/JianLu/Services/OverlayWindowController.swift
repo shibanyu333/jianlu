@@ -11,6 +11,7 @@ final class OverlayWindowController {
     private var cancellables: Set<AnyCancellable> = []
     private var pointerTimer: Timer?
     private var isCapturingMouseInteraction = false
+    private var isClickZoomPollingActive = false
 
     init(overlayService: OverlayService, cameraSession: AVCaptureSession) {
         self.overlayService = overlayService
@@ -71,6 +72,10 @@ final class OverlayWindowController {
     }
 
     func hide() {
+        if isClickZoomPollingActive {
+            overlayService?.endClickZoom()
+            isClickZoomPollingActive = false
+        }
         pointerTimer?.invalidate()
         pointerTimer = nil
         panel.orderOut(nil)
@@ -85,12 +90,31 @@ final class OverlayWindowController {
         }
 
         let cursorPoint = NSEvent.mouseLocation
+        handleClickZoomPolling(leftMouseIsDown: leftMouseIsDown, cursorPoint: cursorPoint)
         let shouldCapture = shouldCaptureMouse(at: cursorPoint)
         if shouldCapture && leftMouseIsDown {
             isCapturingMouseInteraction = true
         }
 
         panel.ignoresMouseEvents = !(shouldCapture || isCapturingMouseInteraction)
+    }
+
+    private func handleClickZoomPolling(leftMouseIsDown: Bool, cursorPoint: CGPoint) {
+        guard let overlayService else { return }
+
+        let captureRect = captureRectInScreenCoordinates()
+        let shouldZoom = overlayService.zoomClickModeEnabled
+            && !overlayService.isPaused
+            && leftMouseIsDown
+            && captureRect.contains(cursorPoint)
+        guard shouldZoom != isClickZoomPollingActive else { return }
+
+        isClickZoomPollingActive = shouldZoom
+        if shouldZoom {
+            overlayService.beginClickZoom()
+        } else {
+            overlayService.endClickZoom()
+        }
     }
 
     private func shouldCaptureMouse(at screenPoint: CGPoint) -> Bool {
