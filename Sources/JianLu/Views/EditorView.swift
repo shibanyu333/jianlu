@@ -62,6 +62,7 @@ struct EditorView: View {
                     } label: {
                         Label("删除末段", systemImage: "trash")
                     }
+                    .disabled(project.timeline.segments.count <= 1)
                 }
             }
 
