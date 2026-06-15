@@ -115,7 +115,8 @@ final class HotkeyService: @unchecked Sendable {
         }
 
         guard eventType == .keyDown, !event.isRepeat else { return }
-        if let action = captureAction(for: event, preset: capturePreset) {
+        if capturePreset != .macReplacement || eventTap != nil,
+           let action = captureAction(for: event, preset: capturePreset) {
             handler?(action)
             return
         }
@@ -167,10 +168,19 @@ final class HotkeyService: @unchecked Sendable {
     }
 
     fileprivate nonisolated func shouldSuppressSystemShortcut(for event: HotkeyEvent) -> Bool {
-        guard event.type == .keyDown, !event.isRepeat else { return false }
-        let preset = shortcutState.captureShortcutPreset()
-        guard preset == .macReplacement else { return false }
-        return captureAction(for: event, preset: preset) != nil
+        guard let eventType = event.type else { return false }
+        switch eventType {
+        case .keyDown:
+            let preset = shortcutState.captureShortcutPreset()
+            guard preset == .macReplacement else { return false }
+            guard captureAction(for: event, preset: preset) != nil else { return false }
+            shortcutState.markSuppressedCaptureKeyDown(event.keyCode)
+            return true
+        case .keyUp:
+            return shortcutState.consumeSuppressedCaptureKeyUp(event.keyCode)
+        case .flagsChanged:
+            return false
+        }
     }
 
     private func startEventTap() -> Bool {
@@ -264,6 +274,7 @@ private func captureAction(for event: HotkeyEvent, preset: CaptureShortcutPreset
 private final class HotkeyShortcutState: @unchecked Sendable {
     private let lock = NSLock()
     private var storedCaptureShortcutPreset: CaptureShortcutPreset = .jianLuDefault
+    private var suppressedCaptureKeyCodes = Set<UInt16>()
 
     func setCaptureShortcutPreset(_ preset: CaptureShortcutPreset) {
         lock.lock()
@@ -275,6 +286,18 @@ private final class HotkeyShortcutState: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return storedCaptureShortcutPreset
+    }
+
+    func markSuppressedCaptureKeyDown(_ keyCode: UInt16) {
+        lock.lock()
+        suppressedCaptureKeyCodes.insert(keyCode)
+        lock.unlock()
+    }
+
+    func consumeSuppressedCaptureKeyUp(_ keyCode: UInt16) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return suppressedCaptureKeyCodes.remove(keyCode) != nil
     }
 }
 
