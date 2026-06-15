@@ -176,18 +176,31 @@ struct CaptureRegionSelectionView: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .top) {
-                Color.black.opacity(0.38)
+                Color.clear
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
                     .gesture(selectionGesture(in: geometry.size))
 
                 SelectionCutout(rect: model.selectionRect)
-                    .fill(.black.opacity(0.52), style: FillStyle(eoFill: true))
+                    .fill(.black.opacity(0.58), style: FillStyle(eoFill: true))
                     .allowsHitTesting(false)
 
                 SelectionBorder(rect: model.selectionRect)
-                    .stroke(.white, style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
-                    .shadow(color: .black.opacity(0.35), radius: 6)
+                    .fill(Color.accentColor.opacity(0.16))
+                    .allowsHitTesting(false)
+
+                SelectionBorder(rect: model.selectionRect)
+                    .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 3))
+                    .shadow(color: Color.accentColor.opacity(0.55), radius: 10)
+                    .allowsHitTesting(false)
+
+                SelectionBorder(rect: model.selectionRect)
+                    .stroke(.white.opacity(0.86), style: StrokeStyle(lineWidth: 1.5, dash: [8, 6]))
+                    .allowsHitTesting(false)
+
+                SelectionCornerHandles(rect: model.selectionRect)
+                    .stroke(.white, style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round))
+                    .shadow(color: .black.opacity(0.45), radius: 4)
                     .allowsHitTesting(false)
 
                 VStack(spacing: 10) {
@@ -246,7 +259,7 @@ struct CaptureRegionSelectionView: View {
     }
 
     private func selectionGesture(in size: CGSize) -> some Gesture {
-        DragGesture(minimumDistance: 0)
+        DragGesture(minimumDistance: 8)
             .onChanged { value in
                 if dragStart == nil {
                     dragStart = value.startLocation
@@ -274,5 +287,28 @@ private struct SelectionBorder: Shape {
 
     func path(in bounds: CGRect) -> Path {
         Path(roundedRect: rect, cornerRadius: 6)
+    }
+}
+
+private struct SelectionCornerHandles: Shape {
+    let rect: CGRect
+
+    func path(in bounds: CGRect) -> Path {
+        var path = Path()
+        let length = min(30, max(12, min(rect.width, rect.height) * 0.22))
+
+        addCorner(to: &path, origin: CGPoint(x: rect.minX, y: rect.minY), horizontal: length, vertical: length)
+        addCorner(to: &path, origin: CGPoint(x: rect.maxX, y: rect.minY), horizontal: -length, vertical: length)
+        addCorner(to: &path, origin: CGPoint(x: rect.minX, y: rect.maxY), horizontal: length, vertical: -length)
+        addCorner(to: &path, origin: CGPoint(x: rect.maxX, y: rect.maxY), horizontal: -length, vertical: -length)
+
+        return path
+    }
+
+    private func addCorner(to path: inout Path, origin: CGPoint, horizontal: CGFloat, vertical: CGFloat) {
+        path.move(to: origin)
+        path.addLine(to: CGPoint(x: origin.x + horizontal, y: origin.y))
+        path.move(to: origin)
+        path.addLine(to: CGPoint(x: origin.x, y: origin.y + vertical))
     }
 }

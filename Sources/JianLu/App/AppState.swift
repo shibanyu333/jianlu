@@ -182,7 +182,6 @@ final class AppState: ObservableObject {
 
         isPreparingScreenshot = true
         statusMessage = "正在截取全屏..."
-        AppWindowUtility.minimizeMainWindows()
         Task {
             await captureFullScreenshot()
         }
@@ -348,7 +347,6 @@ final class AppState: ObservableObject {
                 self?.cancelScreenshotSelection()
             }
         )
-        AppWindowUtility.minimizeMainWindows()
     }
 
     private func cancelScreenshotSelection() {
@@ -356,7 +354,6 @@ final class AppState: ObservableObject {
         isSelectingScreenshot = false
         isPreparingScreenshot = false
         statusMessage = "已取消截图"
-        AppWindowUtility.restoreMainWindows()
     }
 
     private func captureFullScreenshot() async {
@@ -365,7 +362,6 @@ final class AppState: ObservableObject {
             PermissionService.requestScreenRecordingAccess()
             refreshPermissions()
             isPreparingScreenshot = false
-            AppWindowUtility.restoreMainWindows()
             statusMessage = "请在系统设置中允许“简录”屏幕录制权限，然后重新打开 App 再截图"
             lastErrorMessage = "截图需要屏幕录制权限。macOS 授权后通常需要重新打开 App。"
             return
@@ -383,18 +379,17 @@ final class AppState: ObservableObject {
             preferences.lastSelectedRegion = region
         }
         statusMessage = "正在生成截图..."
+        try? await Task.sleep(nanoseconds: 120_000_000)
 
         do {
             let image = try await screenshotCaptureService.capture(
                 region: region,
                 includeAppWindows: preferences.includeAppInterface
             )
-            AppWindowUtility.restoreMainWindows()
             showScreenshotEditor(image: image)
             statusMessage = "截图已打开，可标注、涂鸦、复制或保存"
             lastErrorMessage = nil
         } catch {
-            AppWindowUtility.restoreMainWindows()
             lastErrorMessage = error.localizedDescription
             statusMessage = "截图失败：\(error.localizedDescription)"
         }

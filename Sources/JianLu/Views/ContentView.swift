@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import JianLuCore
 
@@ -26,8 +27,31 @@ struct ContentView: View {
                 }
             }
         }
+        .background(MainWindowMarker())
         .onAppear {
             appState.refreshPermissions()
+        }
+    }
+}
+
+private struct MainWindowMarker: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        markWindow(for: view)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        markWindow(for: nsView)
+    }
+
+    private func markWindow(for view: NSView) {
+        DispatchQueue.main.async {
+            guard let window = view.window else { return }
+            window.identifier = AppWindowUtility.mainWindowIdentifier
+            if window.title.isEmpty || window.title == "JianLu" {
+                window.title = "简录"
+            }
         }
     }
 }

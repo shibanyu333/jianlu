@@ -4,6 +4,8 @@ import SwiftUI
 
 @MainActor
 enum AppWindowUtility {
+    static let mainWindowIdentifier = NSUserInterfaceItemIdentifier("com.local.JianLu.mainWindow")
+
     private static var fallbackMainWindowController: NSWindowController?
     private static let logger = Logger(subsystem: "com.local.JianLu", category: "Window")
 
@@ -27,22 +29,39 @@ enum AppWindowUtility {
 
     @discardableResult
     static func restoreMainWindows() -> Bool {
-        for window in NSApp.windows where isMainAppWindow(window) {
-            if window.isMiniaturized {
-                window.deminiaturize(nil)
-            }
-            window.makeKeyAndOrderFront(nil)
+        let windows = NSApp.windows.filter(isMainAppWindow)
+        guard let window = primaryMainWindow(from: windows) else {
+            logger.info("Main window restore visible result: false")
+            return false
         }
+
+        for extraWindow in windows where extraWindow !== window {
+            extraWindow.orderOut(nil)
+        }
+
+        if window.isMiniaturized {
+            window.deminiaturize(nil)
+        }
+        window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        let hasVisibleMainWindow = NSApp.windows.contains { window in
-            isMainAppWindow(window) && window.isVisible
-        }
+        let hasVisibleMainWindow = window.isVisible
         logger.info("Main window restore visible result: \(hasVisibleMainWindow)")
         return hasVisibleMainWindow
     }
 
     private static func isMainAppWindow(_ window: NSWindow) -> Bool {
-        !(window is NSPanel) && window.canBecomeKey
+        guard !(window is NSPanel), window.canBecomeKey else { return false }
+        return window.identifier == mainWindowIdentifier || window.title == "简录"
+    }
+
+    private static func primaryMainWindow(from windows: [NSWindow]) -> NSWindow? {
+        windows.first { !isFallbackMainWindow($0) && $0.isVisible && !$0.isMiniaturized }
+            ?? windows.first { !isFallbackMainWindow($0) }
+            ?? windows.first
+    }
+
+    private static func isFallbackMainWindow(_ window: NSWindow) -> Bool {
+        fallbackMainWindowController?.window === window
     }
 
     private static func showFallbackMainWindow() {
@@ -65,6 +84,7 @@ enum AppWindowUtility {
             defer: false
         )
         window.title = "简录"
+        window.identifier = mainWindowIdentifier
         window.minSize = NSSize(width: 760, height: 520)
         window.contentView = hostingView
         window.isReleasedWhenClosed = false

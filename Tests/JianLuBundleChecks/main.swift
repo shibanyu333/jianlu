@@ -15,6 +15,14 @@ func occurrenceCount(of needle: String, in haystack: String) -> Int {
     haystack.components(separatedBy: needle).count - 1
 }
 
+func sourceSlice(in haystack: String, from startNeedle: String, to endNeedle: String) -> String {
+    guard let startRange = haystack.range(of: startNeedle),
+          let endRange = haystack.range(of: endNeedle, range: startRange.upperBound..<haystack.endIndex) else {
+        fail("source slice markers exist: \(startNeedle) -> \(endNeedle)")
+    }
+    return String(haystack[startRange.lowerBound..<endRange.lowerBound])
+}
+
 func expectOrder(_ firstNeedle: String, before secondNeedle: String, in haystack: String, _ message: String) {
     guard let firstRange = haystack.range(of: firstNeedle),
           let secondRange = haystack.range(of: secondNeedle) else {
@@ -160,12 +168,14 @@ expect(appSource.contains("AppWindowUtility.restoreOrCreateMainWindow()"), "app 
 
 let appWindowUtilitySourceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/AppWindowUtility.swift")
 let appWindowUtilitySource = (try? String(contentsOf: appWindowUtilitySourceURL, encoding: .utf8)) ?? ""
+expect(appWindowUtilitySource.contains("mainWindowIdentifier"), "main window utility marks real JianLu main windows explicitly")
 expect(appWindowUtilitySource.contains("fallbackMainWindowController"), "main window utility owns a reusable fallback main window")
 expect(appWindowUtilitySource.contains("NSHostingView"), "fallback main window hosts SwiftUI content")
 expect(appWindowUtilitySource.contains("ContentView()\n            .environmentObject(AppState.shared)"), "fallback main window shows the normal JianLu content")
 expect(appWindowUtilitySource.contains("window.isReleasedWhenClosed = false"), "fallback main window can be shown again after close")
 expect(appWindowUtilitySource.contains("restoreOrCreateMainWindow"), "main window utility restores or creates the main window")
 expect(appWindowUtilitySource.contains("let hasVisibleMainWindow = restoreMainWindows()"), "main window utility checks restored visibility before creating fallback")
+expect(appWindowUtilitySource.contains("for extraWindow in windows where extraWindow !== window"), "main window restoration orders out duplicate main windows")
 expect(
     appWindowUtilitySource.contains("Existing main window restored; skipping fallback main window"),
     "main window utility skips fallback creation when a visible main window already exists"
@@ -178,11 +188,7 @@ expect(
     "main window utility avoids opening a duplicate fallback window"
 )
 expect(
-    appWindowUtilitySource.contains("""
-        let hasVisibleMainWindow = NSApp.windows.contains { window in
-            isMainAppWindow(window) && window.isVisible
-        }
-"""),
+    appWindowUtilitySource.contains("let hasVisibleMainWindow = window.isVisible"),
     "main window restoration only succeeds when a visible main window exists"
 )
 
@@ -229,6 +235,8 @@ expect(regionSelectionSource.contains("@Published var isStarting"), "region sele
 expect(regionSelectionSource.contains("guard canStart, !isStarting else { return }"), "region selection confirms only once while recording starts")
 expect(regionSelectionSource.contains("Self.clamped("), "region selection clamps restored regions to the current screen")
 expect(regionSelectionSource.contains("private static func clamped"), "region selection has a static clamp helper usable during initialization")
+expect(regionSelectionSource.contains("DragGesture(minimumDistance: 8)"), "region selection ignores the click that opened the selection window")
+expect(regionSelectionSource.contains("SelectionCornerHandles"), "region selection highlights the selected area with visible corner handles")
 expect(regionSelectionSource.contains("Return 开始录制，Esc 取消，⌃⌥⌘R 也可确认当前区域"), "region selection shows the actual available keyboard actions")
 expect(!regionSelectionSource.contains("再次按主录制快捷键"), "region selection avoids vague shortcut wording")
 
@@ -437,6 +445,25 @@ expect(appStateSource.contains("func takeScreenshotIntent()"), "app state expose
 expect(appStateSource.contains("func takeFullScreenshotIntent()"), "app state exposes full-screen screenshot intent")
 expect(appStateSource.contains("private func beginScreenshotSelection() async"), "app state can open screenshot region selection")
 expect(appStateSource.contains("private func captureScreenshot(region: RecordingRegion?) async"), "app state can capture selected or full screenshots")
+let screenshotSelectionAppStateSource = sourceSlice(
+    in: appStateSource,
+    from: "private func beginScreenshotSelection() async",
+    to: "private func cancelScreenshotSelection()"
+)
+expect(
+    !screenshotSelectionAppStateSource.contains("AppWindowUtility.minimizeMainWindows()"),
+    "screenshot region selection does not minimize JianLu windows"
+)
+let screenshotCaptureAppStateSource = sourceSlice(
+    in: appStateSource,
+    from: "private func captureScreenshot(region: RecordingRegion?) async",
+    to: "private func showScreenshotEditor"
+)
+expect(screenshotCaptureAppStateSource.contains("Task.sleep(nanoseconds: 120_000_000)"), "screenshot capture waits for the selection overlay to disappear")
+expect(
+    !screenshotCaptureAppStateSource.contains("AppWindowUtility.restoreMainWindows()"),
+    "screenshot capture opens only the editor instead of restoring every main window"
+)
 expect(appStateSource.contains("try screenshotCaptureService.writePNG(image, to: url)"), "app state saves annotated screenshots through PNG writer")
 expect(appStateSource.contains("NSPasteboard.general"), "app state copies annotated screenshots to the clipboard")
 expect(appStateSource.contains("syncCameraProcessingPreferences(preferences)"), "preference changes immediately sync camera processing")
@@ -620,6 +647,7 @@ expect(permissionServiceSource.contains("openInputMonitoringSettings()"), "permi
 
 let contentViewURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/ContentView.swift")
 let contentViewSource = (try? String(contentsOf: contentViewURL, encoding: .utf8)) ?? ""
+expect(contentViewSource.contains("MainWindowMarker"), "main content marks its NSWindow for precise restoration")
 expect(contentViewSource.contains("appState.isStartingRecording"), "main recording button reflects startup state")
 expect(contentViewSource.contains("appState.takeScreenshotIntent()"), "main header exposes screenshot capture")
 expect(contentViewSource.contains("screenshotButtonTitle"), "main header reflects screenshot selection state")
