@@ -40,6 +40,8 @@ final class OverlayService: ObservableObject {
     private var lastRecordedZoomFocus = NormalizedPoint(x: 0.5, y: 0.5)
     private var lastZoomFocusRecordTime: TimeInterval = 0
     private let liveZoomFrameInterval: TimeInterval = 1.0 / 30.0
+    private let zoomFocusRecordInterval: TimeInterval = 1.0 / 30.0
+    private let zoomFocusRecordDistanceThreshold: Double = 0.003
     private let fallbackZoomSnapshotInterval: TimeInterval = 0.35
     private let logger = Logger(subsystem: "com.local.JianLu", category: "Zoom")
 
@@ -291,7 +293,7 @@ final class OverlayService: ObservableObject {
         lastRecordedZoomFocus = focus
         lastZoomFocusRecordTime = currentRecordingTime
         appendZoomEvent(magnification: zoomMagnification, focus: focus)
-        currentZoomFocus = resolvedLiveZoomFocus(fallback: focus)
+        currentZoomFocus = focus
         refreshZoomPreview()
         startZoomPreviewTimer()
         logger.info("Live zoom began")
@@ -414,31 +416,16 @@ final class OverlayService: ObservableObject {
         }
 
         let focus = normalizedMouseFocus()
-        currentZoomFocus = resolvedLiveZoomFocus(fallback: focus)
+        currentZoomFocus = focus
         requestZoomPreviewImage()
 
         let elapsed = currentRecordingTime - lastZoomFocusRecordTime
-        if elapsed >= 0.14, focus.distance(to: lastRecordedZoomFocus) > 0.015 {
+        if elapsed >= zoomFocusRecordInterval,
+           focus.distance(to: lastRecordedZoomFocus) > zoomFocusRecordDistanceThreshold {
             appendZoomEvent(magnification: zoomMagnification, focus: focus)
             lastRecordedZoomFocus = focus
             lastZoomFocusRecordTime = currentRecordingTime
-            currentZoomFocus = resolvedLiveZoomFocus(fallback: focus)
         }
-    }
-
-    private func resolvedLiveZoomFocus(fallback: NormalizedPoint) -> NormalizedPoint {
-        let states = events.compactMap { event -> ZoomEvent? in
-            if case .zoom(let zoom) = event {
-                return zoom
-            }
-            return nil
-        }
-        let time = currentRecordingTime
-        let duration = max(time + 0.5, recordingStartedAt.map { Date().timeIntervalSince($0) } ?? time)
-        guard let effect = ExportZoomTimeline.activeEffect(states: states, duration: duration, at: time) else {
-            return fallback
-        }
-        return NormalizedPoint(x: effect.focusX, y: effect.focusY)
     }
 
     private func requestZoomPreviewImage(allowsInactiveFallback: Bool = false) {

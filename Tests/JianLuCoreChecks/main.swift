@@ -766,6 +766,17 @@ private func runZoomLensGeometryChecks() {
     let transformedAnchor = edgeAnchor.applying(anchoredTransform)
     expect(abs(transformedAnchor.x - edgeAnchor.x) < 0.001, "export zoom transform anchors the clicked x point")
     expect(abs(transformedAnchor.y - edgeAnchor.y) < 0.001, "export zoom transform anchors the clicked y point")
+    let smallMoveFocusEffect = ExportZoomTimeline.activeEffect(
+        states: [
+            ZoomEvent(time: 0.2, magnification: 1.8, focus: NormalizedPoint(x: 0.20, y: 0.20)),
+            ZoomEvent(time: 0.25, magnification: 1.8, focus: NormalizedPoint(x: 0.26, y: 0.26)),
+            ZoomEvent(time: 1.4, magnification: 1, focus: NormalizedPoint(x: 0.26, y: 0.26))
+        ],
+        duration: 2,
+        at: 0.3
+    )
+    expect(smallMoveFocusEffect?.focusX == 0.26, "export zoom follows small mouse movements exactly")
+    expect(smallMoveFocusEffect?.focusY == 0.26, "export zoom follows small vertical mouse movements exactly")
     let earlyProgress = ExportZoomTimeline.animationProgress(for: zoomRegion[0], at: 0.3)
     let holdProgress = ExportZoomTimeline.animationProgress(for: zoomRegion[0], at: 0.8)
     let lateProgress = ExportZoomTimeline.animationProgress(for: zoomRegion[0], at: 1.35)
@@ -781,8 +792,8 @@ private func runZoomLensGeometryChecks() {
         duration: 2,
         at: 0.9
     )
-    expect(guidedFocusEffect?.focusX == 0.88, "export zoom follows cursor focus after it leaves the safe zone")
-    expect(guidedFocusEffect?.focusY == 0.86, "export zoom follows cursor focus vertically after it leaves the safe zone")
+    expect(guidedFocusEffect?.focusX == 0.88, "export zoom follows cursor focus exactly")
+    expect(guidedFocusEffect?.focusY == 0.86, "export zoom follows cursor focus vertically exactly")
 }
 
 private func runCameraFrameProcessorChecks() {

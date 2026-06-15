@@ -360,8 +360,9 @@ expect(
 expect(overlayServiceSource.contains("func prewarmZoomPreview()"), "overlay can prewarm a live zoom frame before the user presses the shortcut")
 expect(overlayServiceSource.contains("private let liveZoomFrameInterval: TimeInterval = 1.0 / 30.0"), "live zoom refreshes often enough to feel smooth without overloading capture")
 expect(overlayServiceSource.contains("withAnimation(.easeInOut(duration: 0.12))"), "live zoom fades in and out smoothly")
-expect(overlayServiceSource.contains("resolvedLiveZoomFocus"), "live zoom resolves focus through the same timeline model as export")
-expect(overlayServiceSource.contains("ExportZoomTimeline.activeEffect"), "live zoom uses export zoom focus semantics")
+expect(overlayServiceSource.contains("currentZoomFocus = focus"), "live zoom follows the current mouse focus directly")
+expect(overlayServiceSource.contains("zoomFocusRecordInterval"), "live zoom records cursor focus often enough to match the clicked position")
+expect(!overlayServiceSource.contains("resolvedLiveZoomFocus"), "live zoom no longer lags behind through export safe-zone focus resolution")
 expect(overlayServiceSource.contains("isMouseInsideRecordingRegion()"), "click zoom starts only when the mouse is inside the recording region")
 expect(
     !overlayServiceSource.contains("""
@@ -441,8 +442,8 @@ let exportZoomTimelineSource = (try? String(contentsOf: exportZoomTimelineURL, e
 expect(exportZoomTimelineSource.contains("rampInSeconds = 0.45"), "export zoom copies open-recorder's balanced ramp-in timing")
 expect(exportZoomTimelineSource.contains("rampOutSeconds = 0.35"), "export zoom copies open-recorder's balanced ramp-out timing")
 expect(exportZoomTimelineSource.contains("smoothstep"), "export zoom uses open-recorder-style eased progress")
-expect(exportZoomTimelineSource.contains("safeZoneRatio = 0.25"), "export zoom copies open-recorder's safe-zone cursor-follow model")
 expect(exportZoomTimelineSource.contains("focusClampRange = 0.0...1.0"), "export zoom preserves the clicked focus instead of pushing edge clicks inward")
+expect(exportZoomTimelineSource.contains("focus = clamped(state.focus)"), "export zoom follows the latest recorded cursor focus exactly")
 expect(exportZoomTimelineSource.contains("resolvedFocus"), "export zoom follows cursor focus without jitter")
 expect(exportZoomTimelineSource.contains("CGAffineTransform(translationX: -focus.x, y: -focus.y)"), "export zoom anchors the transform at the cursor focus")
 expect(cameraCompositorSource.contains("public let zoomRegions"), "camera compositor precomputes zoom regions outside the per-frame render path")
