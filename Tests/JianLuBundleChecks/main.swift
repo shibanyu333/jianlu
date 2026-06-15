@@ -353,6 +353,8 @@ expect(hotkeyServiceSource.contains("markSuppressedCaptureKeyDown"), "replacemen
 expect(hotkeyServiceSource.contains("consumeSuppressedCaptureKeyUp"), "replacement shortcuts also swallow the matching key-up event")
 expect(!hotkeyServiceSource.contains("guard event.type == .keyDown, !event.isRepeat else { return false }"), "replacement shortcut suppression is not limited to the initial key-down event")
 expect(hotkeyServiceSource.contains("capturePreset != .macReplacement || eventTap != nil"), "Mac-style replacement shortcuts only fire when the suppressing event tap is active")
+expect(hotkeyServiceSource.contains("tap: .cghidEventTap"), "replacement shortcuts are intercepted at the HID event tap before macOS screenshot shortcuts")
+expect(!hotkeyServiceSource.contains("tap: .cgSessionEventTap"), "replacement shortcuts do not rely on a later session event tap")
 expect(hotkeyServiceSource.contains("options: .defaultTap"), "hotkey event tap is capable of suppressing handled system shortcuts")
 expect(hotkeyServiceSource.contains("return shouldSuppress ? nil : Unmanaged.passUnretained(event)"), "handled replacement shortcuts are swallowed before macOS receives them")
 expect(hotkeyServiceSource.contains("case 15:\n            handler?(.toggleRecording)"), "default recording shortcut toggles recording instead of only stopping")

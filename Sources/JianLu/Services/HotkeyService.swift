@@ -190,20 +190,20 @@ final class HotkeyService: @unchecked Sendable {
             CGEventMask(1 << CGEventType.flagsChanged.rawValue)
         let refcon = Unmanaged.passUnretained(self).toOpaque()
         guard let tap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
+            tap: .cghidEventTap,
             place: .headInsertEventTap,
             options: .defaultTap,
             eventsOfInterest: eventMask,
             callback: hotkeyEventTapCallback,
             userInfo: refcon
         ) else {
-            logger.warning("System event tap is unavailable; falling back to NSEvent monitors")
+            logger.warning("HID event tap is unavailable; falling back to NSEvent monitors")
             return false
         }
 
         guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
             CFMachPortInvalidate(tap)
-            logger.warning("System event tap source could not be created")
+            logger.warning("HID event tap source could not be created")
             return false
         }
 
@@ -211,7 +211,7 @@ final class HotkeyService: @unchecked Sendable {
         eventTapSource = source
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
-        logger.info("System event tap started")
+        logger.info("HID event tap started")
         return true
     }
 
