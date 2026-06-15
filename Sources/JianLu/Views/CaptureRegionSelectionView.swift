@@ -23,6 +23,15 @@ enum CaptureRegionSelectionPurpose {
         }
     }
 
+    var windowTitle: String {
+        switch self {
+        case .recording:
+            "选择录制区域"
+        case .screenshot:
+            "选择截图区域"
+        }
+    }
+
     var confirmTitle: String {
         switch self {
         case .recording:

@@ -34,7 +34,7 @@ final class CaptureRegionSelectionWindowController {
             defer: false
         )
         panel.level = .screenSaver
-        panel.title = "选择录制区域"
+        panel.title = purpose.windowTitle
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = false

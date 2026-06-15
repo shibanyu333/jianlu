@@ -223,6 +223,8 @@ let regionSelectionSourceURL = projectRoot.appendingPathComponent("Sources/JianL
 let regionSelectionSource = (try? String(contentsOf: regionSelectionSourceURL, encoding: .utf8)) ?? ""
 expect(regionSelectionSource.contains("enum CaptureRegionSelectionPurpose"), "region selection supports different recording and screenshot modes")
 expect(regionSelectionSource.contains("case screenshot"), "region selection can label screenshot capture")
+expect(regionSelectionSource.contains("var windowTitle"), "region selection purpose provides a matching window title")
+expect(regionSelectionSource.contains("\"选择截图区域\""), "screenshot selection window title names screenshots, not recordings")
 expect(regionSelectionSource.contains("@Published var isStarting"), "region selection exposes a starting state for duplicate click prevention")
 expect(regionSelectionSource.contains("guard canStart, !isStarting else { return }"), "region selection confirms only once while recording starts")
 expect(regionSelectionSource.contains("Self.clamped("), "region selection clamps restored regions to the current screen")
@@ -233,6 +235,7 @@ expect(!regionSelectionSource.contains("再次按主录制快捷键"), "region s
 let regionSelectionControllerURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/CaptureRegionSelectionWindowController.swift")
 let regionSelectionController = (try? String(contentsOf: regionSelectionControllerURL, encoding: .utf8)) ?? ""
 expect(regionSelectionController.contains("NSEvent.mouseLocation"), "region selection opens on the display under the pointer")
+expect(regionSelectionController.contains("panel.title = purpose.windowTitle"), "region selection window title follows recording or screenshot purpose")
 expect(regionSelectionController.contains("override func keyDown"), "region selection supports keyboard shortcuts")
 expect(regionSelectionController.contains("case 53"), "region selection lets Escape cancel selection")
 expect(regionSelectionController.contains("case 36, 76"), "region selection lets Return confirm selection")
