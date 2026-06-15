@@ -291,6 +291,7 @@ final class OverlayService: ObservableObject {
         lastRecordedZoomFocus = focus
         lastZoomFocusRecordTime = currentRecordingTime
         appendZoomEvent(magnification: zoomMagnification, focus: focus)
+        currentZoomFocus = resolvedLiveZoomFocus(fallback: focus)
         refreshZoomPreview()
         startZoomPreviewTimer()
         logger.info("Live zoom began")
@@ -413,7 +414,7 @@ final class OverlayService: ObservableObject {
         }
 
         let focus = normalizedMouseFocus()
-        currentZoomFocus = focus
+        currentZoomFocus = resolvedLiveZoomFocus(fallback: focus)
         requestZoomPreviewImage()
 
         let elapsed = currentRecordingTime - lastZoomFocusRecordTime
@@ -421,7 +422,23 @@ final class OverlayService: ObservableObject {
             appendZoomEvent(magnification: zoomMagnification, focus: focus)
             lastRecordedZoomFocus = focus
             lastZoomFocusRecordTime = currentRecordingTime
+            currentZoomFocus = resolvedLiveZoomFocus(fallback: focus)
         }
+    }
+
+    private func resolvedLiveZoomFocus(fallback: NormalizedPoint) -> NormalizedPoint {
+        let states = events.compactMap { event -> ZoomEvent? in
+            if case .zoom(let zoom) = event {
+                return zoom
+            }
+            return nil
+        }
+        let time = currentRecordingTime
+        let duration = max(time + 0.5, recordingStartedAt.map { Date().timeIntervalSince($0) } ?? time)
+        guard let effect = ExportZoomTimeline.activeEffect(states: states, duration: duration, at: time) else {
+            return fallback
+        }
+        return NormalizedPoint(x: effect.focusX, y: effect.focusY)
     }
 
     private func requestZoomPreviewImage(allowsInactiveFallback: Bool = false) {

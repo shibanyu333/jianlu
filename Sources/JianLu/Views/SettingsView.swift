@@ -25,6 +25,14 @@ struct SettingsView: View {
                 }
             }
 
+            Section("截图") {
+                Toggle("完成截图后自动复制到剪切板", isOn: $appState.preferences.screenshotAutoCopyOnFinish)
+                Text("区域或全屏截图进入内联编辑后，点击“完成”会按此设置处理最终图片。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             Section("摄像头") {
                 Toggle("默认显示摄像头头像框", isOn: $appState.cameraEnabled)
 

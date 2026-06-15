@@ -95,7 +95,7 @@ private struct HeaderView: View {
                     || appState.isStoppingRecording
                     || appState.isPreparingRegionSelection
             )
-            .help("选择区域截图，截图后可标注和涂鸦")
+            .help("选择区域截图，截图后可标注、文字和马赛克")
 
             Button {
                 appState.toggleRecordingIntent()
@@ -168,7 +168,7 @@ private struct MainDashboardView: View {
             LazyVGrid(columns: columns, spacing: 14) {
                 FeatureCard(title: "屏幕录制", detail: appState.preferences.includeAppInterface ? "会录入简录主界面。" : "默认避开简录主界面。", symbol: "display")
                 FeatureCard(title: "摄像头头像框", detail: appState.cameraEnabled ? "圆形右下角，可拖动缩放，支持背景和美颜。" : "当前关闭，可随时开启。", symbol: "person.crop.circle")
-                FeatureCard(title: "截图标注", detail: "区域截图后可画笔、高亮、箭头、方框和圆形标注。", symbol: "camera.viewfinder")
+                FeatureCard(title: "截图标注", detail: "区域截图后可画笔、高亮、箭头、文字和马赛克。", symbol: "camera.viewfinder")
                 FeatureCard(title: "缩放和标注", detail: "快捷键缩放、画笔、高亮、直线和箭头重点。", symbol: "pencil.and.outline")
                 FeatureCard(
                     title: "声音",

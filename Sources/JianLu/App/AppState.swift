@@ -54,7 +54,6 @@ final class AppState: ObservableObject {
     private let previewExportService = ExportService()
     private let hotkeyService = HotkeyService()
     private let regionSelectionController = CaptureRegionSelectionWindowController()
-    private let screenshotEditorController = ScreenshotEditorWindowController()
     private var statusBarController: StatusBarController?
     private static let preferencesKey = "com.local.JianLu.recordingPreferences"
     private static let recentProjectLimit = 20
@@ -334,19 +333,8 @@ final class AppState: ObservableObject {
         isPreparingScreenshot = false
         isSelectingScreenshot = true
         lastErrorMessage = nil
-        statusMessage = "拖拽选择截图区域，然后点击“截图”"
-        regionSelectionController.show(
-            initialRegion: preferences.lastSelectedRegion,
-            purpose: .screenshot,
-            onStart: { [weak self] region in
-                Task { @MainActor [weak self] in
-                    await self?.captureScreenshot(region: region)
-                }
-            },
-            onCancel: { [weak self] in
-                self?.cancelScreenshotSelection()
-            }
-        )
+        statusMessage = "拖拽选择截图区域，或单击自动框选的窗口"
+        showScreenshotSelectionPanel(initialRegion: nil)
     }
 
     private func cancelScreenshotSelection() {
@@ -367,15 +355,50 @@ final class AppState: ObservableObject {
             return
         }
 
-        try? await Task.sleep(nanoseconds: 120_000_000)
-        await captureScreenshot(region: nil)
+        guard let fullScreenRegion = regionSelectionController.preferredFullScreenRegion() else {
+            isPreparingScreenshot = false
+            statusMessage = "没有找到可截图的显示器"
+            lastErrorMessage = "没有找到可截图的显示器。"
+            return
+        }
+
+        isPreparingScreenshot = false
+        isSelectingScreenshot = true
+        lastErrorMessage = nil
+        statusMessage = "正在截取全屏..."
+        showScreenshotSelectionPanel(initialRegion: fullScreenRegion)
+        regionSelectionController.beginCapturePhase()
+        await captureScreenshot(region: fullScreenRegion, rememberRegion: false)
     }
 
-    private func captureScreenshot(region: RecordingRegion?) async {
-        regionSelectionController.hide()
-        isSelectingScreenshot = false
+    private func showScreenshotSelectionPanel(initialRegion: RecordingRegion?) {
+        regionSelectionController.show(
+            initialRegion: initialRegion,
+            purpose: .screenshot,
+            onStart: { [weak self] region in
+                Task { @MainActor [weak self] in
+                    await self?.captureScreenshot(region: region, rememberRegion: true)
+                }
+            },
+            onCancel: { [weak self] in
+                self?.cancelScreenshotSelection()
+            },
+            onFinish: { [weak self] renderedImage in
+                self?.finishScreenshotEditing(renderedImage)
+            },
+            onCopy: { [weak self] renderedImage in
+                self?.copyScreenshotAndClose(renderedImage)
+            },
+            onSave: { [weak self] renderedImage in
+                self?.saveScreenshot(renderedImage)
+            }
+        )
+    }
+
+    private func captureScreenshot(region: RecordingRegion?, rememberRegion: Bool) async {
+        regionSelectionController.hideForCapture()
         isPreparingScreenshot = false
-        if let region {
+        if rememberRegion, let region {
             preferences.lastSelectedRegion = region
         }
         statusMessage = "正在生成截图..."
@@ -386,28 +409,37 @@ final class AppState: ObservableObject {
                 region: region,
                 includeAppWindows: preferences.includeAppInterface
             )
-            showScreenshotEditor(image: image)
-            statusMessage = "截图已打开，可标注、涂鸦、复制或保存"
+            regionSelectionController.beginEditing(image: image)
+            isSelectingScreenshot = true
+            statusMessage = "截图已就绪，可标注、涂鸦、添加文字或马赛克"
             lastErrorMessage = nil
         } catch {
+            regionSelectionController.hide()
+            isSelectingScreenshot = false
             lastErrorMessage = error.localizedDescription
             statusMessage = "截图失败：\(error.localizedDescription)"
         }
     }
 
-    private func showScreenshotEditor(image: CGImage) {
-        screenshotEditorController.show(
-            image: image,
-            onSave: { [weak self] renderedImage in
-                self?.saveScreenshot(renderedImage)
-            },
-            onCopy: { [weak self] renderedImage in
-                self?.copyScreenshot(renderedImage)
-            },
-            onClose: { [weak self] in
-                self?.statusMessage = "截图编辑已关闭"
-            }
-        )
+    private func finishScreenshotEditing(_ image: CGImage) {
+        if preferences.screenshotAutoCopyOnFinish {
+            copyScreenshot(image)
+        } else {
+            statusMessage = "截图已完成"
+            lastErrorMessage = nil
+        }
+        closeScreenshotEditing()
+    }
+
+    private func copyScreenshotAndClose(_ image: CGImage) {
+        copyScreenshot(image)
+        closeScreenshotEditing()
+    }
+
+    private func closeScreenshotEditing() {
+        regionSelectionController.hide()
+        isSelectingScreenshot = false
+        isPreparingScreenshot = false
     }
 
     private func saveScreenshot(_ image: CGImage) {

@@ -147,6 +147,7 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
     public var cameraShape: CameraFrameShape
     public var zoomShortcut: ZoomShortcut
     public var captureShortcutPreset: CaptureShortcutPreset
+    public var screenshotAutoCopyOnFinish: Bool
     public var recordingDirectoryPath: String?
     public var lastSelectedRegion: RecordingRegion?
 
@@ -162,6 +163,7 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
         case cameraShape
         case zoomShortcut
         case captureShortcutPreset
+        case screenshotAutoCopyOnFinish
         case recordingDirectoryPath
         case lastSelectedRegion
     }
@@ -178,6 +180,7 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
         cameraShape: CameraFrameShape = .circle,
         zoomShortcut: ZoomShortcut = .controlOptionCommandZ,
         captureShortcutPreset: CaptureShortcutPreset = .jianLuDefault,
+        screenshotAutoCopyOnFinish: Bool = true,
         recordingDirectoryPath: String? = nil,
         lastSelectedRegion: RecordingRegion? = nil
     ) {
@@ -192,6 +195,7 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
         self.cameraShape = cameraShape
         self.zoomShortcut = zoomShortcut
         self.captureShortcutPreset = captureShortcutPreset
+        self.screenshotAutoCopyOnFinish = screenshotAutoCopyOnFinish
         self.recordingDirectoryPath = recordingDirectoryPath
         self.lastSelectedRegion = lastSelectedRegion
     }
@@ -209,6 +213,7 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
         cameraShape = (try? container.decodeIfPresent(CameraFrameShape.self, forKey: .cameraShape)) ?? .circle
         zoomShortcut = (try? container.decodeIfPresent(ZoomShortcut.self, forKey: .zoomShortcut)) ?? .controlOptionCommandZ
         captureShortcutPreset = (try? container.decodeIfPresent(CaptureShortcutPreset.self, forKey: .captureShortcutPreset)) ?? .jianLuDefault
+        screenshotAutoCopyOnFinish = try container.decodeIfPresent(Bool.self, forKey: .screenshotAutoCopyOnFinish) ?? true
         recordingDirectoryPath = try container.decodeIfPresent(String.self, forKey: .recordingDirectoryPath)
         lastSelectedRegion = try container.decodeIfPresent(RecordingRegion.self, forKey: .lastSelectedRegion)
     }
@@ -224,7 +229,8 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
         cameraFrame: .defaultCameraFrame,
         cameraShape: .circle,
         zoomShortcut: .controlOptionCommandZ,
-        captureShortcutPreset: .jianLuDefault
+        captureShortcutPreset: .jianLuDefault,
+        screenshotAutoCopyOnFinish: true
     )
 }
 

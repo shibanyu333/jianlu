@@ -28,6 +28,7 @@ struct JianLuCoreChecks {
         runZoomLensGeometryChecks()
         runCameraFrameProcessorChecks()
         runAnnotationImageRendererChecks()
+        runScreenshotMarkupRendererChecks()
 
         do {
             try await runVideoCompositorChecks()
@@ -500,6 +501,7 @@ private func runPreferenceChecks() {
         cameraShape: .square,
         zoomShortcut: .controlOptionSpace,
         captureShortcutPreset: .macReplacement,
+        screenshotAutoCopyOnFinish: false,
         recordingDirectoryPath: "/tmp/jianlu-checks",
         lastSelectedRegion: usableRegion
     )
@@ -511,6 +513,7 @@ private func runPreferenceChecks() {
     expect(preferences.cameraShape == .square, "camera avatar shape preference is stored")
     expect(preferences.zoomShortcut == .controlOptionSpace, "zoom shortcut preference is stored")
     expect(preferences.captureShortcutPreset == .macReplacement, "capture shortcut preset preference is stored")
+    expect(!preferences.screenshotAutoCopyOnFinish, "screenshot auto-copy preference can be disabled")
     expect(preferences.captureShortcutPreset.detail.contains("⇧⌘4"), "mac replacement preset names the screenshot shortcut")
     expect(preferences.captureShortcutPreset.detail.contains("阻止 macOS 原生"), "mac replacement preset explains that it suppresses original system shortcuts")
     expect(RecordingPreferences.defaults.captureShortcutPreset.detail.contains("不拦截"), "default capture shortcut preset leaves original macOS shortcuts enabled")
@@ -564,10 +567,17 @@ private func runPreferenceChecks() {
     )
     expect(legacyPreferences?.zoomShortcut == .controlOptionCommandZ, "legacy preferences get the default zoom shortcut")
     expect(legacyPreferences?.captureShortcutPreset == .jianLuDefault, "legacy preferences get the default capture shortcut preset")
+    expect(legacyPreferences?.screenshotAutoCopyOnFinish == true, "legacy preferences auto-copy screenshots by default")
     expect(legacyPreferences?.cameraEnabled == true, "legacy preferences keep camera enabled by default")
     expect(legacyPreferences?.cameraFrame == .defaultCameraFrame, "legacy preferences get the default camera frame")
     expect(legacyPreferences?.cameraShape == .circle, "legacy preferences get the default camera shape")
     expect(legacyPreferences?.recordingDirectoryPath == "/tmp/legacy-jianlu", "legacy preferences keep the recording path")
+
+    let encodedPreferences = try? JSONEncoder().encode(preferences)
+    let decodedPreferences = encodedPreferences.flatMap {
+        try? JSONDecoder().decode(RecordingPreferences.self, from: $0)
+    }
+    expect(decodedPreferences?.screenshotAutoCopyOnFinish == false, "screenshot auto-copy preference round-trips when disabled")
 }
 
 private func runAnnotationImageRendererChecks() {
@@ -612,6 +622,61 @@ private func runAnnotationImageRendererChecks() {
     let bottomPixel = pixelColor(in: topRendered, x: 40, y: 72)
     expect(topPixel.r > 180 && topPixel.g < 120 && topPixel.b < 120, "screenshot annotations use top-origin normalized coordinates")
     expect(bottomPixel.r > 230 && bottomPixel.g > 230 && bottomPixel.b > 230, "screenshot annotations are not vertically flipped when saved")
+}
+
+private func runScreenshotMarkupRendererChecks() {
+    guard let baseImage = makeGradientImage(width: 96, height: 96) else {
+        expect(false, "screenshot markup renderer test creates a base image")
+        return
+    }
+
+    let stroke = AnnotationEvent(
+        time: 0,
+        tool: .line,
+        points: [
+            StrokePoint(time: 0, point: NormalizedPoint(x: 0.10, y: 0.82)),
+            StrokePoint(time: 0, point: NormalizedPoint(x: 0.90, y: 0.82))
+        ],
+        colorHex: "#FF3B30",
+        lineWidth: 8
+    )
+    let markups: [ScreenshotMarkup] = [
+        .mosaic(
+            ScreenshotMosaicMarkup(
+                rect: NormalizedRect(x: 0, y: 0, width: 0.50, height: 0.50),
+                blockSize: 8
+            )
+        ),
+        .stroke(stroke),
+        .text(
+            ScreenshotTextMarkup(
+                text: "Hi",
+                anchor: NormalizedPoint(x: 0.58, y: 0.18),
+                colorHex: "#FF3B30",
+                fontSize: 24
+            )
+        )
+    ]
+
+    guard let rendered = ScreenshotMarkupRenderer.render(baseImage: baseImage, markups: markups) else {
+        expect(false, "screenshot markup renderer produces an output image")
+        return
+    }
+
+    let mosaicA = pixelColor(in: rendered, x: 2, y: 2)
+    let mosaicB = pixelColor(in: rendered, x: 6, y: 6)
+    expect(
+        mosaicA.r == mosaicB.r && mosaicA.g == mosaicB.g && mosaicA.b == mosaicB.b,
+        "screenshot markup renderer pixelates pixels inside a mosaic block"
+    )
+
+    let linePixel = pixelColor(in: rendered, x: 48, y: 79)
+    expect(linePixel.r > 180 && linePixel.g < 120 && linePixel.b < 120, "screenshot markup renderer preserves stroke annotations")
+
+    expect(
+        hasRedPixel(in: rendered, xRange: 54..<90, yRange: 8..<42),
+        "screenshot markup renderer burns text into the screenshot image"
+    )
 }
 
 private func runZoomLensGeometryChecks() {
@@ -1190,6 +1255,30 @@ private func makeSolidImage(width: Int, height: Int, color: (r: UInt8, g: UInt8,
     return context?.makeImage()
 }
 
+private func makeGradientImage(width: Int, height: Int) -> CGImage? {
+    var bytes = [UInt8](repeating: 0, count: width * height * 4)
+    for y in 0..<height {
+        for x in 0..<width {
+            let offset = (y * width + x) * 4
+            bytes[offset] = UInt8(min(255, x * 255 / max(1, width - 1)))
+            bytes[offset + 1] = UInt8(min(255, y * 255 / max(1, height - 1)))
+            bytes[offset + 2] = 80
+            bytes[offset + 3] = 255
+        }
+    }
+
+    let context = CGContext(
+        data: &bytes,
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bytesPerRow: width * 4,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    )
+    return context?.makeImage()
+}
+
 private func pixelColor(in image: CGImage, x: Int, y: Int) -> (r: UInt8, g: UInt8, b: UInt8, a: UInt8) {
     let width = image.width
     let height = image.height
@@ -1209,6 +1298,18 @@ private func pixelColor(in image: CGImage, x: Int, y: Int) -> (r: UInt8, g: UInt
     let clampedY = min(max(0, y), height - 1)
     let offset = (clampedY * width + clampedX) * 4
     return (bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3])
+}
+
+private func hasRedPixel(in image: CGImage, xRange: Range<Int>, yRange: Range<Int>) -> Bool {
+    for y in yRange {
+        for x in xRange {
+            let pixel = pixelColor(in: image, x: x, y: y)
+            if pixel.r > 160 && pixel.g < 140 && pixel.b < 140 {
+                return true
+            }
+        }
+    }
+    return false
 }
 
 private struct CheckError: LocalizedError {

@@ -11,7 +11,10 @@ final class CaptureRegionSelectionWindowController {
         initialRegion: RecordingRegion?,
         purpose: CaptureRegionSelectionPurpose = .recording,
         onStart: @escaping (RecordingRegion) -> Void,
-        onCancel: @escaping () -> Void
+        onCancel: @escaping () -> Void,
+        onFinish: ((CGImage) -> Void)? = nil,
+        onCopy: ((CGImage) -> Void)? = nil,
+        onSave: ((CGImage) -> Void)? = nil
     ) {
         hide()
 
@@ -22,9 +25,13 @@ final class CaptureRegionSelectionWindowController {
             displayID: displayID,
             screenSize: screenFrame.size,
             initialRegion: initialRegion?.displayID == displayID ? initialRegion : nil,
+            windowCandidates: purpose == .screenshot ? windowCandidates(for: screen, screenFrame: screenFrame) : [],
             purpose: purpose,
             onStart: onStart,
-            onCancel: onCancel
+            onCancel: onCancel,
+            onFinish: onFinish,
+            onCopy: onCopy,
+            onSave: onSave
         )
 
         let panel = KeyablePanel(
@@ -39,13 +46,17 @@ final class CaptureRegionSelectionWindowController {
         panel.isOpaque = false
         panel.hasShadow = false
         panel.ignoresMouseEvents = false
+        panel.acceptsMouseMovedEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.sharingType = .none
         panel.onCancel = { [weak model] in
             model?.cancel()
         }
         panel.onConfirm = { [weak model] in
-            model?.confirmSelection()
+            model?.confirmDefaultAction()
+        }
+        panel.onMouseMoved = { [weak model] point in
+            model?.updateWindowHover(at: point)
         }
         panel.contentView = NSHostingView(rootView: CaptureRegionSelectionView(model: model))
 
@@ -53,10 +64,36 @@ final class CaptureRegionSelectionWindowController {
         self.panel = panel
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        model.updateWindowHover(at: panelLocalMousePoint(screenFrame: screenFrame))
     }
 
     func confirmSelection() {
-        model?.confirmSelection()
+        model?.confirmDefaultAction()
+    }
+
+    func beginCapturePhase() {
+        model?.beginCapturing()
+    }
+
+    func hideForCapture() {
+        panel?.orderOut(nil)
+    }
+
+    func beginEditing(image: CGImage) {
+        model?.beginEditing(image: image)
+        panel?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func preferredFullScreenRegion() -> RecordingRegion? {
+        guard let screen = preferredScreen() else { return nil }
+        return RecordingRegion(
+            displayID: screen.displayID,
+            x: 0,
+            y: 0,
+            width: screen.frame.width,
+            height: screen.frame.height
+        )
     }
 
     func hide() {
@@ -69,14 +106,71 @@ final class CaptureRegionSelectionWindowController {
         let pointerLocation = NSEvent.mouseLocation
         return NSScreen.screens.first { $0.frame.contains(pointerLocation) } ?? NSScreen.main ?? NSScreen.screens.first
     }
+
+    private func panelLocalMousePoint(screenFrame: CGRect) -> CGPoint {
+        let pointer = NSEvent.mouseLocation
+        return CGPoint(
+            x: pointer.x - screenFrame.minX,
+            y: screenFrame.maxY - pointer.y
+        )
+    }
+
+    private func windowCandidates(for screen: NSScreen?, screenFrame: CGRect) -> [CaptureWindowCandidate] {
+        guard screen != nil else { return [] }
+        let screenRect = CGRect(origin: .zero, size: screenFrame.size)
+        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+        guard let windows = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
+            return []
+        }
+
+        return windows.compactMap { window in
+            guard let layer = window[kCGWindowLayer as String] as? Int, layer == 0,
+                  let windowID = window[kCGWindowNumber as String] as? UInt32,
+                  let ownerPID = window[kCGWindowOwnerPID as String] as? pid_t,
+                  ownerPID != getpid(),
+                  let bounds = window[kCGWindowBounds as String] as? [String: Any],
+                  let x = bounds["X"] as? Double,
+                  let y = bounds["Y"] as? Double,
+                  let width = bounds["Width"] as? Double,
+                  let height = bounds["Height"] as? Double,
+                  width >= 80,
+                  height >= 60 else {
+                return nil
+            }
+
+            let title = (window[kCGWindowName as String] as? String)
+                ?? (window[kCGWindowOwnerName as String] as? String)
+                ?? "窗口"
+            let rect = CGRect(
+                x: x - screenFrame.minX,
+                y: y,
+                width: width,
+                height: height
+            ).intersection(screenRect)
+            guard rect.width >= 80, rect.height >= 60 else { return nil }
+            return CaptureWindowCandidate(id: windowID, rect: rect, title: title)
+        }
+    }
 }
 
 private final class KeyablePanel: NSPanel {
     var onCancel: (() -> Void)?
     var onConfirm: (() -> Void)?
+    var onMouseMoved: ((CGPoint) -> Void)?
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
+
+    override func mouseMoved(with event: NSEvent) {
+        let location = event.locationInWindow
+        onMouseMoved?(
+            CGPoint(
+                x: location.x,
+                y: frame.height - location.y
+            )
+        )
+        super.mouseMoved(with: event)
+    }
 
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {

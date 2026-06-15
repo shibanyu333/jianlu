@@ -48,11 +48,12 @@ func expectOrder(_ orderedNeedles: [String], in haystack: String, _ message: Str
 }
 
 let arguments = CommandLine.arguments
-guard arguments.count >= 2 else {
-    fail("usage: JianLuBundleChecks /path/to/app.bundle")
+let appURL = if arguments.count >= 2 {
+    URL(fileURLWithPath: arguments[1], isDirectory: true)
+} else {
+    URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("dist/简录.app", isDirectory: true)
 }
-
-let appURL = URL(fileURLWithPath: arguments[1], isDirectory: true)
 let fileManager = FileManager.default
 let infoPlistURL = appURL.appendingPathComponent("Contents/Info.plist")
 let executableURL = appURL.appendingPathComponent("Contents/MacOS/JianLu")
@@ -224,6 +225,7 @@ expect(settingsViewSource.contains("appState.updateDefaultCameraSize(size)"), "c
 expect(settingsViewSource.contains("Picker(\"截图/录屏快捷键\", selection: $appState.preferences.captureShortcutPreset)"), "settings expose screenshot and recording shortcut mode")
 expect(settingsViewSource.contains("CaptureShortcutPreset.allCases"), "shortcut mode picker lists all capture shortcut presets")
 expect(settingsViewSource.contains("captureShortcutPreset.detail"), "settings explain capture shortcut replacement behavior")
+expect(settingsViewSource.contains("Toggle(\"完成截图后自动复制到剪切板\", isOn: $appState.preferences.screenshotAutoCopyOnFinish)"), "settings expose screenshot auto-copy preference")
 
 let regionSelectionSourceURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/CaptureRegionSelectionView.swift")
 let regionSelectionSource = (try? String(contentsOf: regionSelectionSourceURL, encoding: .utf8)) ?? ""
@@ -231,11 +233,22 @@ expect(regionSelectionSource.contains("enum CaptureRegionSelectionPurpose"), "re
 expect(regionSelectionSource.contains("case screenshot"), "region selection can label screenshot capture")
 expect(regionSelectionSource.contains("var windowTitle"), "region selection purpose provides a matching window title")
 expect(regionSelectionSource.contains("\"选择截图区域\""), "screenshot selection window title names screenshots, not recordings")
-expect(regionSelectionSource.contains("@Published var isStarting"), "region selection exposes a starting state for duplicate click prevention")
-expect(regionSelectionSource.contains("guard canStart, !isStarting else { return }"), "region selection confirms only once while recording starts")
+expect(regionSelectionSource.contains("enum CaptureRegionSelectionPhase"), "region selection uses an explicit selecting/capturing/editing state machine")
+expect(regionSelectionSource.contains("@Published var phase: CaptureRegionSelectionPhase = .selecting"), "region selection exposes phase for duplicate click prevention")
+expect(regionSelectionSource.contains("guard canStart else { return }"), "region selection confirms only once while capture starts")
+expect(regionSelectionSource.contains("func beginEditing(image: CGImage)"), "region selection can enter inline screenshot editing")
+expect(regionSelectionSource.contains("enum ScreenshotEditingTool"), "inline screenshot editing has dedicated tools")
+expect(regionSelectionSource.contains("case text"), "inline screenshot editing supports text markup")
+expect(regionSelectionSource.contains("case mosaic"), "inline screenshot editing supports mosaic markup")
+expect(regionSelectionSource.contains("ScreenshotInlineToolbar"), "inline screenshot editing shows a local toolbar")
+expect(regionSelectionSource.contains("ScreenshotMarkupRenderer.render"), "inline screenshot editing renders final markup through the screenshot renderer")
+expect(regionSelectionSource.contains("struct CaptureWindowCandidate"), "screenshot selection can track window candidates")
+expect(regionSelectionSource.contains("func updateWindowHover"), "screenshot selection can auto-highlight windows under the pointer")
+expect(regionSelectionSource.contains("func confirmHoveredWindowSelection"), "screenshot selection can capture a hovered window with one click")
 expect(regionSelectionSource.contains("Self.clamped("), "region selection clamps restored regions to the current screen")
 expect(regionSelectionSource.contains("private static func clamped"), "region selection has a static clamp helper usable during initialization")
-expect(regionSelectionSource.contains("DragGesture(minimumDistance: 8)"), "region selection ignores the click that opened the selection window")
+expect(regionSelectionSource.contains("DragGesture(minimumDistance: model.purpose == .screenshot ? 0 : 8)"), "screenshot selection accepts click-to-window while recording selection still ignores the opening click")
+expect(regionSelectionSource.contains("model.confirmSelection()"), "screenshot drag release can immediately capture the selected area")
 expect(regionSelectionSource.contains("SelectionCornerHandles"), "region selection highlights the selected area with visible corner handles")
 expect(regionSelectionSource.contains("Return 开始录制，Esc 取消，⌃⌥⌘R 也可确认当前区域"), "region selection shows the actual available keyboard actions")
 expect(!regionSelectionSource.contains("再次按主录制快捷键"), "region selection avoids vague shortcut wording")
@@ -247,6 +260,13 @@ expect(regionSelectionController.contains("panel.title = purpose.windowTitle"), 
 expect(regionSelectionController.contains("override func keyDown"), "region selection supports keyboard shortcuts")
 expect(regionSelectionController.contains("case 53"), "region selection lets Escape cancel selection")
 expect(regionSelectionController.contains("case 36, 76"), "region selection lets Return confirm selection")
+expect(regionSelectionController.contains("model?.confirmDefaultAction()"), "Return completes inline screenshot editing after selection")
+expect(regionSelectionController.contains("hideForCapture"), "region selection can hide itself before ScreenCaptureKit captures")
+expect(regionSelectionController.contains("beginEditing(image: CGImage)"), "region selection controller can show captured images inline")
+expect(regionSelectionController.contains("preferredFullScreenRegion"), "full-screen screenshots use the pointer display region")
+expect(regionSelectionController.contains("windowCandidates(for:"), "screenshot selection collects on-screen windows for auto selection")
+expect(regionSelectionController.contains("CGWindowListCopyWindowInfo"), "screenshot window auto-selection uses the system window list")
+expect(regionSelectionController.contains("acceptsMouseMovedEvents = true"), "screenshot selection receives hover updates without dragging")
 
 let overlayWindowSourceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/OverlayWindowController.swift")
 let overlayWindowSource = (try? String(contentsOf: overlayWindowSourceURL, encoding: .utf8)) ?? ""
@@ -340,6 +360,8 @@ expect(
 expect(overlayServiceSource.contains("func prewarmZoomPreview()"), "overlay can prewarm a live zoom frame before the user presses the shortcut")
 expect(overlayServiceSource.contains("private let liveZoomFrameInterval: TimeInterval = 1.0 / 30.0"), "live zoom refreshes often enough to feel smooth without overloading capture")
 expect(overlayServiceSource.contains("withAnimation(.easeInOut(duration: 0.12))"), "live zoom fades in and out smoothly")
+expect(overlayServiceSource.contains("resolvedLiveZoomFocus"), "live zoom resolves focus through the same timeline model as export")
+expect(overlayServiceSource.contains("ExportZoomTimeline.activeEffect"), "live zoom uses export zoom focus semantics")
 expect(overlayServiceSource.contains("isMouseInsideRecordingRegion()"), "click zoom starts only when the mouse is inside the recording region")
 expect(
     !overlayServiceSource.contains("""
@@ -375,17 +397,18 @@ expect(screenshotCaptureServiceSource.contains("SCScreenshotManager.captureImage
 expect(screenshotCaptureServiceSource.contains("includeAppWindows"), "screenshot capture respects the include-app-window preference")
 expect(screenshotCaptureServiceSource.contains("CGImageDestinationFinalize"), "screenshot capture service can write PNG output")
 
-let screenshotEditorViewURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/ScreenshotEditorView.swift")
-let screenshotEditorViewSource = (try? String(contentsOf: screenshotEditorViewURL, encoding: .utf8)) ?? ""
-expect(screenshotEditorViewSource.contains("final class ScreenshotEditorModel"), "screenshot editor owns annotation state")
-expect(screenshotEditorViewSource.contains("AnnotationImageRenderer.render"), "screenshot editor saves and copies rendered annotations")
-expect(screenshotEditorViewSource.contains("ToolButton(title: \"画笔\""), "screenshot editor exposes doodle pen")
-expect(screenshotEditorViewSource.contains("ToolButton(title: \"高亮\""), "screenshot editor exposes highlight annotation")
-expect(screenshotEditorViewSource.contains("ToolButton(title: \"圆形\""), "screenshot editor exposes circle annotation")
-expect(screenshotEditorViewSource.contains("Label(\"复制\""), "screenshot editor can copy annotated screenshots")
-expect(screenshotEditorViewSource.contains("Label(\"保存\""), "screenshot editor can save annotated screenshots")
-expect(screenshotEditorViewSource.contains(".keyboardShortcut(\"c\", modifiers: [.shift, .command])"), "screenshot editor supports the common annotated-copy shortcut")
-expect(screenshotEditorViewSource.contains(".keyboardShortcut(\"s\", modifiers: .command)"), "screenshot editor supports the common save shortcut")
+let screenshotMarkupURL = projectRoot.appendingPathComponent("Sources/JianLuCore/Models/ScreenshotMarkup.swift")
+let screenshotMarkupSource = (try? String(contentsOf: screenshotMarkupURL, encoding: .utf8)) ?? ""
+expect(screenshotMarkupSource.contains("public enum ScreenshotMarkup"), "screenshot markup has a dedicated core model")
+expect(screenshotMarkupSource.contains("case stroke(AnnotationEvent)"), "screenshot markup reuses existing stroke annotations")
+expect(screenshotMarkupSource.contains("ScreenshotTextMarkup"), "screenshot markup supports text")
+expect(screenshotMarkupSource.contains("ScreenshotMosaicMarkup"), "screenshot markup supports mosaic regions")
+
+let screenshotMarkupRendererURL = projectRoot.appendingPathComponent("Sources/JianLuCore/Export/ScreenshotMarkupRenderer.swift")
+let screenshotMarkupRendererSource = (try? String(contentsOf: screenshotMarkupRendererURL, encoding: .utf8)) ?? ""
+expect(screenshotMarkupRendererSource.contains("public enum ScreenshotMarkupRenderer"), "screenshot markup renderer is available to the app")
+expect(screenshotMarkupRendererSource.contains("imageByApplyingMosaics"), "screenshot markup renderer applies mosaics before drawing annotations")
+expect(screenshotMarkupRendererSource.contains("CTLineDraw"), "screenshot markup renderer burns text into copied or saved images")
 
 let captureServiceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/CaptureService.swift")
 let captureServiceSource = (try? String(contentsOf: captureServiceURL, encoding: .utf8)) ?? ""
@@ -440,11 +463,13 @@ expect(appStateSource.contains("@Published var isStartingRecording"), "app state
 expect(appStateSource.contains("@Published var isPreparingScreenshot"), "app state exposes screenshot preparation state")
 expect(appStateSource.contains("@Published var isSelectingScreenshot"), "app state exposes screenshot region selection state")
 expect(appStateSource.contains("private let screenshotCaptureService = ScreenshotCaptureService()"), "app state owns screenshot capture service")
-expect(appStateSource.contains("private let screenshotEditorController = ScreenshotEditorWindowController()"), "app state owns screenshot editor window")
+expect(appStateSource.contains("private let regionSelectionController = CaptureRegionSelectionWindowController()"), "app state owns the inline screenshot selection/editor window")
 expect(appStateSource.contains("func takeScreenshotIntent()"), "app state exposes a screenshot intent")
 expect(appStateSource.contains("func takeFullScreenshotIntent()"), "app state exposes full-screen screenshot intent")
 expect(appStateSource.contains("private func beginScreenshotSelection() async"), "app state can open screenshot region selection")
-expect(appStateSource.contains("private func captureScreenshot(region: RecordingRegion?) async"), "app state can capture selected or full screenshots")
+expect(appStateSource.contains("private func captureScreenshot(region: RecordingRegion?, rememberRegion: Bool) async"), "app state can capture selected or full screenshots")
+expect(appStateSource.contains("private func finishScreenshotEditing"), "app state completes inline screenshot editing")
+expect(appStateSource.contains("preferences.screenshotAutoCopyOnFinish"), "app state respects the screenshot auto-copy preference")
 let screenshotSelectionAppStateSource = sourceSlice(
     in: appStateSource,
     from: "private func beginScreenshotSelection() async",
@@ -456,13 +481,15 @@ expect(
 )
 let screenshotCaptureAppStateSource = sourceSlice(
     in: appStateSource,
-    from: "private func captureScreenshot(region: RecordingRegion?) async",
-    to: "private func showScreenshotEditor"
+    from: "private func captureScreenshot(region: RecordingRegion?, rememberRegion: Bool) async",
+    to: "private func finishScreenshotEditing"
 )
+expect(screenshotCaptureAppStateSource.contains("regionSelectionController.hideForCapture()"), "screenshot capture hides the overlay before ScreenCaptureKit captures")
+expect(screenshotCaptureAppStateSource.contains("regionSelectionController.beginEditing(image: image)"), "screenshot capture returns the image to the inline editor")
 expect(screenshotCaptureAppStateSource.contains("Task.sleep(nanoseconds: 120_000_000)"), "screenshot capture waits for the selection overlay to disappear")
 expect(
     !screenshotCaptureAppStateSource.contains("AppWindowUtility.restoreMainWindows()"),
-    "screenshot capture opens only the editor instead of restoring every main window"
+    "screenshot capture stays in the inline editor instead of restoring every main window"
 )
 expect(appStateSource.contains("try screenshotCaptureService.writePNG(image, to: url)"), "app state saves annotated screenshots through PNG writer")
 expect(appStateSource.contains("NSPasteboard.general"), "app state copies annotated screenshots to the clipboard")
