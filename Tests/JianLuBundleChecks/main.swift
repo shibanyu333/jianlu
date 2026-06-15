@@ -345,6 +345,7 @@ expect(hotkeyServiceSource.contains("CGEventSource.keyState"), "zoom hotkey poll
 expect(hotkeyServiceSource.contains("CaptureShortcutPreset"), "hotkey service reads screenshot and recording shortcut mode")
 expect(hotkeyServiceSource.contains("case .macReplacement"), "hotkey service supports Mac-style shortcut replacement")
 expect(hotkeyServiceSource.contains("shouldSuppressSystemShortcut"), "Mac-style replacement can suppress the original system shortcut when the event tap allows it")
+expect(hotkeyServiceSource.contains("guard preset == .macReplacement else { return false }"), "default shortcut mode does not suppress original macOS screenshot shortcuts")
 expect(hotkeyServiceSource.contains("options: .defaultTap"), "hotkey event tap is capable of suppressing handled system shortcuts")
 expect(hotkeyServiceSource.contains("return shouldSuppress ? nil : Unmanaged.passUnretained(event)"), "handled replacement shortcuts are swallowed before macOS receives them")
 expect(hotkeyServiceSource.contains("case 15:\n            handler?(.toggleRecording)"), "default recording shortcut toggles recording instead of only stopping")

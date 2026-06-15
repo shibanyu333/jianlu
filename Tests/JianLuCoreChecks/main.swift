@@ -512,6 +512,8 @@ private func runPreferenceChecks() {
     expect(preferences.zoomShortcut == .controlOptionSpace, "zoom shortcut preference is stored")
     expect(preferences.captureShortcutPreset == .macReplacement, "capture shortcut preset preference is stored")
     expect(preferences.captureShortcutPreset.detail.contains("⇧⌘4"), "mac replacement preset names the screenshot shortcut")
+    expect(preferences.captureShortcutPreset.detail.contains("阻止 macOS 原生"), "mac replacement preset explains that it suppresses original system shortcuts")
+    expect(RecordingPreferences.defaults.captureShortcutPreset.detail.contains("不拦截"), "default capture shortcut preset leaves original macOS shortcuts enabled")
     expect(!preferences.zoomShortcut.displayName.isEmpty, "zoom shortcut has a display name")
     expect(preferences.recordingDirectoryPath == "/tmp/jianlu-checks", "recording directory path is stored")
     expect(preferences.lastSelectedRegion == usableRegion, "last selected region is stored")

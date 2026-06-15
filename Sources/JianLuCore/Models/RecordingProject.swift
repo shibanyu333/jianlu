@@ -128,9 +128,9 @@ public enum CaptureShortcutPreset: String, Codable, CaseIterable, Sendable {
     public var detail: String {
         switch self {
         case .jianLuDefault:
-            "截图 ⌃⌥⌘4，录屏 ⌃⌥⌘R"
+            "截图 ⌃⌥⌘4，录屏 ⌃⌥⌘R；不拦截 macOS 原生 ⇧⌘3、⇧⌘4、⇧⌘5"
         case .macReplacement:
-            "截图 ⇧⌘4，录屏 ⇧⌘5；若系统快捷键仍开启，建议在系统设置里关闭原快捷键"
+            "接管 ⇧⌘3、⇧⌘4、⇧⌘5：简录用于全屏截图、区域截图和录屏入口，并阻止 macOS 原生截图/录屏继续响应"
         }
     }
 }
