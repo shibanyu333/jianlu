@@ -442,6 +442,7 @@ expect(exportZoomTimelineSource.contains("rampInSeconds = 0.45"), "export zoom c
 expect(exportZoomTimelineSource.contains("rampOutSeconds = 0.35"), "export zoom copies open-recorder's balanced ramp-out timing")
 expect(exportZoomTimelineSource.contains("smoothstep"), "export zoom uses open-recorder-style eased progress")
 expect(exportZoomTimelineSource.contains("safeZoneRatio = 0.25"), "export zoom copies open-recorder's safe-zone cursor-follow model")
+expect(exportZoomTimelineSource.contains("focusClampRange = 0.0...1.0"), "export zoom preserves the clicked focus instead of pushing edge clicks inward")
 expect(exportZoomTimelineSource.contains("resolvedFocus"), "export zoom follows cursor focus without jitter")
 expect(exportZoomTimelineSource.contains("CGAffineTransform(translationX: -focus.x, y: -focus.y)"), "export zoom anchors the transform at the cursor focus")
 expect(cameraCompositorSource.contains("public let zoomRegions"), "camera compositor precomputes zoom regions outside the per-frame render path")

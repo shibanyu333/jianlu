@@ -744,9 +744,28 @@ private func runZoomLensGeometryChecks() {
             start: 0.2,
             end: 1.4,
             depth: 1.8,
-            focus: NormalizedPoint(x: 0.08, y: 0.92)
+            focus: NormalizedPoint(x: 0.02, y: 0.98)
         )
-    ], "export zoom regions copy open-recorder's clamped focus model")
+    ], "export zoom regions preserve the clicked focus even near the edge")
+    let edgeFocusEffect = ExportZoomTimeline.activeEffect(
+        states: [
+            ZoomEvent(time: 0.2, magnification: 1.8, focus: NormalizedPoint(x: 0.02, y: 0.98)),
+            ZoomEvent(time: 1.4, magnification: 1, focus: NormalizedPoint(x: 0.02, y: 0.98))
+        ],
+        duration: 2,
+        at: 0.8
+    )
+    expect(edgeFocusEffect?.focusX == 0.02, "export zoom keeps the clicked x focus near the recording edge")
+    expect(edgeFocusEffect?.focusY == 0.98, "export zoom keeps the clicked y focus near the recording edge")
+    let edgeAnchor = CGPoint(x: 20, y: 10)
+    let anchoredTransform = ExportZoomTimeline.transform(
+        for: ExportZoomEffect(depth: 1.8, focusX: 0.02, focusY: 0.98),
+        in: CGRect(x: 0, y: 0, width: 1000, height: 500),
+        flipsY: true
+    )
+    let transformedAnchor = edgeAnchor.applying(anchoredTransform)
+    expect(abs(transformedAnchor.x - edgeAnchor.x) < 0.001, "export zoom transform anchors the clicked x point")
+    expect(abs(transformedAnchor.y - edgeAnchor.y) < 0.001, "export zoom transform anchors the clicked y point")
     let earlyProgress = ExportZoomTimeline.animationProgress(for: zoomRegion[0], at: 0.3)
     let holdProgress = ExportZoomTimeline.animationProgress(for: zoomRegion[0], at: 0.8)
     let lateProgress = ExportZoomTimeline.animationProgress(for: zoomRegion[0], at: 1.35)

@@ -40,7 +40,7 @@ public enum ExportZoomTimeline {
     public static let rampInSeconds = 0.45
     public static let rampOutSeconds = 0.35
     public static let safeZoneRatio = 0.25
-    public static let focusClampRange = 0.08...0.92
+    public static let focusClampRange = 0.0...1.0
 
     public static func regions(from states: [ZoomEvent], duration: TimeInterval) -> [ExportZoomRegion] {
         guard duration > 0 else { return [] }
