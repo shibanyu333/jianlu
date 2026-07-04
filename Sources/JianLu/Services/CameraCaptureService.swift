@@ -228,6 +228,7 @@ private final class CameraSampleCoordinator: @unchecked Sendable {
 
     private let processor = CameraFrameProcessor()
     private let preferencesLock = NSLock()
+    private let writerLock = NSLock()
     private var previewPreferences: RecordingPreferences
     private var writer: CameraSampleWriter?
     private var lastPreviewUpdateTime: TimeInterval = 0
@@ -238,16 +239,27 @@ private final class CameraSampleCoordinator: @unchecked Sendable {
     }
 
     func append(_ sampleBuffer: CMSampleBuffer) {
+        // `writer` is mutated from the main actor (start/stop/failed-start) while
+        // frames arrive here on the camera video queue. Take a strong reference
+        // under the lock, then release it before doing the per-frame work so a
+        // concurrent `clearWriter()` can't race the ARC release of this reference.
+        writerLock.lock()
+        let writer = self.writer
+        writerLock.unlock()
         writer?.append(sampleBuffer)
         publishProcessedPreviewIfNeeded(from: sampleBuffer)
     }
 
     func setWriter(_ writer: CameraSampleWriter) {
+        writerLock.lock()
         self.writer = writer
+        writerLock.unlock()
     }
 
     func clearWriter() {
+        writerLock.lock()
         writer = nil
+        writerLock.unlock()
     }
 
     func updatePreviewPreferences(_ preferences: RecordingPreferences) {
@@ -262,6 +274,9 @@ private final class CameraSampleCoordinator: @unchecked Sendable {
     }
 
     func updateRecordingPreferences(_ preferences: RecordingPreferences) {
+        writerLock.lock()
+        let writer = self.writer
+        writerLock.unlock()
         writer?.updatePreferences(preferences)
     }
 

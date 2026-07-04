@@ -23,6 +23,9 @@ enum MicrophoneCaptureError: LocalizedError {
 final class MicrophoneCaptureService: ObservableObject {
     @Published private(set) var isRecording = false
     @Published private(set) var lastErrorMessage: String?
+    /// Set when the realtime audio writer dropped samples during the take; read by
+    /// the recording controller after stop so silent audio loss isn't hidden.
+    private(set) var lastWriteFailureMessage: String?
 
     private let engine = AVAudioEngine()
     private var outputWriter: MicrophoneSampleWriter?
@@ -45,6 +48,7 @@ final class MicrophoneCaptureService: ObservableObject {
 
         let input = engine.inputNode
         lastErrorMessage = nil
+        lastWriteFailureMessage = nil
         do {
             if preferences.microphoneNoiseReductionEnabled {
                 do {
@@ -90,6 +94,9 @@ final class MicrophoneCaptureService: ObservableObject {
 
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
+        if let writeFailure = outputWriter?.firstWriteFailure {
+            lastWriteFailureMessage = "麦克风录音写入失败，部分讲解声音可能缺失：\(writeFailure.localizedDescription)"
+        }
         outputWriter = nil
         currentOutputURL = nil
         isRecording = false
@@ -109,13 +116,32 @@ final class MicrophoneCaptureService: ObservableObject {
 
 private final class MicrophoneSampleWriter: @unchecked Sendable {
     private let file: AVAudioFile
+    private let failureLock = NSLock()
+    private var storedFailure: Error?
 
     init(file: AVAudioFile) {
         self.file = file
     }
 
+    /// The first write error seen on the realtime audio tap thread, if any.
+    var firstWriteFailure: Error? {
+        failureLock.lock()
+        defer { failureLock.unlock() }
+        return storedFailure
+    }
+
     func write(_ buffer: AVAudioPCMBuffer) {
-        try? file.write(from: buffer)
+        do {
+            try file.write(from: buffer)
+        } catch {
+            // Runs on the realtime audio thread: don't touch the main actor here,
+            // just remember the first failure so stopRecording can surface it.
+            failureLock.lock()
+            if storedFailure == nil {
+                storedFailure = error
+            }
+            failureLock.unlock()
+        }
     }
 }
 

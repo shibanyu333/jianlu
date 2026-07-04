@@ -668,6 +668,9 @@ final class AppState: ObservableObject {
             if microphoneCaptureService.hasActiveRecording {
                 do {
                     try microphoneCaptureService.stopRecording()
+                    if let microphoneWriteWarning = microphoneCaptureService.lastWriteFailureMessage {
+                        stopWarnings.append(microphoneWriteWarning)
+                    }
                 } catch {
                     activeMicrophoneRecordingURL = nil
                     stopWarnings.append("降噪麦克风音轨保存失败，已保留屏幕录制：\(error.localizedDescription)")
@@ -729,6 +732,11 @@ final class AppState: ObservableObject {
                 try? microphoneCaptureService.stopRecording()
             }
             deleteUnusedSidecarRecordings()
+            // The screen `.mov` is written to disk independently of this failure and
+            // is NOT deleted here, but its finalization state is unknown after a stop
+            // error, so we don't add a possibly-broken file to the project library.
+            // Surface its path instead so the recording isn't silently lost.
+            let orphanedScreenURL = activeScreenRecordingURL
             activeScreenRecordingURL = nil
             activeCameraRecordingURL = nil
             activeMicrophoneRecordingURL = nil
@@ -742,7 +750,11 @@ final class AppState: ObservableObject {
             isRecording = false
             isPaused = false
             AppWindowUtility.restoreMainWindows()
-            lastErrorMessage = error.localizedDescription
+            if let orphanedScreenURL {
+                lastErrorMessage = "\(error.localizedDescription)\n原始录屏已保留，可手动打开：\(orphanedScreenURL.path)"
+            } else {
+                lastErrorMessage = error.localizedDescription
+            }
             statusMessage = "停止录制失败：\(error.localizedDescription)"
         }
     }
@@ -1040,7 +1052,13 @@ final class AppState: ObservableObject {
     }
 
     private func refreshRenderedPreview(for project: RecordingProject, force: Bool = false) {
-        cancelRenderedPreview(for: project.id)
+        // Preview renders all share a single `previewExportService`, so at most one
+        // may run at a time. Cancel every in-flight preview (including other
+        // projects') before starting this one; otherwise two concurrent renders
+        // clobber each other's export session and progress reporting.
+        for inFlightProjectID in Array(renderedPreviewTasks.keys) {
+            cancelRenderedPreview(for: inFlightProjectID)
+        }
         deleteGeneratedPreviewIfNeeded(renderedPreviewURLs[project.id])
         renderedPreviewURLs[project.id] = nil
 
