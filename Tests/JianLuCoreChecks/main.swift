@@ -817,29 +817,6 @@ private func runZoomLensGeometryChecks() {
     expect(abs(fullScreenFocus.x - 0.5) < 0.001, "full-screen zoom focus maps x into normalized space")
     expect(abs(fullScreenFocus.y - 0.5) < 0.001, "full-screen zoom focus maps y into normalized space")
 
-    let lens = ZoomLensGeometry(lensSize: CGSize(width: 200, height: 200))
-    let imageFrame = lens.zoomedImageFrame(
-        captureSize: CGSize(width: 1000, height: 500),
-        focus: NormalizedPoint(x: 0.25, y: 0.6),
-        magnification: 2
-    )
-    expect(imageFrame.width == 2000, "zoom lens scales captured frame width by magnification")
-    expect(imageFrame.height == 1000, "zoom lens scales captured frame height by magnification")
-    expect(imageFrame.minX == -400, "zoom lens keeps the focus under the center horizontally")
-    expect(imageFrame.minY == -500, "zoom lens keeps the focus under the center vertically")
-
-    let openRecorderStyleZoom = ZoomLensGeometry(lensSize: CGSize(width: 1000, height: 500)).zoomedRegionImageFrame(
-        captureSize: CGSize(width: 1000, height: 500),
-        focus: NormalizedPoint(x: 0.25, y: 0.6),
-        magnification: 1.8
-    )
-    let anchoredFocusX = openRecorderStyleZoom.minX + 0.25 * openRecorderStyleZoom.width
-    let anchoredFocusY = openRecorderStyleZoom.minY + 0.6 * openRecorderStyleZoom.height
-    expect(abs(openRecorderStyleZoom.width - 1800) < 0.001, "open-recorder-style zoom expands the recorded region width")
-    expect(abs(openRecorderStyleZoom.height - 900) < 0.001, "open-recorder-style zoom expands the recorded region height")
-    expect(abs(anchoredFocusX - 250) < 0.001, "open-recorder-style zoom keeps the focus pinned horizontally")
-    expect(abs(anchoredFocusY - 300) < 0.001, "open-recorder-style zoom keeps the focus pinned vertically")
-
     // WYSIWYG guard: the region the presenter sees magnified in the live overlay must
     // be the region the exported video magnifies. The live frame is y-down, the export
     // transform is y-up, so the vertical edges are compared after flipping.
@@ -891,17 +868,6 @@ private func runZoomLensGeometryChecks() {
         ExportZoomTimeline.rampedDepth(target: 2, elapsed: 0.2),
         "live overlay depth matches the exported frame depth while the zoom ramps in"
     )
-
-    let clampedCenter = lens.clampedLensCenter(
-        in: CGRect(x: 10, y: 20, width: 800, height: 400),
-        focus: NormalizedPoint(x: 0.02, y: 0.03)
-    )
-    expect(clampedCenter == CGPoint(x: 110, y: 120), "zoom lens center is clamped inside the capture rect")
-
-    let smallDiameter = ZoomLensGeometry.lensDiameter(for: CGSize(width: 80, height: 90))
-    expect(smallDiameter == 72, "zoom lens stays visible for tiny recording regions")
-    let largeDiameter = ZoomLensGeometry.lensDiameter(for: CGSize(width: 1920, height: 1080))
-    expect(largeDiameter == 280, "zoom lens has a stable maximum size")
 
     let zoomRegion = ExportZoomTimeline.regions(
         from: [

@@ -245,15 +245,32 @@ final class CaptureService: NSObject, ObservableObject {
     }
 }
 
+/// Keeps the most recent screen frame around for the live zoom preview.
+///
+/// Converting a frame to a CGImage is expensive — a Retina region is ~17 MB per frame,
+/// so doing it 30 times a second costs hundreds of MB/s of pixel work. Only the live
+/// zoom ever reads these frames, and most recordings never zoom at all, so conversion
+/// is demand-driven: asking for a frame keeps the pipeline warm for a moment, and it
+/// goes idle again as soon as nobody is looking.
 private final class LatestScreenFrameOutput: NSObject, SCStreamOutput {
+    /// How long a single `latestImage()` call keeps frames flowing.
+    private static let demandWindow: CFTimeInterval = 1.0
+    /// Frames older than this are treated as missing, so a zoom never opens on a stale
+    /// picture from an earlier zoom — the caller falls back to a fresh snapshot.
+    private static let freshnessWindow: CFTimeInterval = 0.5
+
     private let lock = NSLock()
     private let ciContext = CIContext()
     private var image: CGImage?
     private var lastFrameTime: CFTimeInterval = 0
+    private var lastDemandTime: CFTimeInterval = 0
 
     func latestImage() -> CGImage? {
+        let now = CFAbsoluteTimeGetCurrent()
         lock.lock()
         defer { lock.unlock() }
+        lastDemandTime = now
+        guard now - lastFrameTime < Self.freshnessWindow else { return nil }
         return image
     }
 
@@ -261,6 +278,7 @@ private final class LatestScreenFrameOutput: NSObject, SCStreamOutput {
         lock.lock()
         image = nil
         lastFrameTime = 0
+        lastDemandTime = 0
         lock.unlock()
     }
 
@@ -280,9 +298,11 @@ private final class LatestScreenFrameOutput: NSObject, SCStreamOutput {
         // Cap at ~30fps to match the live-zoom preview refresh timer. The previous
         // 0.08s (~12.5fps) cap made magnified content visibly stutter and the cursor
         // ghost while the presenter moved during a zoom.
-        let shouldSkip = now - lastFrameTime < (1.0 / 30.0)
+        let isTooSoon = now - lastFrameTime < (1.0 / 30.0)
+        // Nobody has asked for a frame recently, so skip the conversion entirely.
+        let isIdle = now - lastDemandTime > Self.demandWindow
         lock.unlock()
-        guard !shouldSkip else { return }
+        guard !isTooSoon, !isIdle else { return }
 
         let width = CVPixelBufferGetWidth(pixelBuffer)
         let height = CVPixelBufferGetHeight(pixelBuffer)
