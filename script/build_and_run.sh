@@ -57,6 +57,8 @@ write_info_plist() {
   <string>$DISPLAY_NAME</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
   <key>CFBundleShortVersionString</key>
   <string>0.1.0</string>
   <key>CFBundleVersion</key>
@@ -97,6 +99,23 @@ sign_app() {
   fi
 }
 
+# Build the .icns from the single source artwork; sips and iconutil ship with macOS.
+stage_app_icon() {
+  local source_icon="$ROOT_DIR/docs/images/icon.png"
+  [[ -f "$source_icon" ]] || return 0
+
+  local iconset
+  iconset="$(mktemp -d)/AppIcon.iconset"
+  mkdir -p "$iconset"
+  local size
+  for size in 16 32 128 256 512; do
+    sips -z "$size" "$size" "$source_icon" --out "$iconset/icon_${size}x${size}.png" >/dev/null 2>&1
+    sips -z "$((size * 2))" "$((size * 2))" "$source_icon" --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null 2>&1
+  done
+  iconutil -c icns "$iconset" -o "$APP_RESOURCES/AppIcon.icns" >/dev/null 2>&1
+  rm -rf "$(dirname "$iconset")"
+}
+
 stage_app_bundle() {
   swift build --package-path "$ROOT_DIR"
   local build_dir
@@ -109,6 +128,7 @@ stage_app_bundle() {
   cp "$build_binary" "$APP_BINARY"
   find "$build_dir" -maxdepth 1 \( -name "*.resources" -o -name "*.bundle" \) -exec cp -R {} "$APP_RESOURCES/" \;
   chmod +x "$APP_BINARY"
+  stage_app_icon
   write_info_plist
   sign_app
 }

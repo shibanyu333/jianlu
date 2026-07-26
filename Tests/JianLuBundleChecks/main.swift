@@ -78,6 +78,11 @@ expect(stringValue("CFBundleExecutable") == "JianLu", "CFBundleExecutable is Jia
 expect(stringValue("CFBundleIdentifier") == "com.local.JianLu", "CFBundleIdentifier is stable")
 expect(stringValue("CFBundlePackageType") == "APPL", "bundle package type is APPL")
 expect(stringValue("NSPrincipalClass") == "NSApplication", "NSPrincipalClass is NSApplication")
+expect(stringValue("CFBundleIconFile") == "AppIcon", "the bundle declares its app icon")
+expect(
+    fileManager.fileExists(atPath: appURL.appendingPathComponent("Contents/Resources/AppIcon.icns").path),
+    "the app icon is staged into the bundle"
+)
 
 let minimumSystemVersion = stringValue("LSMinimumSystemVersion")
 let minimumMajorVersion = Int(minimumSystemVersion.split(separator: ".").first ?? "") ?? 0
@@ -943,7 +948,6 @@ expect(cameraCaptureServiceSource.contains("try? FileManager.default.removeItem(
 expect(cameraCaptureServiceSource.contains("let failedOutputURL = currentOutputURL"), "camera stop failures remember the incomplete output file")
 expect(cameraCaptureServiceSource.contains("try? FileManager.default.removeItem(at: failedOutputURL)"), "camera stop failures remove incomplete video files")
 
-print("JianLuBundleChecks passed")
 
 let cameraProcessorURL = projectRoot.appendingPathComponent("Sources/JianLuCore/Export/CameraFrameProcessor.swift")
 let cameraProcessorSource = (try? String(contentsOf: cameraProcessorURL, encoding: .utf8)) ?? ""
@@ -953,7 +957,7 @@ expect(cameraProcessorSource.contains("func slimmedFace("), "the processor imple
 expect(cameraProcessorSource.contains("CIBumpDistortion"), "face slimming warps the frame instead of only recolouring it")
 expect(cameraProcessorSource.contains("VNDetectFaceRectanglesRequest"), "face slimming uses a detected face box")
 expect(
-    cameraProcessorSource.contains("framesSinceFaceDetection < 8"),
+    cameraProcessorSource.contains("faceDetectionCountdown") && cameraProcessorSource.contains("faceDetectionFrameInterval"),
     "face detection is throttled instead of running Vision twice per frame at 30fps"
 )
 expect(cameraProcessorSource.contains("func customBackground("), "the processor can paint a user-supplied background image")
@@ -975,3 +979,5 @@ expect(
     "the login item state is read from macOS instead of duplicated in preferences"
 )
 expect(appStateSource.contains("launchAtLoginState = LaunchAtLoginService.state"), "the login item state is refreshed from the system")
+
+print("JianLuBundleChecks passed")
