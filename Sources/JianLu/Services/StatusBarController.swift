@@ -1,4 +1,5 @@
 import AppKit
+import JianLuCore
 
 @MainActor
 final class StatusBarController: NSObject, NSMenuDelegate {
@@ -25,19 +26,19 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private func rebuildMenu() {
         menu.removeAllItems()
 
-        let recordingTitle = appState?.isRecording == true ? "停止录制" : "选择区域"
+        let recordingTitle = appState?.isRecording == true ? tr("停止录制", "Stop recording") : tr("选择区域", "Select area")
         menu.addItem(NSMenuItem(title: recordingTitle, action: #selector(toggleRecording), keyEquivalent: ""))
 
-        let pauseTitle = appState?.isPaused == true ? "继续录制" : "暂停录制"
+        let pauseTitle = appState?.isPaused == true ? tr("继续录制", "Resume") : tr("暂停录制", "Pause")
         let pauseItem = NSMenuItem(title: pauseTitle, action: #selector(togglePause), keyEquivalent: "")
         pauseItem.isEnabled = appState?.isRecording == true
         menu.addItem(pauseItem)
 
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "显示主窗口", action: #selector(showMainWindow), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "打开保存目录", action: #selector(openRecordingDirectory), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: tr("显示主窗口", "Show main window"), action: #selector(showMainWindow), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: tr("打开保存目录", "Open recordings folder"), action: #selector(openRecordingDirectory), keyEquivalent: ""))
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "退出简录", action: #selector(quit), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: tr("退出简录", "Quit JianLu"), action: #selector(quit), keyEquivalent: "q"))
 
         for item in menu.items {
             item.target = self

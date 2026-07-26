@@ -17,36 +17,36 @@ enum CaptureRegionSelectionPurpose {
     var title: String {
         switch self {
         case .recording:
-            "拖拽选择录制区域"
+            tr("拖拽选择录制区域", "Drag to select the recording area")
         case .screenshot:
-            "拖拽选择截图区域"
+            tr("拖拽选择截图区域", "Drag to select the screenshot area")
         }
     }
 
     var windowTitle: String {
         switch self {
         case .recording:
-            "选择录制区域"
+            tr("选择录制区域", "Select recording area")
         case .screenshot:
-            "选择截图区域"
+            tr("选择截图区域", "Select screenshot area")
         }
     }
 
     var confirmTitle: String {
         switch self {
         case .recording:
-            "开始录制"
+            tr("开始录制", "Start recording")
         case .screenshot:
-            "截图"
+            tr("截图", "Capture")
         }
     }
 
     var startingTitle: String {
         switch self {
         case .recording:
-            "正在开始"
+            tr("正在开始", "Starting…")
         case .screenshot:
-            "正在截图"
+            tr("正在截图", "Capturing…")
         }
     }
 
@@ -62,9 +62,9 @@ enum CaptureRegionSelectionPurpose {
     var hint: String {
         switch self {
         case .recording:
-            "Return 开始录制，Esc 取消，⌃⌥⌘R 也可确认当前区域"
+            tr("Return 开始录制，Esc 取消，⌃⌥⌘R 也可确认当前区域", "Return to start, Esc to cancel — ⌃⌥⌘R also confirms the current area")
         case .screenshot:
-            "Return 截图，Esc 取消；截图后可继续标注和涂鸦"
+            tr("Return 截图，Esc 取消；截图后可继续标注和涂鸦", "Return to capture, Esc to cancel — you can annotate afterwards")
         }
     }
 }
@@ -107,21 +107,21 @@ enum ScreenshotEditingTool: CaseIterable, Hashable {
     var title: String {
         switch self {
         case .pen:
-            "画笔"
+            tr("画笔", "Pen")
         case .highlight:
-            "高亮"
+            tr("高亮", "Highlight")
         case .line:
-            "直线"
+            tr("直线", "Line")
         case .arrow:
-            "箭头"
+            tr("箭头", "Arrow")
         case .rectangle:
-            "方框"
+            tr("方框", "Rectangle")
         case .ellipse:
             "圆形"
         case .text:
-            "文字"
+            tr("文字", "Text")
         case .mosaic:
-            "马赛克"
+            tr("马赛克", "Mosaic")
         }
     }
 
@@ -169,6 +169,10 @@ final class CaptureRegionSelectionModel: ObservableObject {
     let screenSize: CGSize
     let purpose: CaptureRegionSelectionPurpose
     let windowCandidates: [CaptureWindowCandidate]
+    /// The still grabbed when the shortcut fired. While it is present the selection
+    /// happens on a frozen screen, and the final image is cropped out of this very
+    /// frame — so what you select is exactly what you saw when you pressed the key.
+    let frozenScreen: CGImage?
     private let onStart: (RecordingRegion) -> Void
     private let onCancel: () -> Void
     private let onFinish: ((CGImage) -> Void)?
@@ -194,6 +198,7 @@ final class CaptureRegionSelectionModel: ObservableObject {
         initialRegion: RecordingRegion?,
         windowCandidates: [CaptureWindowCandidate] = [],
         purpose: CaptureRegionSelectionPurpose = .recording,
+        frozenScreen: CGImage? = nil,
         onStart: @escaping (RecordingRegion) -> Void,
         onCancel: @escaping () -> Void,
         onFinish: ((CGImage) -> Void)? = nil,
@@ -204,6 +209,7 @@ final class CaptureRegionSelectionModel: ObservableObject {
         self.screenSize = screenSize
         self.purpose = purpose
         self.windowCandidates = windowCandidates
+        self.frozenScreen = frozenScreen
         self.onStart = onStart
         self.onCancel = onCancel
         self.onFinish = onFinish
@@ -436,7 +442,11 @@ final class CaptureRegionSelectionModel: ObservableObject {
     private func renderedEditingImage() -> CGImage? {
         commitPendingText()
         guard let capturedImage else { return nil }
-        return ScreenshotMarkupRenderer.render(baseImage: capturedImage, markups: markups) ?? capturedImage
+        // The editor lays out markups in points over `selectionRect`; the captured
+        // image is at pixel resolution. Pass the points→pixels ratio so strokes and
+        // text are baked at the size the user drew, not half-size on Retina.
+        let scale = CGFloat(capturedImage.width) / max(1, selectionRect.width)
+        return ScreenshotMarkupRenderer.render(baseImage: capturedImage, markups: markups, scale: scale) ?? capturedImage
     }
 
     private func clamped(_ rect: CGRect) -> CGRect {
@@ -465,6 +475,17 @@ struct CaptureRegionSelectionView: View {
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
                     .gesture(selectionGesture(in: geometry.size))
+
+                // The frozen screen sits under the dimming, so the selection shows the
+                // still frame at full brightness and everything outside it dimmed.
+                if !model.isEditing, let frozenScreen = model.frozenScreen {
+                    Image(decorative: frozenScreen, scale: 1, orientation: .up)
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
+                        .allowsHitTesting(false)
+                }
 
                 SelectionCutout(rect: model.selectionRect)
                     .fill(.black.opacity(0.58), style: FillStyle(eoFill: true))
@@ -528,12 +549,12 @@ struct CaptureRegionSelectionView: View {
     private var screenshotSelectionHint: some View {
         HStack(spacing: 10) {
             Label(
-                model.isStarting ? "正在截图" : "拖拽选区，悬停窗口后单击截取窗口",
+                model.isStarting ? tr("正在截图", "Capturing…") : "拖拽选区，悬停窗口后单击截取窗口",
                 systemImage: model.isStarting ? "camera.viewfinder" : "cursorarrow.motionlines"
             )
             Divider()
                 .frame(height: 18)
-            Text("Esc 取消")
+            Text(tr("Esc 取消", "Esc to cancel"))
                 .foregroundStyle(.secondary)
         }
         .font(.callout.weight(.medium))
@@ -562,14 +583,14 @@ struct CaptureRegionSelectionView: View {
                 Button {
                     model.selectFullScreen()
                 } label: {
-                    Label("全屏", systemImage: "rectangle.inset.filled")
+                    Label(tr("全屏", "Full screen"), systemImage: "rectangle.inset.filled")
                 }
                 .disabled(model.isStarting)
 
                 Button(role: .cancel) {
                     model.cancel()
                 } label: {
-                    Label("取消", systemImage: "xmark")
+                    Label(tr("取消", "Cancel"), systemImage: "xmark")
                 }
                 .disabled(model.isStarting)
 
@@ -662,20 +683,20 @@ private struct ScreenshotInlineToolbar: View {
             Button {
                 model.undoLastMarkup()
             } label: {
-                Label("撤销", systemImage: "arrow.uturn.backward")
+                Label(tr("撤销", "Undo"), systemImage: "arrow.uturn.backward")
             }
             .labelStyle(.iconOnly)
             .disabled(model.markups.isEmpty && model.currentStrokePoints.isEmpty && model.currentMosaicRect == nil && model.pendingTextAnchor == nil)
-            .help("撤销")
+            .help(tr("撤销", "Undo"))
 
             Button {
                 model.clearMarkups()
             } label: {
-                Label("清空", systemImage: "trash.slash")
+                Label(tr("清空", "Clear"), systemImage: "trash.slash")
             }
             .labelStyle(.iconOnly)
             .disabled(model.markups.isEmpty && model.currentStrokePoints.isEmpty && model.currentMosaicRect == nil && model.pendingTextAnchor == nil)
-            .help("清空")
+            .help(tr("清空", "Clear"))
 
             Divider()
                 .frame(height: 22)
@@ -683,25 +704,25 @@ private struct ScreenshotInlineToolbar: View {
             Button {
                 model.copyEditingImage()
             } label: {
-                Label("复制", systemImage: "doc.on.doc")
+                Label(tr("复制", "Copy"), systemImage: "doc.on.doc")
             }
 
             Button {
                 model.saveEditingImage()
             } label: {
-                Label("保存", systemImage: "square.and.arrow.down")
+                Label(tr("保存", "Save"), systemImage: "square.and.arrow.down")
             }
 
             Button(role: .cancel) {
                 model.cancel()
             } label: {
-                Label("取消", systemImage: "xmark")
+                Label(tr("取消", "Cancel"), systemImage: "xmark")
             }
 
             Button {
                 model.finishEditing()
             } label: {
-                Label("完成", systemImage: "checkmark")
+                Label(tr("完成", "Done"), systemImage: "checkmark")
             }
             .buttonStyle(.borderedProminent)
         }
@@ -719,7 +740,7 @@ private struct PendingScreenshotTextField: View {
 
     var body: some View {
         if let anchor = model.pendingTextAnchor {
-            TextField("文字", text: $model.pendingText)
+            TextField(tr("文字", "Text"), text: $model.pendingText)
                 .textFieldStyle(.plain)
                 .font(.system(size: 24, weight: .semibold))
                 .foregroundStyle(.red)
@@ -864,7 +885,7 @@ private struct ScreenshotInlineMarkupLayer: View {
             }
         }
 
-        let color = annotation.tool == .highlight ? Color.yellow.opacity(0.35) : Color.red
+        let color = Color(annotationHex: annotation.colorHex, tool: annotation.tool)
         context.stroke(
             path,
             with: .color(color),
@@ -920,7 +941,7 @@ private struct ScreenshotInlineMarkupLayer: View {
 
     private func drawArrowHead(context: inout GraphicsContext, from start: CGPoint, to end: CGPoint, color: Color) {
         let angle = atan2(end.y - start.y, end.x - start.x)
-        let length: CGFloat = 18
+        let length = AnnotationStyle.arrowHeadLength
         let spread: CGFloat = .pi / 7
         let points = [
             CGPoint(x: end.x - length * cos(angle - spread), y: end.y - length * sin(angle - spread)),

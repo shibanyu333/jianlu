@@ -17,15 +17,15 @@ enum CameraCaptureError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .noCamera:
-            "没有找到可用摄像头。"
+            tr("没有找到可用摄像头。", "No camera available.")
         case .cannotAddInput:
-            "无法接入摄像头。"
+            tr("无法接入摄像头。", "Could not open the camera.")
         case .cannotAddOutput:
-            "无法创建摄像头录制输出。"
+            tr("无法创建摄像头录制输出。", "Could not create the camera output.")
         case .cannotCreateWriter:
-            "无法创建摄像头视频写入器。"
+            tr("无法创建摄像头视频写入器。", "Could not create the camera writer.")
         case .notRecording:
-            "当前没有正在进行的摄像头录制。"
+            tr("当前没有正在进行的摄像头录制。", "No camera recording is running.")
         }
     }
 }
@@ -171,6 +171,9 @@ final class CameraCaptureService: NSObject, ObservableObject {
 
         isRecording = false
         sampleCoordinator.clearWriter()
+        // Drop the last composited preview frame so a stopped bubble doesn't freeze
+        // on the final processed image.
+        processedPreviewImage = nil
 
         do {
             try await finish(writer: writer)
@@ -289,9 +292,22 @@ private final class CameraSampleCoordinator: @unchecked Sendable {
         preferencesLock.unlock()
 
         guard preferences.needsProcessedCameraPreview else { return }
-        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
         lastPreviewUpdateTime = now
+
+        // While recording, the writer already ran person segmentation for this exact
+        // frame (with the same preferences). Reuse its processed output instead of
+        // running Vision a second time on the same buffer — the duplicate pass was
+        // dropping frames whenever background replacement or beauty was on.
+        writerLock.lock()
+        let activeWriter = writer
+        writerLock.unlock()
+        if let activeWriter, let image = activeWriter.makePreviewImage() {
+            previewImageHandler?(image)
+            return
+        }
+
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         guard let image = processor.makePreviewImage(from: pixelBuffer, preferences: preferences) else { return }
         previewImageHandler?(image)
     }
@@ -311,6 +327,8 @@ private final class CameraSampleWriter: @unchecked Sendable {
     private var firstSampleTime: CMTime?
     private var lastError: Error?
     private var isFinishing = false
+    private let previewLock = NSLock()
+    private var lastProcessedImage: CIImage?
 
     init(outputURL: URL, preferences: RecordingPreferences) throws {
         self.outputURL = outputURL
@@ -324,6 +342,16 @@ private final class CameraSampleWriter: @unchecked Sendable {
         preferencesLock.lock()
         self.preferences = preferences
         preferencesLock.unlock()
+    }
+
+    /// A CGImage of the most recently processed frame, so the live preview can reuse
+    /// the writer's segmentation instead of running Vision again on the same buffer.
+    func makePreviewImage() -> CGImage? {
+        previewLock.lock()
+        let image = lastProcessedImage
+        previewLock.unlock()
+        guard let image else { return nil }
+        return ciContext.createCGImage(image, from: image.extent, format: .BGRA8, colorSpace: colorSpace)
     }
 
     func append(_ sampleBuffer: CMSampleBuffer) {
@@ -363,6 +391,9 @@ private final class CameraSampleWriter: @unchecked Sendable {
                 }
 
                 let image = processor.processedImage(from: pixelBuffer, preferences: currentPreferences())
+                previewLock.lock()
+                lastProcessedImage = image
+                previewLock.unlock()
                 ciContext.render(
                     image,
                     to: outputBuffer,
@@ -473,7 +504,7 @@ private extension RecordingPreferences {
     var needsProcessedCameraPreview: Bool {
         cameraBackgroundStyle != .original
             || cameraBackgroundBlur != .off
-            || cameraBeautyLevel > 0
+            || cameraBeauty.isEnabled
     }
 }
 

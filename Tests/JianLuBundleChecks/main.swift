@@ -161,7 +161,7 @@ let appSourceURL = projectRoot.appendingPathComponent("Sources/JianLu/App/JianLu
 let appSource = (try? String(contentsOf: appSourceURL, encoding: .utf8)) ?? ""
 expect(appSource.contains("applicationShouldHandleReopen"), "Dock reopen restores the main JianLu window")
 expect(appSource.contains("AppState.shared"), "WindowGroup and fallback AppKit window share one app state")
-expect(appSource.contains("Button(\"区域截图\")"), "app menu exposes a screenshot command")
+expect(appSource.contains("Button(tr(\"区域截图\""), "app menu exposes a screenshot command")
 expect(appSource.contains("appState.takeScreenshotIntent()"), "app menu routes screenshots through app state")
 expect(!appSource.contains("init()"), "JianLu lets SwiftUI create its WindowGroup before fallback checks")
 expect(appSource.contains("asyncAfter(deadline: .now() + 0.15)"), "JianLu delays fallback checks until after launch window restoration")
@@ -209,7 +209,7 @@ expect(controlBarViewSource.contains("fixedSize(horizontal: true, vertical: fals
 expect(controlBarViewSource.contains("鼠标放大已开"), "main zoom toolbar button names the enabled mouse zoom mode")
 expect(controlBarViewSource.contains("鼠标放大"), "main zoom toolbar button uses a simple Chinese label")
 expect(controlBarViewSource.contains("overlay.requestToggleClickZoomMode()"), "main zoom toolbar action goes through the app intent feedback path")
-expect(controlBarViewSource.contains("ControlBarButton(title: \"圆形\""), "main toolbar exposes a one-click circle annotation tool")
+expect(controlBarViewSource.contains("ControlBarButton(title: tr(\"圆形\""), "main toolbar exposes a one-click circle annotation tool")
 expect(controlBarViewSource.contains("缩小头像框"), "control menu can shrink the camera avatar")
 expect(controlBarViewSource.contains("放大头像框"), "control menu can enlarge the camera avatar")
 expect(controlBarViewSource.contains("ForEach(CameraFrameShape.allCases"), "control menu can choose every camera avatar shape")
@@ -217,15 +217,42 @@ expect(controlBarViewSource.contains("overlay.setCameraShape(shape)"), "control 
 expect(!controlBarViewSource.contains("overlay.toggleFollowZoomMode()"), "toolbar no longer exposes a confusing always-on zoom mode")
 expect(!controlBarViewSource.contains("点击模式"), "toolbar does not keep a second zoom button")
 expect(!controlBarViewSource.contains("overlay.toggleClickZoomMode()"), "zoom toolbar action is not a silent direct state toggle")
-expect(settingsViewSource.contains("Picker(\"默认头像形状\", selection: $appState.preferences.cameraShape)"), "settings expose the default camera avatar shape")
+expect(settingsViewSource.contains("selection: $appState.preferences.cameraShape"), "settings expose the default camera avatar shape")
 expect(settingsViewSource.contains("ForEach(CameraFrameShape.allCases"), "default camera avatar shape picker lists all supported shapes")
-expect(settingsViewSource.contains("默认头像大小"), "settings expose a default camera avatar size control")
+expect(settingsViewSource.contains("NormalizedRect.minCameraFrameSize...NormalizedRect.maxCameraFrameSize"), "settings expose a default camera avatar size control")
 expect(settingsViewSource.contains("NormalizedRect.minCameraFrameSize...NormalizedRect.maxCameraFrameSize"), "camera avatar size slider uses the core clamped range")
-expect(settingsViewSource.contains("appState.updateDefaultCameraSize(size)"), "camera avatar size slider persists through app state")
-expect(settingsViewSource.contains("Picker(\"截图/录屏快捷键\", selection: $appState.preferences.captureShortcutPreset)"), "settings expose screenshot and recording shortcut mode")
+expect(settingsViewSource.contains("appState.updateDefaultCameraSize("), "camera avatar size slider persists through app state")
+expect(settingsViewSource.contains("selection: $appState.preferences.zoomMouseButton"), "settings let the user pick which mouse button zooms")
+expect(settingsViewSource.contains("ForEach(ZoomMouseButton.allCases"), "mouse zoom button picker lists every supported button")
+expect(settingsViewSource.contains("selection: $appState.preferences.captureShortcutPreset"), "settings expose screenshot and recording shortcut mode")
 expect(settingsViewSource.contains("CaptureShortcutPreset.allCases"), "shortcut mode picker lists all capture shortcut presets")
 expect(settingsViewSource.contains("captureShortcutPreset.detail"), "settings explain capture shortcut replacement behavior")
-expect(settingsViewSource.contains("Toggle(\"完成截图后自动复制到剪切板\", isOn: $appState.preferences.screenshotAutoCopyOnFinish)"), "settings expose screenshot auto-copy preference")
+expect(settingsViewSource.contains("isOn: $appState.preferences.screenshotAutoCopyOnFinish"), "settings expose screenshot auto-copy preference")
+expect(settingsViewSource.contains("isOn: $appState.preferences.screenshotFreezesScreen"), "settings expose the freeze-on-screenshot preference")
+expect(settingsViewSource.contains("TabView"), "settings are grouped into tabs instead of one long scrolling form")
+
+// Retouch is three independent controls, not one vague slider.
+expect(settingsViewSource.contains("$appState.preferences.cameraBeauty.smoothing"), "settings expose 磨皮 / smoothing on its own")
+expect(settingsViewSource.contains("$appState.preferences.cameraBeauty.whitening"), "settings expose 美白 / whitening on its own")
+expect(settingsViewSource.contains("$appState.preferences.cameraBeauty.faceSlimming"), "settings expose 瘦脸 / face slimming on its own")
+expect(settingsViewSource.contains("appState.chooseCameraBackgroundImage()"), "settings can pick a custom camera background image")
+expect(settingsViewSource.contains("appState.clearCameraBackgroundImage()"), "a chosen background image can be removed again")
+expect(settingsViewSource.contains("selection: $appState.preferences.language"), "settings expose the UI language")
+expect(settingsViewSource.contains("isOn: launchAtLoginBinding"), "settings expose launch at login")
+expect(settingsViewSource.contains("appState.openLoginItemsSettings()"), "settings can jump to the Login Items pane when macOS wants approval")
+
+// Everything user-visible ships in both languages.
+expect(occurrenceCount(of: "tr(", in: settingsViewSource) > 60, "settings strings are bilingual")
+
+expect(
+    occurrenceCount(of: ".tabItem { Label(tr(", in: settingsViewSource) >= 5,
+    "settings are split into General / Recording / Camera / Shortcuts / Screenshot tabs"
+)
+expect(
+    settingsViewSource.contains("frame.cameraBubbleRect(in: canvasSize, shape: shape)")
+        && settingsViewSource.contains("CameraFrameClipShape(shape: shape)"),
+    "the camera settings preview is drawn with the shared bubble geometry and outline, so 圆形 vs 椭圆 is visible before recording"
+)
 
 let regionSelectionSourceURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/CaptureRegionSelectionView.swift")
 let regionSelectionSource = (try? String(contentsOf: regionSelectionSourceURL, encoding: .utf8)) ?? ""
@@ -280,6 +307,23 @@ expect(
     !overlayWindowSource.contains("overlayService.zoomClickModeEnabled, captureRect.contains(screenPoint)"),
     "mouse zoom mode observes clicks without stealing them from the recorded app"
 )
+expect(overlayWindowSource.contains("handleZoomButtonPolling"), "the configured mouse button can toggle zoom during a recording")
+expect(overlayWindowSource.contains("overlayService.toggleMouseButtonZoom()"), "the mouse zoom button goes through the shared transient zoom path the export replays")
+expect(
+    overlayWindowSource.contains("let isDown = pressedMouseButtons & mask != 0")
+        && overlayWindowSource.contains("let wasDown = lastPressedMouseButtons & mask != 0")
+        && overlayWindowSource.contains("guard isDown, !wasDown"),
+    "mouse zoom button fires once per click instead of every polled frame"
+)
+expect(
+    overlayWindowSource.contains("if overlayService.zoomMouseButton == .left, overlayService.selectedTool != nil { return }"),
+    "assigning zoom to the left button still lets annotation tools draw"
+)
+expect(
+    overlayWindowSource.contains("overlayService.cameraFrame.cameraBubbleRect(")
+        && overlayWindowSource.contains("shape: overlayService.cameraShape"),
+    "overlay mouse hit-testing uses the same camera bubble geometry the overlay draws"
+)
 expect(overlayWindowSource.contains("panel.isFloatingPanel = true"), "recording overlay is configured as an interactive floating panel")
 expect(overlayWindowSource.contains("panel.worksWhenModal = true"), "recording overlay continues to accept annotation gestures above modal surfaces")
 expect(overlayWindowSource.contains("panel.becomesKeyOnlyIfNeeded = false"), "recording overlay can become key for SwiftUI annotation gestures")
@@ -306,6 +350,43 @@ expect(recordingOverlayViewSource.contains("@ObservedObject var cameraService: C
 expect(recordingOverlayViewSource.contains("processedImage: cameraService.processedPreviewImage"), "picture-in-picture uses processed camera frames when available")
 expect(!recordingOverlayViewSource.contains("LiveZoomLensView"), "live zoom is not a small magnifier window")
 expect(!recordingOverlayViewSource.contains("zoomedImageFrame("), "live zoom no longer jumps the cursor focus to the center")
+expect(recordingOverlayViewSource.contains("magnification: overlay.liveZoomDepth"), "live zoom draws the ramped depth the exported frame will have")
+
+// The magnified frame is bigger than the viewport. As a ZStack child it grows the
+// stack, and the outer .frame then centers it — which shifted the live picture by
+// (1 - depth)/2 of the region away from what the export magnifies. Overlays do not
+// resize their base, so the top-left anchor the geometry assumes actually holds.
+let liveZoomViewportSource = sourceSlice(
+    in: recordingOverlayViewSource,
+    from: "private struct LiveZoomViewportView",
+    to: "private struct FocusMarker"
+)
+expect(
+    liveZoomViewportSource.contains(".overlay(alignment: .topLeading) {"),
+    "the magnified screen frame is anchored to the zoom viewport's top-left"
+)
+expect(
+    !liveZoomViewportSource.contains("ZStack(alignment: .topLeading)"),
+    "the magnified screen frame is not a ZStack child that an outer frame would center away from the exported region"
+)
+expect(
+    recordingOverlayViewSource.contains("cameraBubbleRect(in: captureRect.size, shape: overlay.cameraShape)"),
+    "live camera bubble uses the shared shape-aware geometry the export uses"
+)
+let cameraFrameClipShapeURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/CameraFrameClipShape.swift")
+let cameraFrameClipShapeSource = (try? String(contentsOf: cameraFrameClipShapeURL, encoding: .utf8)) ?? ""
+expect(
+    cameraFrameClipShapeSource.contains("struct CameraFrameClipShape: Shape"),
+    "the camera bubble outline lives in one shared shape the overlay and settings both draw"
+)
+expect(
+    cameraFrameClipShapeSource.contains("case .circle, .ellipse:"),
+    "the shared camera bubble outline draws 圆形 and 椭圆 with the same ellipse path the export masks with"
+)
+expect(
+    !recordingOverlayViewSource.contains("struct CameraFrameClipShape"),
+    "the recording overlay does not keep a second copy of the camera bubble outline"
+)
 
 let cameraPreviewViewURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/CameraPreviewView.swift")
 let cameraPreviewViewSource = (try? String(contentsOf: cameraPreviewViewURL, encoding: .utf8)) ?? ""
@@ -314,6 +395,23 @@ expect(cameraPreviewViewSource.contains("private func configurePreviewLayer()"),
 expect(cameraPreviewViewSource.contains("let processedImage: CGImage?"), "camera preview can show the processed camera frame")
 expect(cameraPreviewViewSource.contains("CameraPreviewLayerView(session: session)"), "camera preview keeps the raw camera layer as a fallback")
 expect(cameraPreviewViewSource.contains("Image(decorative: processedImage"), "camera preview overlays processed background and beauty frames")
+// An aspect-FILLED 16:9 camera frame is wider than the bubble box. In a plain ZStack
+// the stack adopts that 16:9 size, so the "圆形" clip shape was drawn as a wide
+// ellipse spilling outside the square bubble while the export masked a true circle.
+let cameraPreviewBodySource = sourceSlice(
+    in: cameraPreviewViewSource,
+    from: "struct CameraPreviewView",
+    to: "private struct CameraPreviewLayerView"
+)
+expect(
+    cameraPreviewBodySource.contains("Color.clear")
+        && cameraPreviewBodySource.contains(".overlay {"),
+    "camera preview anchors its layout on Color.clear so the camera frame cannot stretch the bubble"
+)
+expect(
+    !cameraPreviewBodySource.contains("ZStack {") && !cameraPreviewBodySource.contains("ZStack("),
+    "camera preview keeps the aspect-filled camera frame out of a plain ZStack, which would adopt the image's 16:9 size and turn 圆形 into an ellipse"
+)
 
 let overlayServiceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/OverlayService.swift")
 let overlayServiceSource = (try? String(contentsOf: overlayServiceURL, encoding: .utf8)) ?? ""
@@ -357,6 +455,9 @@ expect(
         && overlayServiceSource.contains("endTransientZoom()"),
     "annotation tools exit zoom modes"
 )
+expect(overlayServiceSource.contains("func toggleMouseButtonZoom()"), "overlay exposes a one-click mouse button zoom")
+expect(overlayServiceSource.contains("@Published var zoomMouseButton: ZoomMouseButton"), "overlay knows which mouse button the user assigned to zoom")
+expect(overlayServiceSource.contains("liveZoomDepth = ExportZoomTimeline.rampedDepth("), "live zoom depth follows the export ramp so preview and finished video match")
 expect(overlayServiceSource.contains("func prewarmZoomPreview()"), "overlay can prewarm a live zoom frame before the user presses the shortcut")
 expect(overlayServiceSource.contains("private let liveZoomFrameInterval: TimeInterval = 1.0 / 30.0"), "live zoom refreshes often enough to feel smooth without overloading capture")
 expect(overlayServiceSource.contains("withAnimation(.easeInOut(duration: 0.12))"), "live zoom fades in and out smoothly")
@@ -439,6 +540,8 @@ let cameraCompositorURL = projectRoot.appendingPathComponent("Sources/JianLuCore
 let cameraCompositorSource = (try? String(contentsOf: cameraCompositorURL, encoding: .utf8)) ?? ""
 let exportZoomTimelineURL = projectRoot.appendingPathComponent("Sources/JianLuCore/Export/ExportZoomTimeline.swift")
 let exportZoomTimelineSource = (try? String(contentsOf: exportZoomTimelineURL, encoding: .utf8)) ?? ""
+let zoomLensGeometryURL = projectRoot.appendingPathComponent("Sources/JianLuCore/Models/ZoomLensGeometry.swift")
+let zoomLensGeometrySource = (try? String(contentsOf: zoomLensGeometryURL, encoding: .utf8)) ?? ""
 expect(exportZoomTimelineSource.contains("rampInSeconds = 0.45"), "export zoom copies open-recorder's balanced ramp-in timing")
 expect(exportZoomTimelineSource.contains("rampOutSeconds = 0.35"), "export zoom copies open-recorder's balanced ramp-out timing")
 expect(exportZoomTimelineSource.contains("smoothstep"), "export zoom uses open-recorder-style eased progress")
@@ -446,15 +549,57 @@ expect(exportZoomTimelineSource.contains("focusClampRange = 0.0...1.0"), "export
 expect(exportZoomTimelineSource.contains("focus = clamped(state.focus)"), "export zoom follows the latest recorded cursor focus exactly")
 expect(exportZoomTimelineSource.contains("resolvedFocus"), "export zoom follows cursor focus without jitter")
 expect(exportZoomTimelineSource.contains("CGAffineTransform(translationX: -focus.x, y: -focus.y)"), "export zoom anchors the transform at the cursor focus")
+expect(exportZoomTimelineSource.contains("static func rampedDepth("), "the live overlay can ramp its zoom on the export's own curve")
+expect(
+    zoomLensGeometrySource.contains("ExportZoomTimeline.transform(for: effect, in: baseRect)"),
+    "the live zoom viewport is derived from the export transform, so preview and finished video magnify the same region"
+)
+expect(
+    cameraCompositorSource.contains("frame.cameraBubbleRect(in: renderSize, shape: shape)"),
+    "camera compositor places the bubble with the shared shape-aware geometry"
+)
+expect(cameraCompositorSource.contains("case .circle, .ellipse:"), "camera compositor masks 圆形 and 椭圆 with the same ellipse mask")
 expect(cameraCompositorSource.contains("public let zoomRegions"), "camera compositor precomputes zoom regions outside the per-frame render path")
 expect(cameraCompositorSource.contains("annotationEvents"), "camera compositor receives annotation events for custom export")
 expect(cameraCompositorSource.contains("compositeAnnotations"), "camera compositor draws annotations without CoreAnimationTool")
 expectOrder(
-    "image = compositeAnnotations(",
-    before: "image = zoomedImage(",
+    "image = zoomedImage(",
+    before: "image = compositeAnnotations(",
     in: cameraCompositorSource,
-    "camera compositor applies zoom to the full composed frame"
+    "camera compositor zooms only the screen, then draws annotations on top (matches live)"
 )
+expectOrder(
+    "image = compositeAnnotations(",
+    before: "image = compositeCamera(",
+    in: cameraCompositorSource,
+    "camera bubble composites on top of annotations (matches live z-order)"
+)
+// SCDisplay reports POINTS. Passing display.width/height in as the pixel size made the
+// points→pixels scale come out as 1.0, so recordings, screenshots and the zoom fallback
+// snapshot were all captured at half resolution on Retina displays.
+let displayGeometryURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/DisplayGeometry.swift")
+let displayGeometrySource = (try? String(contentsOf: displayGeometryURL, encoding: .utf8)) ?? ""
+expect(
+    displayGeometrySource.contains("backingScaleFactor"),
+    "display pixel size comes from the screen's real backing scale, not from SCDisplay (which reports points)"
+)
+let screenshotServiceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/ScreenshotCaptureService.swift")
+let screenshotServiceSource = (try? String(contentsOf: screenshotServiceURL, encoding: .utf8)) ?? ""
+for (name, source) in [
+    ("screen recording", captureServiceSource),
+    ("screenshots", screenshotServiceSource),
+    ("the live-zoom fallback snapshot", overlayServiceSource)
+] {
+    expect(
+        source.contains("DisplayGeometry.pixelSize(for: display)"),
+        "\(name) sizes its capture buffer from the real display pixel size"
+    )
+    expect(
+        !source.contains("displayPixelWidth: Double(display.width)"),
+        "\(name) does not treat SCDisplay points as pixels, which would capture at 1× on Retina"
+    )
+}
+
 expect(captureServiceSource.contains("defer {\n            cleanupAfterStop()"), "screen stop cleanup runs even when stop capture reports an error")
 expect(captureServiceSource.contains("private func cleanupAfterStop()"), "screen stop cleanup is centralized")
 expect(captureServiceSource.contains("stream = nil\n        recordingOutput = nil"), "screen stop cleanup clears stale stream and output references")
@@ -465,6 +610,39 @@ expect(appStateSource.contains("@Published var isStartingRecording"), "app state
 expect(appStateSource.contains("@Published var isPreparingScreenshot"), "app state exposes screenshot preparation state")
 expect(appStateSource.contains("@Published var isSelectingScreenshot"), "app state exposes screenshot region selection state")
 expect(appStateSource.contains("private let screenshotCaptureService = ScreenshotCaptureService()"), "app state owns screenshot capture service")
+
+// Screenshots freeze the screen at the shortcut: the still must be grabbed BEFORE any
+// 简录 UI shows, the selection is made on it, and the final image is cropped out of it
+// instead of re-capturing a screen that kept moving while the user dragged.
+expect(appStateSource.contains("func captureFrozenScreenIfNeeded()"), "screenshots can freeze the screen before the selection UI appears")
+expectOrder(
+    "await captureFrozenScreenIfNeeded()",
+    before: "showScreenshotSelectionPanel(initialRegion: nil)",
+    in: appStateSource,
+    "the screen is frozen before the selection panel is shown, so the still is the moment the shortcut fired"
+)
+expect(appStateSource.contains("frozenScreen: frozenScreenshotImage"), "the selection panel selects on top of the frozen still")
+expect(
+    appStateSource.contains("screenshotCaptureService.crop("),
+    "the confirmed screenshot is cropped out of the frozen still instead of re-capturing the live screen"
+)
+expect(
+    appStateSource.contains("preferences.screenshotFreezesScreen"),
+    "the freeze behaviour follows the user preference"
+)
+expect(
+    screenshotServiceSource.contains("func captureFrozenScreen(")
+        && screenshotServiceSource.contains("func crop(")
+        && screenshotServiceSource.contains("region.sourceRect("),
+    "the screenshot service freezes and crops through the shared points→pixels helper"
+)
+expect(
+    regionSelectionSource.contains("let frozenScreen: CGImage?")
+        && regionSelectionSource.contains("if !model.isEditing, let frozenScreen = model.frozenScreen"),
+    "the region selection draws the frozen still under its dimming while selecting"
+)
+
+
 expect(appStateSource.contains("private let regionSelectionController = CaptureRegionSelectionWindowController()"), "app state owns the inline screenshot selection/editor window")
 expect(appStateSource.contains("func takeScreenshotIntent()"), "app state exposes a screenshot intent")
 expect(appStateSource.contains("func takeFullScreenshotIntent()"), "app state exposes full-screen screenshot intent")
@@ -552,7 +730,10 @@ expect(appStateSource.contains("actualRecordingPreferences.microphoneNoiseReduct
 expect(appStateSource.contains("activeRecordingPreferences = actualRecordingPreferences"), "recording stores downgraded preferences before project creation")
 expect(appStateSource.contains("activeRecordingPreferences.cameraBackgroundStyle = preferences.cameraBackgroundStyle"), "recording metadata follows live camera background style changes")
 expect(appStateSource.contains("activeRecordingPreferences.cameraBackgroundBlur = preferences.cameraBackgroundBlur"), "recording metadata follows live camera blur changes")
-expect(appStateSource.contains("activeRecordingPreferences.cameraBeautyLevel = preferences.cameraBeautyLevel"), "recording metadata follows live camera beauty changes")
+expect(appStateSource.contains("activeRecordingPreferences.cameraBeauty = preferences.cameraBeauty"), "recording metadata follows live camera beauty changes")
+expect(appStateSource.contains("activeRecordingPreferences.cameraBackgroundImagePath = preferences.cameraBackgroundImagePath"), "recording metadata follows the custom background image")
+expect(appStateSource.contains("L10n.setLanguage(preferences.language)"), "the UI language preference drives the shared localizer")
+expect(appStateSource.contains("func storeCameraBackgroundImage"), "a picked background image is copied into the app's own folder so exports keep working")
 expectOrder(
     "actualRecordingPreferences.cameraEnabled = false",
     before: "activeRecordingPreferences = actualRecordingPreferences",
@@ -604,7 +785,7 @@ expect(appStateSource.contains("try? FileManager.default.removeItem(at: activeCa
 expect(appStateSource.contains("try? FileManager.default.removeItem(at: activeMicrophoneRecordingURL)"), "no-export cleanup removes unused microphone sidecars")
 expectOrder(
     "deleteUnusedSidecarRecordings()\n            overlayService.endRecording()",
-    before: "statusMessage = \"启动录制失败",
+    before: "statusMessage = tr(\"启动录制失败",
     in: appStateSource,
     "recording startup failures clean unreferenced camera and microphone sidecars"
 )
@@ -618,12 +799,12 @@ expect(appStateSource.contains("activeExportProjectID = id"), "formal export rec
 expect(appStateSource.contains("activeExportProjectID = nil"), "formal export clears the active project id after finishing")
 expect(appStateSource.contains("startExportProgressPolling(for: id)"), "formal exports poll progress while running")
 expect(appStateSource.contains("exportProgress = exportService.progress"), "formal export progress mirrors the export service")
-expect(appStateSource.contains("正在导出 \\(Int(exportProgress * 100))%"), "formal export message includes a percent")
+expect(appStateSource.contains("\\(Int(exportProgress * 100))%"), "formal export message includes a percent")
 expect(appStateSource.contains("func cancelExportIntent(for id: UUID)"), "formal export can be cancelled from the editor")
 expect(appStateSource.contains("activeExportProjectID == id"), "formal export cancellation only applies to the active export project")
 expect(appStateSource.contains("exportService.cancelCurrentExport()"), "formal export cancellation stops the underlying export session")
 expect(appStateSource.contains("已取消导出"), "formal export cancellation has Chinese feedback")
-expect(appStateSource.contains("renderedPreviewMessages[id] = \"导出完成，下面播放的是最新成片。\""), "successful exports explain that the preview is the final movie")
+expect(appStateSource.contains("导出完成，下面播放的是最新成片"), "successful exports explain that the preview is the final movie")
 expectOrder(
     "deleteGeneratedPreviewIfNeeded(renderedPreviewURLs[id])",
     before: "renderedPreviewURLs[id] = outputURL",
@@ -677,25 +858,31 @@ expect(permissionServiceSource.contains("openInputMonitoringSettings()"), "permi
 let contentViewURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/ContentView.swift")
 let contentViewSource = (try? String(contentsOf: contentViewURL, encoding: .utf8)) ?? ""
 expect(contentViewSource.contains("MainWindowMarker"), "main content marks its NSWindow for precise restoration")
+expect(occurrenceCount(of: "tr(", in: contentViewSource) > 30, "main window strings are bilingual")
 expect(contentViewSource.contains("appState.isStartingRecording"), "main recording button reflects startup state")
 expect(contentViewSource.contains("appState.takeScreenshotIntent()"), "main header exposes screenshot capture")
 expect(contentViewSource.contains("screenshotButtonTitle"), "main header reflects screenshot selection state")
-expect(contentViewSource.contains("截图标注"), "dashboard surfaces screenshot annotation as a first-class feature")
-expect(contentViewSource.contains("正在启动"), "main recording button labels startup state in Chinese")
-expect(contentViewSource.contains(".disabled(appState.isStartingRecording)"), "main camera toggle is disabled while recording startup is in progress")
+// The main window is one page: a hero with the two primary actions, a row of live
+// status chips, dismissible alerts, then the editor and history.
+expect(contentViewSource.contains("HeroPanel"), "the window leads with the primary capture actions")
+expect(contentViewSource.contains("PrimaryActionButton"), "record and screenshot are equally weighted primary buttons")
+expect(contentViewSource.contains("StatusChipRow"), "camera, microphone, zoom, screenshot and permission state are visible at a glance")
+expect(contentViewSource.contains("AlertStack"), "permission and error banners are collected in one place")
+expect(contentViewSource.contains("SettingsLink"), "settings are reachable from the main window")
+expect(contentViewSource.contains("appState.toggleCameraIntent()"), "the camera chip toggles the camera")
+expect(contentViewSource.contains("正在启动"), "the record button labels its startup state")
 expect(contentViewSource.contains("输入监控"), "permission UI names Input Monitoring for zoom hotkeys")
 expect(contentViewSource.contains("appState.permissionSnapshot.shortcutRecoveryMessage"), "permission warning shows the precise missing shortcut permission")
 expect(contentViewSource.contains("打开辅助功能"), "permission warning has a direct Accessibility settings action")
-expect(contentViewSource.contains("打开输入监控"), "permission warning has a direct Input Monitoring settings action")
+expect(contentViewSource.contains("输入监控"), "permission warning has a direct Input Monitoring settings action")
 expect(!contentViewSource.contains("keyboard.badge.exclamationmark"), "permission UI avoids unavailable SF Symbols that prevent the main window from rendering")
-expect(contentViewSource.contains("let isSelected = project.id == appState.selectedProject?.id"), "recent recordings mark the currently edited project")
-expect(contentViewSource.contains("ScrollViewReader"), "dashboard can scroll to the editor after selecting a recent recording")
-expect(contentViewSource.contains("onRecentProjectSelected"), "recent recording selection is routed through a navigation callback")
+expect(contentViewSource.contains("isSelected: project.id == appState.selectedProject?.id"), "recent recordings mark the currently edited project")
+expect(contentViewSource.contains("ScrollViewReader"), "the page can scroll to the editor after selecting a recent recording")
+expect(contentViewSource.contains("onSelectProject"), "recent recording selection is routed through a callback")
 expect(contentViewSource.contains("scrollProxy.scrollTo(\"selected-project-editor\", anchor: .top)"), "recent recording clicks visibly enter the selected editor")
 expect(contentViewSource.contains(".id(\"selected-project-editor\")"), "selected editor has a stable scroll target")
 expect(contentViewSource.contains("当前剪辑"), "recent recordings clearly label the current project")
-expect(contentViewSource.contains("isSelected ? Color.accentColor.opacity(0.18)"), "recent recordings visually highlight the current project")
-expect(contentViewSource.contains("ForEach(projects)"), "recent recordings list all saved recent projects")
+expect(contentViewSource.contains("ForEach(appState.recentProjects)"), "recent recordings list all saved recent projects")
 expect(!contentViewSource.contains("projects.prefix(3)"), "recent recordings are not limited to the first three projects")
 
 let editorViewURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/EditorView.swift")
@@ -757,3 +944,34 @@ expect(cameraCaptureServiceSource.contains("let failedOutputURL = currentOutputU
 expect(cameraCaptureServiceSource.contains("try? FileManager.default.removeItem(at: failedOutputURL)"), "camera stop failures remove incomplete video files")
 
 print("JianLuBundleChecks passed")
+
+let cameraProcessorURL = projectRoot.appendingPathComponent("Sources/JianLuCore/Export/CameraFrameProcessor.swift")
+let cameraProcessorSource = (try? String(contentsOf: cameraProcessorURL, encoding: .utf8)) ?? ""
+expect(cameraProcessorSource.contains("func smoothedSkin("), "the processor implements 磨皮 / smoothing")
+expect(cameraProcessorSource.contains("func whitened("), "the processor implements 美白 / whitening")
+expect(cameraProcessorSource.contains("func slimmedFace("), "the processor implements 瘦脸 / face slimming")
+expect(cameraProcessorSource.contains("CIBumpDistortion"), "face slimming warps the frame instead of only recolouring it")
+expect(cameraProcessorSource.contains("VNDetectFaceRectanglesRequest"), "face slimming uses a detected face box")
+expect(
+    cameraProcessorSource.contains("framesSinceFaceDetection < 8"),
+    "face detection is throttled instead of running Vision twice per frame at 30fps"
+)
+expect(cameraProcessorSource.contains("func customBackground("), "the processor can paint a user-supplied background image")
+expect(
+    cameraProcessorSource.contains("overridingStyle: .original"),
+    "a missing custom background falls back to the plain camera feed instead of a flat colour"
+)
+
+// Launch at login is owned by macOS (SMAppService), so the app reads the live status
+// instead of persisting a flag that could drift from System Settings.
+let loginItemURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/LaunchAtLoginService.swift")
+let loginItemSource = (try? String(contentsOf: loginItemURL, encoding: .utf8)) ?? ""
+expect(loginItemSource.contains("SMAppService.mainApp.register()"), "launch at login registers the app as a login item")
+expect(loginItemSource.contains("SMAppService.mainApp.unregister()"), "launch at login can be switched back off")
+expect(loginItemSource.contains("case requiresApproval"), "launch at login handles the state where macOS still wants approval")
+expect(loginItemSource.contains("SMAppService.openSystemSettingsLoginItems()"), "the app can open the Login Items pane for approval")
+expect(
+    !appStateSource.contains("preferences.launchAtLogin"),
+    "the login item state is read from macOS instead of duplicated in preferences"
+)
+expect(appStateSource.contains("launchAtLoginState = LaunchAtLoginService.state"), "the login item state is refreshed from the system")

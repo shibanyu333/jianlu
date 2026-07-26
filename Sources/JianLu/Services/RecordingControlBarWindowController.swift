@@ -43,6 +43,12 @@ final class RecordingControlBarWindowController {
         panel.orderOut(nil)
     }
 
+    /// The control bar's on-screen frame, used to keep clicks on it from triggering
+    /// click-to-zoom in the recording overlay.
+    var windowFrame: CGRect? {
+        panel.isVisible ? panel.frame : nil
+    }
+
     private func movePanel(by translation: CGSize) {
         guard let screenFrame = panel.screen?.visibleFrame ?? NSScreen.main?.visibleFrame else { return }
         var frame = panel.frame

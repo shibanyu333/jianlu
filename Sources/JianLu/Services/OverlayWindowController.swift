@@ -11,6 +11,7 @@ final class OverlayWindowController {
     private var pointerTimer: Timer?
     private var isCapturingMouseInteraction = false
     private var isClickZoomPollingActive = false
+    private var lastPressedMouseButtons = 0
 
     init(overlayService: OverlayService, cameraService: CameraCaptureService) {
         self.overlayService = overlayService
@@ -70,6 +71,9 @@ final class OverlayWindowController {
 
     func show() {
         panel.orderFrontRegardless()
+        // Seed the button state so a button that happened to be held while the
+        // overlay appeared isn't read as a fresh click-to-zoom press.
+        lastPressedMouseButtons = NSEvent.pressedMouseButtons
         refreshPointerCapture()
     }
 
@@ -86,12 +90,17 @@ final class OverlayWindowController {
     private func refreshPointerCapture() {
         guard panel.isVisible else { return }
 
-        let leftMouseIsDown = NSEvent.pressedMouseButtons & 1 == 1
+        let pressedMouseButtons = NSEvent.pressedMouseButtons
+        let leftMouseIsDown = pressedMouseButtons & 1 == 1
         if !leftMouseIsDown {
             isCapturingMouseInteraction = false
         }
 
         let cursorPoint = NSEvent.mouseLocation
+        // The configured button runs first: enabling its zoom clears the toolbar
+        // click-zoom mode, and the click-zoom pass below must see that new state.
+        handleZoomButtonPolling(pressedMouseButtons: pressedMouseButtons, cursorPoint: cursorPoint)
+        lastPressedMouseButtons = pressedMouseButtons
         handleClickZoomPolling(leftMouseIsDown: leftMouseIsDown, cursorPoint: cursorPoint)
         let shouldCapture = shouldCaptureMouse(at: cursorPoint)
         if shouldCapture && leftMouseIsDown {
@@ -99,6 +108,29 @@ final class OverlayWindowController {
         }
 
         panel.ignoresMouseEvents = !(shouldCapture || isCapturingMouseInteraction)
+    }
+
+    /// Toggle the zoom on the press edge of the user's configured mouse button
+    /// (default 鼠标中键). Only the button *state* is polled, so the click still goes
+    /// through to whatever app is under the cursor — 简录 never swallows it.
+    private func handleZoomButtonPolling(pressedMouseButtons: Int, cursorPoint: CGPoint) {
+        guard let overlayService else { return }
+
+        let mask = overlayService.zoomMouseButton.pressedButtonMask
+        guard mask != 0 else { return }
+        let isDown = pressedMouseButtons & mask != 0
+        let wasDown = lastPressedMouseButtons & mask != 0
+        guard isDown, !wasDown, !overlayService.isPaused else { return }
+        // A 鼠标左键 assignment must not hijack annotation drawing: while a tool is
+        // active the left click belongs to the annotation canvas.
+        if overlayService.zoomMouseButton == .left, overlayService.selectedTool != nil { return }
+
+        let captureRect = captureRectInScreenCoordinates()
+        guard captureRect.contains(cursorPoint),
+              !isOverOwnInteractiveUI(at: cursorPoint, captureRect: captureRect) else {
+            return
+        }
+        overlayService.toggleMouseButtonZoom()
     }
 
     private func handleClickZoomPolling(leftMouseIsDown: Bool, cursorPoint: CGPoint) {
@@ -109,6 +141,7 @@ final class OverlayWindowController {
             && !overlayService.isPaused
             && leftMouseIsDown
             && captureRect.contains(cursorPoint)
+            && !isOverOwnInteractiveUI(at: cursorPoint, captureRect: captureRect)
         guard shouldZoom != isClickZoomPollingActive else { return }
 
         isClickZoomPollingActive = shouldZoom
@@ -117,6 +150,25 @@ final class OverlayWindowController {
         } else {
             overlayService.endClickZoom()
         }
+    }
+
+    /// Whether the click lands on the app's own interactive overlay chrome — the
+    /// camera bubble (which the user drags/resizes) or the floating control bar.
+    /// Clicks there must not also fire click-to-zoom, which previously caused the
+    /// recording to lurch toward the cursor whenever the presenter moved the bubble
+    /// or pressed a control-bar button.
+    private func isOverOwnInteractiveUI(at screenPoint: CGPoint, captureRect: CGRect) -> Bool {
+        guard let overlayService else { return false }
+
+        if overlayService.cameraVisible,
+           cameraRectInScreenCoordinates(captureRect: captureRect).contains(screenPoint) {
+            return true
+        }
+        if let controlBarFrame = overlayService.controlBarScreenFrame(),
+           controlBarFrame.contains(screenPoint) {
+            return true
+        }
+        return false
     }
 
     private func shouldCaptureMouse(at screenPoint: CGPoint) -> Bool {
@@ -148,12 +200,20 @@ final class OverlayWindowController {
     private func cameraRectInScreenCoordinates(captureRect: CGRect) -> CGRect {
         guard let overlayService else { return .zero }
 
-        let frame = overlayService.cameraFrame
+        // Same shared geometry the overlay draws the bubble with, so the draggable /
+        // zoom-excluded area lines up with the bubble the presenter actually sees.
+        // Deriving it from the raw normalized frame made the hit rect shorter than the
+        // drawn bubble on wide regions, so the lower part of the avatar could not be
+        // dragged and clicking it fired click-to-zoom instead.
+        let bubble = overlayService.cameraFrame.cameraBubbleRect(
+            in: captureRect.size,
+            shape: overlayService.cameraShape
+        )
         return CGRect(
-            x: captureRect.minX + frame.x * captureRect.width,
-            y: captureRect.maxY - (frame.y + frame.height) * captureRect.height,
-            width: frame.width * captureRect.width,
-            height: frame.height * captureRect.height
+            x: captureRect.minX + bubble.minX,
+            y: captureRect.maxY - bubble.maxY,
+            width: bubble.width,
+            height: bubble.height
         ).insetBy(dx: -8, dy: -8)
     }
 

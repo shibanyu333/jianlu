@@ -10,6 +10,7 @@ final class CaptureRegionSelectionWindowController {
     func show(
         initialRegion: RecordingRegion?,
         purpose: CaptureRegionSelectionPurpose = .recording,
+        frozenScreen: CGImage? = nil,
         onStart: @escaping (RecordingRegion) -> Void,
         onCancel: @escaping () -> Void,
         onFinish: ((CGImage) -> Void)? = nil,
@@ -27,6 +28,7 @@ final class CaptureRegionSelectionWindowController {
             initialRegion: initialRegion?.displayID == displayID ? initialRegion : nil,
             windowCandidates: purpose == .screenshot ? windowCandidates(for: screen, screenFrame: screenFrame) : [],
             purpose: purpose,
+            frozenScreen: frozenScreen,
             onStart: onStart,
             onCancel: onCancel,
             onFinish: onFinish,
@@ -83,6 +85,12 @@ final class CaptureRegionSelectionWindowController {
         model?.beginEditing(image: image)
         panel?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// The point size of the display a region belongs to — needed to crop the frozen
+    /// full-screen still (points) down to the selection (pixels).
+    func pointSize(forDisplayID displayID: UInt32) -> CGSize? {
+        NSScreen.screens.first { $0.displayID == displayID }?.frame.size
     }
 
     func preferredFullScreenRegion() -> RecordingRegion? {

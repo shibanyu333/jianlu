@@ -1,4 +1,5 @@
 import AppKit
+import JianLuCore
 import SwiftUI
 
 @main
@@ -14,23 +15,23 @@ struct JianLuApp: App {
         }
         .windowResizability(.contentMinSize)
         .commands {
-            CommandMenu("录制") {
-                Button("区域截图") {
+            CommandMenu(tr("录制", "Capture")) {
+                Button(tr("区域截图", "Region screenshot")) {
                     appState.takeScreenshotIntent()
                 }
                 .keyboardShortcut("4", modifiers: [.control, .option, .command])
 
-                Button("选择区域/开始/停止录制") {
+                Button(tr("选择区域/开始/停止录制", "Select area / start / stop recording")) {
                     appState.toggleRecordingIntent()
                 }
                 .keyboardShortcut("r", modifiers: [.control, .option, .command])
 
-                Button("暂停/继续录制") {
+                Button(tr("暂停/继续录制", "Pause / resume recording")) {
                     appState.togglePauseIntent()
                 }
                 .disabled(!appState.isRecording)
 
-                Button("摄像头开关") {
+                Button(tr("摄像头开关", "Toggle camera")) {
                     appState.toggleCameraIntent()
                 }
                 .keyboardShortcut("c", modifiers: [.control, .option, .command])

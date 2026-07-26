@@ -15,13 +15,13 @@ struct PermissionSnapshot {
 
     var missingDescriptions: [String] {
         var missing: [String] = []
-        if !screenRecordingGranted { missing.append("屏幕录制") }
-        if !cameraGranted { missing.append("摄像头") }
-        if !microphoneGranted { missing.append("麦克风") }
+        if !screenRecordingGranted { missing.append(tr("屏幕录制", "Screen Recording")) }
+        if !cameraGranted { missing.append(tr("摄像头", "Camera")) }
+        if !microphoneGranted { missing.append(tr("麦克风", "Microphone")) }
         if !shortcutMonitoringGranted {
             var shortcutParts: [String] = []
-            if !shortcutAccessibilityGranted { shortcutParts.append("辅助功能") }
-            if !shortcutInputMonitoringGranted { shortcutParts.append("输入监控") }
+            if !shortcutAccessibilityGranted { shortcutParts.append(tr("辅助功能", "Accessibility")) }
+            if !shortcutInputMonitoringGranted { shortcutParts.append(tr("输入监控", "Input Monitoring")) }
             missing.append("快捷键监听\(shortcutParts.isEmpty ? "" : "（\(shortcutParts.joined(separator: "、"))）")")
         }
         return missing

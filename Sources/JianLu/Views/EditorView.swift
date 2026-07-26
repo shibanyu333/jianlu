@@ -13,7 +13,7 @@ struct EditorView: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("剪辑")
+                    Text(tr("剪辑", "Edit"))
                         .font(.title2.weight(.semibold))
                     Text(project.screenRecordingURL.lastPathComponent)
                         .font(.callout)
@@ -24,12 +24,12 @@ struct EditorView: View {
                 Button {
                     appState.openCurrentVideo(for: project)
                 } label: {
-                    Label("打开当前视频", systemImage: "play.rectangle")
+                    Label(tr("打开当前视频", "Open video"), systemImage: "play.rectangle")
                 }
                 Button {
                     appState.exportProject(project.id)
                 } label: {
-                    Label("导出成片", systemImage: "square.and.arrow.up")
+                    Label(tr("导出成片", "Export"), systemImage: "square.and.arrow.up")
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(appState.isExporting)
@@ -49,13 +49,13 @@ struct EditorView: View {
                 HStack(spacing: 10) {
                     ProgressView(value: appState.exportProgress)
                         .frame(width: 180)
-                    Text("正在导出成片 \(Int(appState.exportProgress * 100))%")
+                    Text(tr("正在导出成片 ", "Exporting ") + "\(Int(appState.exportProgress * 100))%")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                     Button {
                         appState.cancelExportIntent(for: project.id)
                     } label: {
-                        Label(appState.isCancellingExport ? "正在取消" : "取消导出", systemImage: "xmark.circle")
+                        Label(appState.isCancellingExport ? tr("正在取消", "Cancelling…") : tr("取消导出", "Cancel export"), systemImage: "xmark.circle")
                     }
                     .disabled(appState.isCancellingExport)
                 }
@@ -68,14 +68,14 @@ struct EditorView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Slider(value: $playheadRatio, in: 0...1)
                 HStack {
-                    Text("播放头：\(Int(playheadRatio * max(1, project.duration))) 秒")
+                    Text(tr("播放头：", "Playhead: ") + "\(Int(playheadRatio * max(1, project.duration)))" + tr(" 秒", "s"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
                     Button {
                         appState.splitProject(project.id, atExportRatio: playheadRatio)
                     } label: {
-                        Label("分割", systemImage: "scissors")
+                        Label(tr("分割", "Split"), systemImage: "scissors")
                     }
                     .disabled(appState.isExporting || !project.timeline.canSplit(atExportRatio: playheadRatio))
                     Button {
@@ -83,7 +83,7 @@ struct EditorView: View {
                             appState.deleteSegment(selectedSegmentID, in: project.id)
                         }
                     } label: {
-                        Label("删除选中片段", systemImage: "trash")
+                        Label(tr("删除选中片段", "Delete clip"), systemImage: "trash")
                     }
                     .disabled(appState.isExporting || project.timeline.segments.count <= 1 || selectedSegmentID == nil)
                 }
@@ -160,7 +160,7 @@ private struct SegmentStripView: View {
                     selectedSegmentID = segment.id
                 } label: {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("\(Int(segment.duration.rounded())) 秒")
+                        Text("\(Int(segment.duration.rounded()))" + tr(" 秒", "s"))
                             .font(.caption.weight(.medium))
                         Text("\(Int(segment.sourceStart))-\(Int(segment.sourceEnd))")
                             .font(.caption2)

@@ -13,7 +13,7 @@ struct RecordingControlBarView: View {
                 .font(.headline)
                 .frame(width: 28, height: 30)
                 .foregroundStyle(.secondary)
-                .help("拖动工具栏")
+                .help(tr("拖动工具栏", "Drag toolbar"))
                 .gesture(dragGesture)
 
             Divider()
@@ -21,47 +21,47 @@ struct RecordingControlBarView: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    ControlBarButton(title: overlay.isPaused ? "继续" : "暂停", symbol: overlay.isPaused ? "play.fill" : "pause.fill", isActive: overlay.isPaused) {
+                    ControlBarButton(title: overlay.isPaused ? tr("继续", "Resume") : tr("暂停", "Pause"), symbol: overlay.isPaused ? "play.fill" : "pause.fill", isActive: overlay.isPaused) {
                         overlay.requestTogglePause()
                     }
-                    ControlBarButton(title: "结束", symbol: "stop.fill", isActive: true, tint: .red) {
+                    ControlBarButton(title: tr("结束", "Stop"), symbol: "stop.fill", isActive: true, tint: .red) {
                         overlay.requestStop()
                     }
 
                     Divider()
                         .frame(height: 24)
 
-                    ControlBarButton(title: overlay.zoomClickModeEnabled ? "鼠标放大已开" : "鼠标放大", symbol: "plus.magnifyingglass", isActive: overlay.zoomClickModeEnabled) {
+                    ControlBarButton(title: overlay.zoomClickModeEnabled ? tr("鼠标放大已开", "Zoom on") : tr("鼠标放大", "Mouse zoom"), symbol: "plus.magnifyingglass", isActive: overlay.zoomClickModeEnabled) {
                         overlay.requestToggleClickZoomMode()
                     }
 
                     Divider()
                         .frame(height: 24)
 
-                    ControlBarButton(title: "画笔", symbol: "pencil", isActive: overlay.selectedTool == .pen) {
+                    ControlBarButton(title: tr("画笔", "Pen"), symbol: "pencil", isActive: overlay.selectedTool == .pen) {
                         overlay.selectTool(.pen)
                     }
-                    ControlBarButton(title: "箭头", symbol: "arrow.up.right", isActive: overlay.selectedTool == .arrow) {
+                    ControlBarButton(title: tr("箭头", "Arrow"), symbol: "arrow.up.right", isActive: overlay.selectedTool == .arrow) {
                         overlay.selectTool(.arrow)
                     }
-                    ControlBarButton(title: "圆形", symbol: "circle", isActive: overlay.selectedTool == .ellipse) {
+                    ControlBarButton(title: tr("圆形", "Ellipse"), symbol: "circle", isActive: overlay.selectedTool == .ellipse) {
                         overlay.selectTool(.ellipse)
                     }
-                    ControlBarButton(title: "清除", symbol: "trash.slash", isActive: false, isDisabled: overlay.isPaused) {
+                    ControlBarButton(title: tr("清除", "Clear"), symbol: "trash.slash", isActive: false, isDisabled: overlay.isPaused) {
                         overlay.clearAllAnnotations()
                     }
 
                     MoreControlMenu(overlay: overlay)
 
                     if overlay.isTransientZoomActive {
-                        Text("缩放中 \(String(format: "%.1f", overlay.zoomMagnification))x")
+                        Text(tr("缩放中 ", "Zoom ") + "\(String(format: "%.1f", overlay.zoomMagnification))x")
                             .font(.callout.weight(.semibold))
                             .foregroundStyle(.blue)
                             .padding(.horizontal, 6)
                     }
 
                     if overlay.isPaused {
-                        Text("已暂停")
+                        Text(tr("已暂停", "Paused"))
                             .font(.callout.weight(.semibold))
                             .foregroundStyle(.orange)
                             .padding(.horizontal, 8)
@@ -100,36 +100,36 @@ private struct MoreControlMenu: View {
             Button {
                 overlay.adjustZoom(by: -0.2)
             } label: {
-                Label("缩小倍率", systemImage: "minus.magnifyingglass")
+                Label(tr("缩小倍率", "Zoom out"), systemImage: "minus.magnifyingglass")
             }
             Button {
                 overlay.adjustZoom(by: 0.2)
             } label: {
-                Label("放大倍率", systemImage: "plus.magnifyingglass")
+                Label(tr("放大倍率", "Zoom in"), systemImage: "plus.magnifyingglass")
             }
-            Text("当前倍率 \(String(format: "%.1f", overlay.zoomMagnification))x")
+            Text(tr("当前倍率 ", "Current ") + "\(String(format: "%.1f", overlay.zoomMagnification))x")
 
             Divider()
 
             Button {
                 overlay.selectTool(.highlight)
             } label: {
-                Label("高亮", systemImage: "highlighter")
+                Label(tr("高亮", "Highlight"), systemImage: "highlighter")
             }
             Button {
                 overlay.selectTool(.line)
             } label: {
-                Label("直线", systemImage: "line.diagonal")
+                Label(tr("直线", "Line"), systemImage: "line.diagonal")
             }
             Button {
                 overlay.selectTool(.rectangle)
             } label: {
-                Label("方框", systemImage: "square")
+                Label(tr("方框", "Rectangle"), systemImage: "square")
             }
             Button {
                 overlay.selectTool(.ellipse)
             } label: {
-                Label("圆框", systemImage: "circle")
+                Label(tr("圆框", "Ellipse"), systemImage: "circle")
             }
 
             Divider()
@@ -137,14 +137,14 @@ private struct MoreControlMenu: View {
             Button {
                 overlay.adjustCameraSize(by: -0.03)
             } label: {
-                Label("缩小头像框", systemImage: "minus.circle")
+                Label(tr("缩小头像框", "Smaller bubble"), systemImage: "minus.circle")
             }
             Button {
                 overlay.adjustCameraSize(by: 0.03)
             } label: {
-                Label("放大头像框", systemImage: "plus.circle")
+                Label(tr("放大头像框", "Bigger bubble"), systemImage: "plus.circle")
             }
-            Text("头像大小 \(Int(overlay.cameraFrame.width * 100))%")
+            Text(tr("头像大小 ", "Bubble size ") + "\(Int(overlay.cameraFrame.width * 100))%")
 
             Divider()
 
@@ -153,7 +153,7 @@ private struct MoreControlMenu: View {
                     overlay.setCameraShape(shape)
                 } label: {
                     Label(
-                        "头像框：\(shape.displayName)",
+                        tr("头像框：", "Bubble: ") + shape.displayName,
                         systemImage: shape.systemImageName
                     )
                 }
@@ -164,16 +164,16 @@ private struct MoreControlMenu: View {
             Button {
                 overlay.toggleCameraShape()
             } label: {
-                Label("切换头像框：\(overlay.cameraShape.displayName)", systemImage: "rectangle.on.rectangle")
+                Label(tr("切换头像框：", "Next shape: ") + overlay.cameraShape.displayName, systemImage: "rectangle.on.rectangle")
             }
             Button {
                 overlay.undoLastAnnotation()
             } label: {
-                Label("撤销上一笔", systemImage: "arrow.uturn.backward")
+                Label(tr("撤销上一笔", "Undo last stroke"), systemImage: "arrow.uturn.backward")
             }
             .disabled(overlay.isPaused)
         } label: {
-            Label("更多", systemImage: "ellipsis.circle")
+            Label(tr("更多", "More"), systemImage: "ellipsis.circle")
                 .labelStyle(.titleAndIcon)
                 .font(.callout.weight(.medium))
                 .lineLimit(1)
@@ -182,7 +182,7 @@ private struct MoreControlMenu: View {
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
-        .help("更多功能")
+        .help(tr("更多功能", "More options"))
     }
 }
 
@@ -191,6 +191,8 @@ private extension CameraFrameShape {
         switch self {
         case .circle:
             "circle"
+        case .ellipse:
+            "oval"
         case .square:
             "square"
         case .roundedSquare:

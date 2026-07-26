@@ -15,11 +15,11 @@ enum CaptureServiceError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .noDisplay:
-            "没有找到可录制的显示器。"
+            tr("没有找到可录制的显示器。", "No display available to record.")
         case .failedToAddRecordingOutput:
-            "无法创建屏幕录制输出。"
+            tr("无法创建屏幕录制输出。", "Could not create the screen recording output.")
         case .notRecording:
-            "当前没有正在进行的屏幕录制。"
+            tr("当前没有正在进行的屏幕录制。", "No screen recording is running.")
         }
     }
 }
@@ -126,22 +126,24 @@ final class CaptureService: NSObject, ObservableObject {
     }
 
     private func outputSize(for region: RecordingRegion?, display: SCDisplay) -> CGSize {
+        // Pixels, from the real backing scale — SCDisplay reports points, so deriving
+        // the scale from it recorded everything at 1× (see DisplayGeometry).
+        let displayPixelSize = DisplayGeometry.pixelSize(for: display)
         guard let region, region.isUsable else {
-            return CGSize(width: display.width, height: display.height)
+            return displayPixelSize
         }
 
         let displayPointSize = pointSize(for: display)
         return region.screenCaptureOutputSize(
-            displayPixelWidth: Double(display.width),
-            displayPixelHeight: Double(display.height),
+            displayPixelWidth: displayPixelSize.width,
+            displayPixelHeight: displayPixelSize.height,
             displayPointWidth: displayPointSize.width,
             displayPointHeight: displayPointSize.height
         )
     }
 
     private func pointSize(for display: SCDisplay) -> CGSize {
-        let screen = NSScreen.screens.first { $0.displayID == display.displayID }
-        return screen?.frame.size ?? CGSize(width: display.width, height: display.height)
+        DisplayGeometry.pointSize(for: display)
     }
 
     func stopDisplayRecording() async throws {
@@ -275,7 +277,10 @@ private final class LatestScreenFrameOutput: NSObject, SCStreamOutput {
 
         let now = CFAbsoluteTimeGetCurrent()
         lock.lock()
-        let shouldSkip = now - lastFrameTime < 0.08
+        // Cap at ~30fps to match the live-zoom preview refresh timer. The previous
+        // 0.08s (~12.5fps) cap made magnified content visibly stutter and the cursor
+        // ghost while the presenter moved during a zoom.
+        let shouldSkip = now - lastFrameTime < (1.0 / 30.0)
         lock.unlock()
         guard !shouldSkip else { return }
 

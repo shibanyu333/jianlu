@@ -33,6 +33,13 @@ final class HotkeyService: @unchecked Sendable {
     private var captureShortcutPresetProvider: (() -> CaptureShortcutPreset)?
     private let shortcutState = HotkeyShortcutState()
 
+    /// True when the HID event tap is alive. Only an active tap can suppress the
+    /// native macOS screenshot shortcuts (⇧⌘3/4/5), so the "Mac 同款替代" preset
+    /// only truly replaces the system behavior while this is `true`. When it is
+    /// `false` we are on the listen-only NSEvent fallback (missing Accessibility
+    /// permission or a grant that only takes effect after an app restart).
+    var isEventTapActive: Bool { eventTap != nil }
+
     func start(
         zoomShortcutProvider: @escaping () -> ZoomShortcut,
         captureShortcutPresetProvider: @escaping () -> CaptureShortcutPreset,

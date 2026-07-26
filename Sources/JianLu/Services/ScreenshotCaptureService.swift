@@ -13,9 +13,9 @@ enum ScreenshotCaptureServiceError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .noDisplay:
-            "没有找到可截图的显示器。"
+            tr("没有找到可截图的显示器。", "No display available to capture.")
         case .failedToEncodePNG:
-            "无法写入截图 PNG 文件。"
+            tr("无法写入截图 PNG 文件。", "Could not write the screenshot PNG.")
         }
     }
 }
@@ -43,6 +43,28 @@ final class ScreenshotCaptureService {
         configuration.showsCursor = false
 
         return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+    }
+
+    /// A full-display still, grabbed the instant the screenshot shortcut fired. The
+    /// region selection then happens on top of this frozen frame and the final image is
+    /// cropped out of it, so a video, animation or menu that keeps moving while the user
+    /// drags cannot change what gets captured.
+    func captureFrozenScreen(region: RecordingRegion, includeAppWindows: Bool) async throws -> CGImage {
+        try await capture(region: region, includeAppWindows: includeAppWindows)
+    }
+
+    /// Crop the frozen full-display still down to the selected region. `region` is in
+    /// display points and the still is in pixels, so it goes through the same
+    /// points→pixels helper the live capture path uses.
+    func crop(_ frozenScreen: CGImage, to region: RecordingRegion, displayPointSize: CGSize) -> CGImage? {
+        let pixelRect = region.sourceRect(
+            displayPixelWidth: Double(frozenScreen.width),
+            displayPixelHeight: Double(frozenScreen.height),
+            displayPointWidth: displayPointSize.width,
+            displayPointHeight: displayPointSize.height
+        ).integral
+        guard pixelRect.width >= 1, pixelRect.height >= 1 else { return nil }
+        return frozenScreen.cropping(to: pixelRect)
     }
 
     func writePNG(_ image: CGImage, to url: URL) throws {
@@ -84,24 +106,24 @@ final class ScreenshotCaptureService {
     }
 
     private func outputSize(for region: RecordingRegion?, display: SCDisplay) -> CGSize {
+        // Pixels, from the real backing scale — SCDisplay reports points, so deriving
+        // the scale from it captured every screenshot at 1× (see DisplayGeometry).
+        let displayPixelSize = DisplayGeometry.pixelSize(for: display)
         guard let region else {
-            return CGSize(width: display.width, height: display.height)
+            return displayPixelSize
         }
 
         let displayPointSize = pointSize(for: display)
         let sourceRect = sourceRect(for: region, display: display)
-        let scaleX = Double(display.width) / max(1, displayPointSize.width)
-        let scaleY = Double(display.height) / max(1, displayPointSize.height)
+        let scaleX = displayPixelSize.width / max(1, displayPointSize.width)
+        let scaleY = displayPixelSize.height / max(1, displayPointSize.height)
         return CGSize(
-            width: min(max(1, sourceRect.width * scaleX), max(1, Double(display.width))),
-            height: min(max(1, sourceRect.height * scaleY), max(1, Double(display.height)))
+            width: min(max(1, sourceRect.width * scaleX), max(1, displayPixelSize.width)),
+            height: min(max(1, sourceRect.height * scaleY), max(1, displayPixelSize.height))
         )
     }
 
     private func pointSize(for display: SCDisplay) -> CGSize {
-        let screen = NSScreen.screens.first { screen in
-            screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32 == display.displayID
-        }
-        return screen?.frame.size ?? CGSize(width: display.width, height: display.height)
+        DisplayGeometry.pointSize(for: display)
     }
 }

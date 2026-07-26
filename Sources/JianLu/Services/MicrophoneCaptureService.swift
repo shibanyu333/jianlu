@@ -10,11 +10,11 @@ enum MicrophoneCaptureError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .alreadyRecording:
-            "麦克风正在录制中。"
+            tr("麦克风正在录制中。", "The microphone is already recording.")
         case .notRecording:
-            "当前没有正在进行的麦克风录制。"
+            tr("当前没有正在进行的麦克风录制。", "No microphone recording is running.")
         case .cannotCreateAudioFile:
-            "无法创建麦克风音频文件。"
+            tr("无法创建麦克风音频文件。", "Could not create the microphone audio file.")
         }
     }
 }
@@ -54,7 +54,7 @@ final class MicrophoneCaptureService: ObservableObject {
                 do {
                     try input.setVoiceProcessingEnabled(true)
                 } catch {
-                    lastErrorMessage = "当前麦克风不支持系统降噪，已继续使用普通麦克风录制。"
+                    lastErrorMessage = tr("当前麦克风不支持系统降噪，已继续使用普通麦克风录制。", "This microphone does not support system noise reduction; recording continues without it.")
                 }
             } else {
                 try? input.setVoiceProcessingEnabled(false)

@@ -37,66 +37,82 @@ private struct LiveZoomViewportView: View {
     var body: some View {
         let captureSize = captureRect.size
         let geometry = ZoomLensGeometry(lensSize: captureSize)
+        // liveZoomDepth (not the raw target magnification) so the on-screen zoom eases
+        // in on the same curve the exported video uses — the region the presenter sees
+        // magnified is the region the finished video shows.
         let imageFrame = geometry.zoomedRegionImageFrame(
             captureSize: captureSize,
             focus: overlay.currentZoomFocus,
-            magnification: overlay.zoomMagnification
+            magnification: overlay.liveZoomDepth
         )
         let focusPoint = geometry.focusPoint(
             in: CGRect(origin: .zero, size: captureSize),
             focus: overlay.currentZoomFocus
         )
 
-        ZStack(alignment: .topLeading) {
-            if let image = overlay.zoomPreviewImage {
-                Image(decorative: image, scale: 1, orientation: .up)
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: imageFrame.width, height: imageFrame.height)
-                    .offset(x: imageFrame.minX, y: imageFrame.minY)
-            } else {
-                Color.blue.opacity(0.20)
-                VStack(spacing: 8) {
-                    Image(systemName: "plus.magnifyingglass")
-                        .font(.system(size: 32, weight: .semibold))
-                    Text("放大中")
-                        .font(.callout.weight(.semibold))
+        // The magnified frame is larger than the viewport, so it has to be anchored as
+        // an overlay on a viewport-sized base. As a ZStack child it would grow the
+        // stack past `captureRect`, and the outer `.frame` would then CENTER that
+        // oversized content — shifting the live picture by (1 - depth)/2 of the region
+        // away from the region the export magnifies. Overlays never resize their base,
+        // so the top-left anchor `zoomedRegionImageFrame` assumes actually holds.
+        Color.clear
+            .frame(width: captureRect.width, height: captureRect.height)
+            .overlay(alignment: .topLeading) {
+                if let image = overlay.zoomPreviewImage {
+                    Image(decorative: image, scale: 1, orientation: .up)
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: imageFrame.width, height: imageFrame.height)
+                        .offset(x: imageFrame.minX, y: imageFrame.minY)
                 }
-                .foregroundStyle(.white)
             }
-
-            FocusMarker()
-                .frame(width: 34, height: 34)
-                .position(
-                    x: focusPoint.x,
-                    y: focusPoint.y
-                )
-        }
-        .frame(width: captureRect.width, height: captureRect.height)
-        .overlay(alignment: .topTrailing) {
-            Text("\(String(format: "%.1f", overlay.zoomMagnification))x")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(.black.opacity(0.45), in: Capsule())
-                .padding(10)
-        }
-        .overlay {
-            Rectangle()
-                .stroke(.white.opacity(0.92), lineWidth: 3)
-            Rectangle()
-                .stroke(.blue.opacity(0.92), lineWidth: 4)
-                .padding(4)
-        }
-        .clipped()
-        .position(x: captureRect.midX, y: captureRect.midY)
-        .shadow(color: .black.opacity(0.28), radius: 18, y: 7)
-        .allowsHitTesting(false)
-        .transition(.opacity)
-        .transaction { transaction in
-            transaction.animation = nil
-        }
+            .overlay {
+                if overlay.zoomPreviewImage == nil {
+                    ZStack {
+                        Color.blue.opacity(0.20)
+                        VStack(spacing: 8) {
+                            Image(systemName: "plus.magnifyingglass")
+                                .font(.system(size: 32, weight: .semibold))
+                            Text(tr("放大中", "Zooming"))
+                                .font(.callout.weight(.semibold))
+                        }
+                        .foregroundStyle(.white)
+                    }
+                }
+            }
+            .overlay {
+                FocusMarker()
+                    .frame(width: 34, height: 34)
+                    .position(
+                        x: focusPoint.x,
+                        y: focusPoint.y
+                    )
+            }
+            .overlay(alignment: .topTrailing) {
+                Text("\(String(format: "%.1f", overlay.zoomMagnification))x")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.black.opacity(0.45), in: Capsule())
+                    .padding(10)
+            }
+            .overlay {
+                Rectangle()
+                    .stroke(.white.opacity(0.92), lineWidth: 3)
+                Rectangle()
+                    .stroke(.blue.opacity(0.92), lineWidth: 4)
+                    .padding(4)
+            }
+            .clipped()
+            .position(x: captureRect.midX, y: captureRect.midY)
+            .shadow(color: .black.opacity(0.28), radius: 18, y: 7)
+            .allowsHitTesting(false)
+            .transition(.opacity)
+            .transaction { transaction in
+                transaction.animation = nil
+            }
     }
 }
 
@@ -128,11 +144,14 @@ private struct CameraBubbleView: View {
     @State private var resizeStartFrame: NormalizedRect?
 
     var body: some View {
-        let frame = overlay.cameraFrame
-        let size = CGSize(width: frame.width * captureRect.width, height: frame.height * captureRect.height)
+        // Shared bubble geometry so "圆形" is a true circle, "椭圆" keeps its oval
+        // aspect, and both match the exported video exactly (see
+        // NormalizedRect.cameraBubbleRect).
+        let bubble = overlay.cameraFrame.cameraBubbleRect(in: captureRect.size, shape: overlay.cameraShape)
+        let size = bubble.size
         let origin = CGPoint(
-            x: captureRect.minX + frame.x * captureRect.width,
-            y: captureRect.minY + frame.y * captureRect.height
+            x: captureRect.minX + bubble.minX,
+            y: captureRect.minY + bubble.minY
         )
 
         ZStack(alignment: .bottomTrailing) {
@@ -205,21 +224,6 @@ private struct CameraBubbleView: View {
                 resizeStartFrame = nil
                 overlay.finishCameraFrameChange()
             }
-    }
-}
-
-private struct CameraFrameClipShape: Shape {
-    let shape: CameraFrameShape
-
-    func path(in rect: CGRect) -> Path {
-        switch shape {
-        case .circle:
-            Path(ellipseIn: rect)
-        case .square:
-            Path(rect)
-        case .roundedSquare:
-            Path(roundedRect: rect, cornerRadius: 18)
-        }
     }
 }
 
@@ -300,7 +304,7 @@ private struct AnnotationCanvasView: View {
             }
         }
 
-        let color = annotation.tool == .highlight ? Color.yellow.opacity(0.35) : Color.red
+        let color = Color(annotationHex: annotation.colorHex, tool: annotation.tool)
         context.stroke(
             path,
             with: .color(color),
@@ -314,7 +318,7 @@ private struct AnnotationCanvasView: View {
 
     private func drawArrowHead(context: inout GraphicsContext, from start: CGPoint, to end: CGPoint, color: Color) {
         let angle = atan2(end.y - start.y, end.x - start.x)
-        let length: CGFloat = 18
+        let length = AnnotationStyle.arrowHeadLength
         let spread: CGFloat = .pi / 7
         let points = [
             CGPoint(x: end.x - length * cos(angle - spread), y: end.y - length * sin(angle - spread)),

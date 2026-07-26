@@ -13,6 +13,13 @@ final class OverlayService: ObservableObject {
     @Published var cameraVisible = true
     @Published var selectedTool: AnnotationTool?
     @Published var zoomMagnification: Double = 1.8
+    /// The magnification the overlay is currently drawing. Ramps from 1 up to
+    /// `zoomMagnification` on the export's curve so the live picture and the exported
+    /// video magnify the same region at the same moment.
+    @Published var liveZoomDepth: Double = 1
+    /// Which mouse button toggles the zoom during a recording (default 鼠标中键).
+    /// Mirrored from `RecordingPreferences.zoomMouseButton`.
+    @Published var zoomMouseButton: ZoomMouseButton = .middle
     @Published var zoomClickModeEnabled = false
     @Published var zoomFollowModeEnabled = false
     @Published var zoomShortcutActive = false
@@ -39,6 +46,9 @@ final class OverlayService: ObservableObject {
     private var didLogMissingZoomFrame = false
     private var lastRecordedZoomFocus = NormalizedPoint(x: 0.5, y: 0.5)
     private var lastZoomFocusRecordTime: TimeInterval = 0
+    private var transientZoomStartedAt: TimeInterval = 0
+    private var lastCameraLayoutRecordTime: TimeInterval = -1
+    private let cameraLayoutRecordInterval: TimeInterval = 1.0 / 30.0
     private let liveZoomFrameInterval: TimeInterval = 1.0 / 30.0
     private let zoomFocusRecordInterval: TimeInterval = 1.0 / 30.0
     private let zoomFocusRecordDistanceThreshold: Double = 0.003
@@ -69,6 +79,7 @@ final class OverlayService: ObservableObject {
         zoomFollowModeEnabled = false
         zoomShortcutActive = false
         isTransientZoomActive = false
+        liveZoomDepth = 1
         currentZoomFocus = NormalizedPoint(x: 0.5, y: 0.5)
         zoomPreviewImage = nil
         zoomSnapshotInFlight = false
@@ -95,6 +106,7 @@ final class OverlayService: ObservableObject {
         zoomFollowModeEnabled = false
         zoomShortcutActive = false
         isTransientZoomActive = false
+        liveZoomDepth = 1
         zoomPreviewImage = nil
         zoomSnapshotInFlight = false
         lastFallbackSnapshotRequestTime = 0
@@ -130,6 +142,12 @@ final class OverlayService: ObservableObject {
         controlBarWindow?.hide()
         overlayWindow = nil
         controlBarWindow = nil
+    }
+
+    /// The floating control bar's screen frame (if shown). Exposed so the overlay's
+    /// click-to-zoom polling can ignore clicks that land on our own control bar.
+    func controlBarScreenFrame() -> CGRect? {
+        controlBarWindow?.windowFrame
     }
 
     func toggleCameraVisibility() {
@@ -202,6 +220,15 @@ final class OverlayService: ObservableObject {
 
     func updateCameraFrame(_ frame: NormalizedRect) {
         cameraFrame = clamp(frame)
+        // Record intermediate positions (throttled) so a drag animates smoothly in
+        // the exported video instead of teleporting from the start position straight
+        // to the drop point. Only the layout event is written here — the default
+        // layout is persisted once, on drop, to avoid 30 preference writes/second.
+        guard recordingStartedAt != nil, !isPaused else { return }
+        let now = currentRecordingTime
+        guard now - lastCameraLayoutRecordTime >= cameraLayoutRecordInterval else { return }
+        lastCameraLayoutRecordTime = now
+        appendCameraLayoutEvent()
     }
 
     func finishCameraFrameChange() {
@@ -210,6 +237,16 @@ final class OverlayService: ObservableObject {
 
     func adjustZoom(by delta: Double) {
         zoomMagnification = min(3, max(1.2, zoomMagnification + delta))
+        // Persist the magnification change while mid-zoom during a recording so the
+        // export reflects it. Previously only cursor-focus movement wrote zoom
+        // events, so ⌃⌥⌘=/- adjustments during a hold were silently dropped.
+        guard recordingStartedAt != nil, !isPaused, isTransientZoomActive else { return }
+        let focus = normalizedMouseFocus()
+        currentZoomFocus = focus
+        lastRecordedZoomFocus = focus
+        lastZoomFocusRecordTime = currentRecordingTime
+        updateLiveZoomDepth()
+        appendZoomEvent(magnification: zoomMagnification, focus: focus)
     }
 
     func prewarmZoomPreview() {
@@ -237,6 +274,15 @@ final class OverlayService: ObservableObject {
         if !zoomClickModeEnabled {
             endTransientZoom()
         }
+    }
+
+    /// Toggled by the configured mouse button (default 鼠标中键, see
+    /// `RecordingPreferences.zoomMouseButton`). One click magnifies the region under
+    /// the cursor, the next click restores it. It runs through the very same
+    /// transient-zoom path the export replays, so the magnified region on screen is
+    /// exactly the region in the finished video.
+    func toggleMouseButtonZoom() {
+        toggleFollowZoomMode()
     }
 
     func toggleFollowZoomMode() {
@@ -292,6 +338,8 @@ final class OverlayService: ObservableObject {
         currentZoomFocus = focus
         lastRecordedZoomFocus = focus
         lastZoomFocusRecordTime = currentRecordingTime
+        transientZoomStartedAt = currentRecordingTime
+        updateLiveZoomDepth()
         appendZoomEvent(magnification: zoomMagnification, focus: focus)
         currentZoomFocus = focus
         refreshZoomPreview()
@@ -305,10 +353,18 @@ final class OverlayService: ObservableObject {
             isTransientZoomActive = false
         }
         stopZoomPreviewTimer()
+        liveZoomDepth = 1
         let focus = normalizedMouseFocus()
         currentZoomFocus = focus
         appendZoomEvent(magnification: 1, focus: focus)
         logger.info("Live zoom ended")
+    }
+
+    /// Follow the export's ramp-in curve while a zoom is open so the overlay never
+    /// shows a magnification the exported frame at that timestamp will not have.
+    private func updateLiveZoomDepth() {
+        let elapsed = max(0, currentRecordingTime - transientZoomStartedAt)
+        liveZoomDepth = ExportZoomTimeline.rampedDepth(target: zoomMagnification, elapsed: elapsed)
     }
 
     func selectTool(_ tool: AnnotationTool?) {
@@ -372,6 +428,13 @@ final class OverlayService: ObservableObject {
 
     private func recordCameraLayout() {
         onCameraLayoutChanged?(cameraFrame, cameraShape)
+        appendCameraLayoutEvent()
+        if recordingStartedAt != nil {
+            lastCameraLayoutRecordTime = currentRecordingTime
+        }
+    }
+
+    private func appendCameraLayoutEvent() {
         guard recordingStartedAt != nil else { return }
         let event = CameraLayoutEvent(
             time: currentRecordingTime,
@@ -417,6 +480,7 @@ final class OverlayService: ObservableObject {
 
         let focus = normalizedMouseFocus()
         currentZoomFocus = focus
+        updateLiveZoomDepth()
         requestZoomPreviewImage()
 
         let elapsed = currentRecordingTime - lastZoomFocusRecordTime
@@ -493,9 +557,13 @@ final class OverlayService: ObservableObject {
         display: SCDisplay,
         region: RecordingRegion?
     ) {
+        // Pixels, from the real backing scale — SCDisplay reports points, so deriving
+        // the scale from it grabbed the zoom fallback frame at 1× and the magnified
+        // preview looked soft (see DisplayGeometry).
+        let displayPixelSize = DisplayGeometry.pixelSize(for: display)
         guard let region, region.isUsable else {
-            configuration.width = max(80, display.width)
-            configuration.height = max(80, display.height)
+            configuration.width = max(80, Int(displayPixelSize.width.rounded()))
+            configuration.height = max(80, Int(displayPixelSize.height.rounded()))
             return
         }
 
@@ -505,8 +573,8 @@ final class OverlayService: ObservableObject {
             displayPointHeight: displayPointSize.height
         )
         let outputSize = region.screenCaptureOutputSize(
-            displayPixelWidth: Double(display.width),
-            displayPixelHeight: Double(display.height),
+            displayPixelWidth: displayPixelSize.width,
+            displayPixelHeight: displayPixelSize.height,
             displayPointWidth: displayPointSize.width,
             displayPointHeight: displayPointSize.height
         )
@@ -529,8 +597,7 @@ final class OverlayService: ObservableObject {
 
     @MainActor
     private static func pointSize(for display: SCDisplay) -> CGSize {
-        let screen = NSScreen.screens.first { $0.displayID == display.displayID }
-        return screen?.frame.size ?? CGSize(width: display.width, height: display.height)
+        DisplayGeometry.pointSize(for: display)
     }
 
     private func screenForCurrentCapture(mouseLocation: CGPoint) -> NSScreen? {

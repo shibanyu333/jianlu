@@ -11,11 +11,11 @@ enum ExportServiceError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingVideoTrack:
-            "录屏文件里没有找到视频轨道。"
+            tr("录屏文件里没有找到视频轨道。", "The recording has no video track.")
         case .emptyTimeline:
-            "没有可导出的录制片段。"
+            tr("没有可导出的录制片段。", "There is nothing to export.")
         case .cannotCreateExportSession:
-            "无法创建导出任务。"
+            tr("无法创建导出任务。", "Could not create the export session.")
         case .exportFailed(let message):
             "导出失败：\(message)"
         }
