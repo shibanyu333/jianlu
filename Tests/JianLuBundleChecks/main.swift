@@ -771,6 +771,25 @@ expect(appStateSource.contains("activeCameraRecordingOffset"), "recording projec
 expect(appStateSource.contains("activeMicrophoneRecordingOffset"), "recording projects store microphone track alignment offset")
 expect(appStateSource.contains("func deleteSegment(_ segmentID: UUID, in projectID: UUID)"), "editor can delete a specifically selected segment")
 expect(!appStateSource.contains("func deleteLastSegment"), "editor deletion is not limited to the last segment")
+// Deleting a whole recording throws away footage that cannot be shot again, so it goes
+// to the Trash, takes the sidecar tracks with it, and never races an export.
+expect(appStateSource.contains("func deleteProject(_ id: UUID)"), "finished recordings can be deleted from the library")
+let deleteProjectSource = sourceSlice(in: appStateSource, from: "func deleteProject(_ id: UUID)", to: "func splitProject(")
+expect(
+    deleteProjectSource.contains("try FileManager.default.trashItem(at: url, resultingItemURL: nil)"),
+    "deleted recordings go to the Trash and stay recoverable"
+)
+expect(!deleteProjectSource.contains("removeItem"), "deleting a recording never erases footage outright")
+expect(
+    deleteProjectSource.contains("guard activeExportProjectID != id else {"),
+    "a recording being exported cannot be deleted out from under the export"
+)
+expect(
+    deleteProjectSource.contains("[project.cameraRecordingURL, project.microphoneRecordingURL].compactMap { $0 }"),
+    "deleting a recording also retires its camera and microphone sidecars"
+)
+expect(deleteProjectSource.contains("cancelRenderedPreview(for: id)"), "deleting a recording stops any preview render still working on it")
+expect(deleteProjectSource.contains("recentProjects.remove(at: index)"), "deleting a recording drops it from the saved library")
 expect(appStateSource.contains("return recentProjects.first { $0.id == selectedProjectID } ?? recentProjects.first"), "stale selected project IDs fall back to the first available project")
 expect(appStateSource.contains("deleteUnusedSidecarRecordings()"), "recordings with no exportable segments clean unreferenced sidecar files")
 expect(
@@ -867,8 +886,9 @@ expect(occurrenceCount(of: "tr(", in: contentViewSource) > 30, "main window stri
 expect(contentViewSource.contains("appState.isStartingRecording"), "main recording button reflects startup state")
 expect(contentViewSource.contains("appState.takeScreenshotIntent()"), "main header exposes screenshot capture")
 expect(contentViewSource.contains("screenshotButtonTitle"), "main header reflects screenshot selection state")
-// The main window is one page: a hero with the two primary actions, a row of live
-// status chips, dismissible alerts, then the editor and history.
+// The main window is a capture header — hero with the two primary actions, a row of
+// live status chips, dismissible alerts — above a two-pane workspace: the recording
+// library on the left, the editor for the selected recording on the right.
 expect(contentViewSource.contains("HeroPanel"), "the window leads with the primary capture actions")
 expect(contentViewSource.contains("PrimaryActionButton"), "record and screenshot are equally weighted primary buttons")
 expect(contentViewSource.contains("StatusChipRow"), "camera, microphone, zoom, screenshot and permission state are visible at a glance")
@@ -882,13 +902,22 @@ expect(contentViewSource.contains("打开辅助功能"), "permission warning has
 expect(contentViewSource.contains("输入监控"), "permission warning has a direct Input Monitoring settings action")
 expect(!contentViewSource.contains("keyboard.badge.exclamationmark"), "permission UI avoids unavailable SF Symbols that prevent the main window from rendering")
 expect(contentViewSource.contains("isSelected: project.id == appState.selectedProject?.id"), "recent recordings mark the currently edited project")
-expect(contentViewSource.contains("ScrollViewReader"), "the page can scroll to the editor after selecting a recent recording")
-expect(contentViewSource.contains("onSelectProject"), "recent recording selection is routed through a callback")
-expect(contentViewSource.contains("scrollProxy.scrollTo(\"selected-project-editor\", anchor: .top)"), "recent recording clicks visibly enter the selected editor")
-expect(contentViewSource.contains(".id(\"selected-project-editor\")"), "selected editor has a stable scroll target")
 expect(contentViewSource.contains("当前剪辑"), "recent recordings clearly label the current project")
 expect(contentViewSource.contains("ForEach(appState.recentProjects)"), "recent recordings list all saved recent projects")
 expect(!contentViewSource.contains("projects.prefix(3)"), "recent recordings are not limited to the first three projects")
+// Editing lives in its own pane instead of being wedged into the capture page, so it
+// no longer shifts around as permission banners appear and disappear.
+expect(contentViewSource.contains("HSplitView"), "the library and the editor are two resizable panes of one workspace")
+expect(contentViewSource.contains("RecordingLibraryPane"), "recordings live in a dedicated left pane")
+expect(contentViewSource.contains("EditorPane"), "editing has its own dedicated pane")
+expect(contentViewSource.contains("CaptureHeader"), "capture actions stay in a fixed header above the workspace")
+expect(!contentViewSource.contains("scrollProxy.scrollTo"), "the editor no longer has to be scrolled into view")
+expect(contentViewSource.contains("appState.selectProject(project.id)"), "clicking a recording loads it into the editor pane")
+// A recording is unrepeatable footage, so deletion is confirmed and recoverable.
+expect(contentViewSource.contains("projectPendingDeletion = project"), "the trash button asks before deleting a recording")
+expect(contentViewSource.contains("appState.deleteProject(project.id)"), "confirmed deletion is routed through app state")
+expect(contentViewSource.contains("移到废纸篓"), "deletion promises the Trash rather than a permanent erase")
+expect(contentViewSource.contains("presenting: projectPendingDeletion"), "the confirmation names the recording being deleted")
 
 let editorViewURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/EditorView.swift")
 let editorViewSource = (try? String(contentsOf: editorViewURL, encoding: .utf8)) ?? ""

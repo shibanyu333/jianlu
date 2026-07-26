@@ -61,8 +61,10 @@ struct EditorView: View {
                 }
             }
 
+            // The player owns whatever height the pane has left; the controls below keep
+            // their intrinsic size so they never get squeezed out of the workspace.
             PlayerPreview(url: appState.previewURL(for: project))
-                .frame(minHeight: 250)
+                .frame(minHeight: 200, maxHeight: .infinity)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 8) {
@@ -98,7 +100,7 @@ struct EditorView: View {
             }
         }
         .padding(16)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
             ensureSelectedSegment()
         }

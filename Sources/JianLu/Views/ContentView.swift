@@ -6,36 +6,18 @@ struct ContentView: View {
     @EnvironmentObject private var appState: AppState
 
     var body: some View {
-        ScrollViewReader { scrollProxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    HeroPanel()
-                    StatusChipRow()
-                    AlertStack()
-
-                    if let selectedProject = appState.selectedProject {
-                        SectionCard(
-                            title: tr("剪辑与导出", "Edit & export"),
-                            systemImage: "scissors",
-                            padding: 0
-                        ) {
-                            EditorView(project: selectedProject)
-                                .id("selected-project-editor")
-                        }
-                    }
-
-                    RecentProjectsSection { projectID in
-                        appState.selectProject(projectID)
-                        DispatchQueue.main.async {
-                            withAnimation(.easeInOut(duration: 0.20)) {
-                                scrollProxy.scrollTo("selected-project-editor", anchor: .top)
-                            }
-                        }
-                    }
-                }
-                .padding(24)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
+        // Capture on top, then a two-pane workspace: the recording library on the left,
+        // the editor for whichever recording is selected on the right. The editor used
+        // to sit inline between the capture panel and the list, which meant it moved
+        // around as banners appeared and pushed the list off screen.
+        VStack(spacing: 0) {
+            CaptureHeader()
+            Divider()
+            HSplitView {
+                RecordingLibraryPane()
+                EditorPane()
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(MainWindowMarker())
         .id(appState.preferences.language)
@@ -63,13 +45,31 @@ private struct MainWindowMarker: NSViewRepresentable {
             if window.title.isEmpty || window.title == "JianLu" {
                 window.title = "简录 JianLu"
             }
-            // With a ScrollView at the root, SwiftUI otherwise lets content slide under
-            // a transparent title bar, which put the page heading right on top of the
-            // traffic lights. Reserve the title bar and let the page own the heading.
+            // Without this, SwiftUI lets the page slide under a transparent title bar,
+            // which put the page heading right on top of the traffic lights. Reserve
+            // the title bar and let the page own the heading.
             window.styleMask.remove(.fullSizeContentView)
             window.titlebarAppearsTransparent = false
             window.titleVisibility = .hidden
         }
+    }
+}
+
+// MARK: - Capture header
+
+/// Everything about *making* a recording: the two primary actions, the live state
+/// chips and any permission banners. It stays put above the editing workspace.
+private struct CaptureHeader: View {
+    @EnvironmentObject private var appState: AppState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HeroPanel()
+            StatusChipRow()
+            AlertStack()
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 }
 
@@ -309,7 +309,22 @@ private struct StatusChip: View {
 private struct AlertStack: View {
     @EnvironmentObject private var appState: AppState
 
+    /// The header is a fixed band above the workspace, so an empty banner stack has to
+    /// take up no room at all — otherwise it eats a stack spacing worth of editor.
+    private var hasAlerts: Bool {
+        !appState.permissionSnapshot.screenRecordingGranted
+            || !appState.permissionSnapshot.shortcutMonitoringGranted
+            || appState.captureShortcutNeedsInterception
+            || appState.lastErrorMessage != nil
+    }
+
     var body: some View {
+        if hasAlerts {
+            banners
+        }
+    }
+
+    private var banners: some View {
         VStack(alignment: .leading, spacing: 10) {
             if !appState.permissionSnapshot.screenRecordingGranted {
                 AlertBanner(
@@ -407,46 +422,34 @@ private struct AlertBanner<Actions: View>: View {
     }
 }
 
-// MARK: - Shared card
+// MARK: - Recording library pane
 
-private struct SectionCard<Content: View>: View {
-    let title: String
-    let systemImage: String
-    var padding: CGFloat = 16
-    @ViewBuilder let content: () -> Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label(title, systemImage: systemImage)
-                .font(.headline)
-            content()
-        }
-        .padding(padding == 0 ? 0 : padding)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-// MARK: - Recent projects
-
-private struct RecentProjectsSection: View {
+/// Left pane of the workspace: every finished recording, one row each. Clicking a row
+/// loads it into the editor on the right; the trash button retires it for good.
+private struct RecordingLibraryPane: View {
     @EnvironmentObject private var appState: AppState
-    let onSelectProject: (UUID) -> Void
+    @State private var projectPendingDeletion: RecordingProject?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Label(tr("最近录制", "Recent recordings"), systemImage: "clock")
                     .font(.headline)
-                Spacer()
+                Spacer(minLength: 8)
                 if !appState.recentProjects.isEmpty {
                     Button {
                         appState.openRecordingDirectory()
                     } label: {
-                        Label(tr("在访达中打开", "Reveal in Finder"), systemImage: "folder")
+                        Image(systemName: "folder")
                     }
-                    .controlSize(.small)
+                    .buttonStyle(.borderless)
+                    .help(tr("在访达中打开", "Reveal in Finder"))
                 }
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+
+            Divider()
 
             if appState.recentProjects.isEmpty {
                 VStack(spacing: 6) {
@@ -456,22 +459,58 @@ private struct RecentProjectsSection: View {
                     Text(tr("录制完成后会出现在这里", "Your recordings will show up here"))
                         .font(.callout)
                         .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 28)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(20)
             } else {
-                VStack(spacing: 8) {
-                    ForEach(appState.recentProjects) { project in
-                        RecentProjectRow(
-                            project: project,
-                            isSelected: project.id == appState.selectedProject?.id
-                        ) {
-                            onSelectProject(project.id)
+                ScrollView {
+                    LazyVStack(spacing: 8) {
+                        ForEach(appState.recentProjects) { project in
+                            RecentProjectRow(
+                                project: project,
+                                isSelected: project.id == appState.selectedProject?.id,
+                                onSelect: {
+                                    appState.selectProject(project.id)
+                                },
+                                onDelete: {
+                                    projectPendingDeletion = project
+                                }
+                            )
                         }
                     }
+                    .padding(12)
                 }
             }
+        }
+        .frame(minWidth: 250, idealWidth: 300, maxWidth: 420, maxHeight: .infinity, alignment: .topLeading)
+        .alert(
+            tr("删除这段录制？", "Delete this recording?"),
+            isPresented: Binding(
+                get: { projectPendingDeletion != nil },
+                set: { if !$0 { projectPendingDeletion = nil } }
+            ),
+            presenting: projectPendingDeletion
+        ) { project in
+            // Return keeps the footage. The window activates itself on launch and after
+            // a recording, so a keystroke meant for another app can land in this dialog;
+            // deleting has to need a deliberate click, never a stray Return.
+            Button(tr("取消", "Cancel"), role: .cancel) {
+                projectPendingDeletion = nil
+            }
+            .keyboardShortcut(.defaultAction)
+            Button(tr("移到废纸篓", "Move to Trash"), role: .destructive) {
+                appState.deleteProject(project.id)
+                projectPendingDeletion = nil
+            }
+        } message: { project in
+            Text(
+                project.screenRecordingURL.lastPathComponent + "\n"
+                    + tr(
+                        "屏幕、摄像头、麦克风源文件和效果预览都会移到废纸篓，可以在访达里找回。已导出的成片不受影响。",
+                        "The screen, camera and microphone files plus the rendered preview go to the Trash, so Finder can bring them back. Movies you already exported are left alone."
+                    )
+            )
         }
     }
 }
@@ -479,42 +518,58 @@ private struct RecentProjectsSection: View {
 private struct RecentProjectRow: View {
     let project: RecordingProject
     let isSelected: Bool
-    let action: () -> Void
+    let onSelect: () -> Void
+    let onDelete: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "movieclapper")
-                    .font(.title3)
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-                    .frame(width: 24)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(project.screenRecordingURL.lastPathComponent)
-                        .font(.callout.weight(.medium))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    HStack(spacing: 8) {
-                        Text(durationText)
-                        Text(project.createdAt.formatted(date: .abbreviated, time: .shortened))
-                        if isSelected {
-                            Text(tr("当前剪辑", "Editing"))
-                                .foregroundStyle(Color.accentColor)
+        HStack(spacing: 8) {
+            Button(action: onSelect) {
+                HStack(spacing: 12) {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "movieclapper")
+                        .font(.title3)
+                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                        .frame(width: 24)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(project.screenRecordingURL.lastPathComponent)
+                            .font(.callout.weight(.medium))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        HStack(spacing: 8) {
+                            Text(durationText)
+                            Text(project.createdAt.formatted(date: .abbreviated, time: .shortened))
+                            if isSelected {
+                                Text(tr("当前剪辑", "Editing"))
+                                    .foregroundStyle(Color.accentColor)
+                            }
                         }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                     }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
+                .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
-            .padding(12)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-            .overlay {
-                RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(isSelected ? Color.accentColor.opacity(0.5) : Color.clear, lineWidth: 1.5)
+            .buttonStyle(.plain)
+
+            Button(action: onDelete) {
+                Image(systemName: "trash")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
             }
+            .buttonStyle(.borderless)
+            .help(tr("删除这段录制（移到废纸篓）", "Delete this recording (moves it to the Trash)"))
         }
-        .buttonStyle(.plain)
+        .padding(12)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(isSelected ? Color.accentColor.opacity(0.5) : Color.clear, lineWidth: 1.5)
+        }
+        .contextMenu {
+            Button(tr("剪辑这段录制", "Edit this recording"), action: onSelect)
+            Button(tr("删除（移到废纸篓）", "Delete (move to Trash)"), role: .destructive, action: onDelete)
+        }
     }
 
     private var durationText: String {
@@ -524,5 +579,34 @@ private struct RecentProjectRow: View {
         return minutes > 0
             ? String(format: "%d:%02d", minutes, remainder)
             : tr("\(remainder) 秒", "\(remainder)s")
+    }
+}
+
+// MARK: - Editor pane
+
+/// Right pane of the workspace: the editor for the selected recording, or an invitation
+/// to pick one when the library is empty.
+private struct EditorPane: View {
+    @EnvironmentObject private var appState: AppState
+
+    var body: some View {
+        Group {
+            if let selectedProject = appState.selectedProject {
+                EditorView(project: selectedProject)
+            } else {
+                VStack(spacing: 8) {
+                    Image(systemName: "scissors")
+                        .font(.largeTitle)
+                        .foregroundStyle(.secondary)
+                    Text(tr("先录一段，再在这里剪辑和导出", "Record something, then trim and export it here"))
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(24)
+            }
+        }
+        .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
     }
 }

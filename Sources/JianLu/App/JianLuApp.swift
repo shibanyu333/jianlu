@@ -11,7 +11,7 @@ struct JianLuApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(appState)
-                .frame(minWidth: 760, minHeight: 520)
+                .frame(minWidth: 1000, minHeight: 700)
         }
         .windowResizability(.contentMinSize)
         .commands {

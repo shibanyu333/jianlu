@@ -1119,6 +1119,56 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Drops a finished recording from the library and moves everything it owns to the
+    /// Trash. Trash, not `removeItem`: a recording cannot be re-shot, so a misclick has
+    /// to stay recoverable from Finder. Exported movies are the user's own output and
+    /// are deliberately left alone.
+    func deleteProject(_ id: UUID) {
+        guard let index = recentProjects.firstIndex(where: { $0.id == id }) else { return }
+        guard activeExportProjectID != id else {
+            statusMessage = tr("这段录制正在导出，取消或等它结束后再删除", "This recording is exporting — cancel or wait for it, then delete")
+            return
+        }
+
+        let project = recentProjects[index]
+        cancelRenderedPreview(for: id)
+        let generatedPreviewURL = renderedPreviewURLs[id]
+        renderedPreviewURLs[id] = nil
+        renderedPreviewMessages[id] = nil
+        exportMessages[id] = nil
+
+        var trashTargets = [project.screenRecordingURL]
+        trashTargets.append(contentsOf: [project.cameraRecordingURL, project.microphoneRecordingURL].compactMap { $0 })
+        if let generatedPreviewURL, generatedPreviewURL.lastPathComponent.hasPrefix("preview-") {
+            trashTargets.append(generatedPreviewURL)
+        }
+
+        var failedNames: [String] = []
+        for url in trashTargets where FileManager.default.fileExists(atPath: url.path) {
+            do {
+                try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+            } catch {
+                failedNames.append(url.lastPathComponent)
+            }
+        }
+
+        recentProjects.remove(at: index)
+        if selectedProjectID == id {
+            selectedProjectID = recentProjects.first?.id
+        }
+        if let nextProject = selectedProject {
+            ensureRenderedPreview(for: nextProject)
+        }
+
+        if failedNames.isEmpty {
+            statusMessage = tr("已移到废纸篓：", "Moved to Trash: ") + project.screenRecordingURL.lastPathComponent
+        } else {
+            statusMessage = tr("已从列表移除，但这些文件没能移到废纸篓：", "Removed from the list, but these files could not be moved to the Trash: ")
+                + failedNames.joined(separator: "、")
+            lastErrorMessage = statusMessage
+        }
+    }
+
     func splitProject(_ id: UUID, atExportRatio ratio: Double) {
         guard !isExporting else {
             statusMessage = tr("正在导出，完成后再剪辑", "Exporting — edit again when it finishes")

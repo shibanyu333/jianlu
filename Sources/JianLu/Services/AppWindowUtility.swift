@@ -75,17 +75,18 @@ enum AppWindowUtility {
         let hostingView = NSHostingView(
             rootView: ContentView()
             .environmentObject(AppState.shared)
-            .frame(minWidth: 760, minHeight: 520)
+            .frame(minWidth: 1000, minHeight: 700)
         )
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 920, height: 680),
+            // The window has to fit the capture header plus the library/editor split.
+            contentRect: NSRect(x: 0, y: 0, width: 1180, height: 800),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.title = "简录"
         window.identifier = mainWindowIdentifier
-        window.minSize = NSSize(width: 760, height: 520)
+        window.minSize = NSSize(width: 1000, height: 700)
         window.contentView = hostingView
         window.isReleasedWhenClosed = false
         window.center()
