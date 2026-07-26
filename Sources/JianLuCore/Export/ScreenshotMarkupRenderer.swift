@@ -3,7 +3,11 @@ import CoreText
 import Foundation
 
 public enum ScreenshotMarkupRenderer {
-    public static func render(baseImage: CGImage, markups: [ScreenshotMarkup]) -> CGImage? {
+    /// - Parameter scale: points→pixels ratio between the editor view (where markup
+    ///   metrics like line width and font size were authored, in points) and the
+    ///   pixel-resolution `baseImage`. Pass `baseImage.width / editorPointWidth` so
+    ///   strokes and text are not rendered half-size on Retina captures.
+    public static func render(baseImage: CGImage, markups: [ScreenshotMarkup], scale: CGFloat = 1) -> CGImage? {
         let width = baseImage.width
         let height = baseImage.height
         guard width > 0, height > 0 else { return nil }
@@ -23,15 +27,16 @@ public enum ScreenshotMarkupRenderer {
         }
 
         let renderSize = CGSize(width: width, height: height)
+        let markupScale = max(0.01, scale)
         let rect = CGRect(origin: .zero, size: renderSize)
         context.draw(baseWithMosaic, in: rect)
 
         for markup in markups {
             switch markup {
             case .stroke(let annotation):
-                draw(annotation, in: context, renderSize: renderSize)
+                draw(annotation, in: context, renderSize: renderSize, scale: markupScale)
             case .text(let text):
-                draw(text, in: context, renderSize: renderSize)
+                draw(text, in: context, renderSize: renderSize, scale: markupScale)
             case .mosaic:
                 break
             }
@@ -43,13 +48,20 @@ public enum ScreenshotMarkupRenderer {
     private static func imageByApplyingMosaics(to baseImage: CGImage, markups: [ScreenshotMarkup]) -> CGImage? {
         let width = baseImage.width
         let height = baseImage.height
-        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        let mosaics = markups.compactMap { markup -> ScreenshotMosaicMarkup? in
+            if case .mosaic(let mosaic) = markup { return mosaic }
+            return nil
+        }
+
+        // Let CoreGraphics own the backing store instead of a Swift array whose
+        // pointer must not escape `withUnsafeMutableBytes`; the previous `&bytes`
+        // form let the context outlive the pointer's guaranteed lifetime (UB).
         guard let context = CGContext(
-            data: &bytes,
+            data: nil,
             width: width,
             height: height,
             bitsPerComponent: 8,
-            bytesPerRow: width * 4,
+            bytesPerRow: 0,
             space: CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else {
@@ -57,15 +69,24 @@ public enum ScreenshotMarkupRenderer {
         }
 
         context.draw(baseImage, in: CGRect(x: 0, y: 0, width: width, height: height))
-        for markup in markups {
-            if case .mosaic(let mosaic) = markup {
-                apply(mosaic, to: &bytes, width: width, height: height)
-            }
+        guard !mosaics.isEmpty else { return context.makeImage() }
+        guard let data = context.data else { return context.makeImage() }
+
+        let bytesPerRow = context.bytesPerRow
+        let pixels = data.bindMemory(to: UInt8.self, capacity: bytesPerRow * height)
+        for mosaic in mosaics {
+            apply(mosaic, to: pixels, width: width, height: height, bytesPerRow: bytesPerRow)
         }
         return context.makeImage()
     }
 
-    private static func apply(_ mosaic: ScreenshotMosaicMarkup, to bytes: inout [UInt8], width: Int, height: Int) {
+    private static func apply(
+        _ mosaic: ScreenshotMosaicMarkup,
+        to pixels: UnsafeMutablePointer<UInt8>,
+        width: Int,
+        height: Int,
+        bytesPerRow: Int
+    ) {
         let rect = pixelRect(for: mosaic.rect, width: width, height: height)
         guard rect.width > 0, rect.height > 0 else { return }
         let blockSize = max(2, Int(mosaic.blockSize.rounded()))
@@ -82,11 +103,11 @@ public enum ScreenshotMarkupRenderer {
 
                 for y in blockY..<maxY {
                     for x in blockX..<maxX {
-                        let offset = (y * width + x) * 4
-                        red += Int(bytes[offset])
-                        green += Int(bytes[offset + 1])
-                        blue += Int(bytes[offset + 2])
-                        alpha += Int(bytes[offset + 3])
+                        let offset = y * bytesPerRow + x * 4
+                        red += Int(pixels[offset])
+                        green += Int(pixels[offset + 1])
+                        blue += Int(pixels[offset + 2])
+                        alpha += Int(pixels[offset + 3])
                         count += 1
                     }
                 }
@@ -100,11 +121,11 @@ public enum ScreenshotMarkupRenderer {
                 )
                 for y in blockY..<maxY {
                     for x in blockX..<maxX {
-                        let offset = (y * width + x) * 4
-                        bytes[offset] = averaged.r
-                        bytes[offset + 1] = averaged.g
-                        bytes[offset + 2] = averaged.b
-                        bytes[offset + 3] = averaged.a
+                        let offset = y * bytesPerRow + x * 4
+                        pixels[offset] = averaged.r
+                        pixels[offset + 1] = averaged.g
+                        pixels[offset + 2] = averaged.b
+                        pixels[offset + 3] = averaged.a
                     }
                 }
             }
@@ -130,7 +151,7 @@ public enum ScreenshotMarkupRenderer {
         )
     }
 
-    private static func draw(_ annotation: AnnotationEvent, in context: CGContext, renderSize: CGSize) {
+    private static func draw(_ annotation: AnnotationEvent, in context: CGContext, renderSize: CGSize, scale: CGFloat) {
         let points = annotation.points.map {
             CGPoint(
                 x: CGFloat($0.point.x) * renderSize.width,
@@ -154,13 +175,14 @@ public enum ScreenshotMarkupRenderer {
             if annotation.tool == .ellipse {
                 path.addEllipse(in: rect)
             } else {
-                path.addRoundedRect(in: rect, cornerWidth: 4, cornerHeight: 4)
+                let corner = AnnotationStyle.rectangleCornerRadius * scale
+                path.addRoundedRect(in: rect, cornerWidth: corner, cornerHeight: corner)
             }
         case .line, .arrow:
             guard let last = points.last else { return }
             path.addLine(to: last)
             if annotation.tool == .arrow {
-                addArrowHead(to: path, from: points.dropLast().last ?? first, to: last)
+                addArrowHead(to: path, from: points.dropLast().last ?? first, to: last, scale: scale)
             }
         case .pen, .highlight:
             for point in points.dropFirst() {
@@ -168,28 +190,34 @@ public enum ScreenshotMarkupRenderer {
             }
         }
 
-        context.setStrokeColor(color(for: annotation.colorHex, tool: annotation.tool))
-        context.setLineWidth(CGFloat(annotation.lineWidth))
+        context.setStrokeColor(AnnotationStyle.cgColor(hex: annotation.colorHex, tool: annotation.tool))
+        context.setLineWidth(AnnotationStyle.lineWidth(for: annotation.tool, stored: annotation.lineWidth) * scale)
         context.setLineCap(.round)
         context.setLineJoin(.round)
         context.addPath(path)
         context.strokePath()
     }
 
-    private static func draw(_ text: ScreenshotTextMarkup, in context: CGContext, renderSize: CGSize) {
+    private static func draw(_ text: ScreenshotTextMarkup, in context: CGContext, renderSize: CGSize, scale: CGFloat) {
         let trimmed = text.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        let fontSize = CGFloat(max(8, text.fontSize))
+        let fontSize = CGFloat(max(8, text.fontSize)) * scale
         let font = CTFontCreateWithName("Helvetica" as CFString, fontSize, nil)
+        let rgba = AnnotationStyle.rgba(hex: text.colorHex, tool: .pen)
         let attributes: [NSAttributedString.Key: Any] = [
             NSAttributedString.Key(kCTFontAttributeName as String): font,
-            NSAttributedString.Key(kCTForegroundColorAttributeName as String): color(for: text.colorHex, tool: .pen)
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String):
+                CGColor(red: rgba.red, green: rgba.green, blue: rgba.blue, alpha: rgba.alpha)
         ]
         let line = CTLineCreateWithAttributedString(NSAttributedString(string: trimmed, attributes: attributes))
         let x = CGFloat(min(max(0, text.anchor.x), 1)) * renderSize.width
         let topY = CGFloat(min(max(0, text.anchor.y), 1)) * renderSize.height
-        let baselineY = max(0, renderSize.height - topY - fontSize)
+        // The live editor anchors text by its top-left. Place the baseline one ascent
+        // below that top edge (not one full font size) so the glyphs land where the
+        // presenter positioned them.
+        let ascent = CTFontGetAscent(font)
+        let baselineY = max(0, renderSize.height - topY - ascent)
 
         context.saveGState()
         context.textMatrix = .identity
@@ -198,52 +226,13 @@ public enum ScreenshotMarkupRenderer {
         context.restoreGState()
     }
 
-    private static func addArrowHead(to path: CGMutablePath, from start: CGPoint, to end: CGPoint) {
+    private static func addArrowHead(to path: CGMutablePath, from start: CGPoint, to end: CGPoint, scale: CGFloat) {
         let angle = atan2(end.y - start.y, end.x - start.x)
-        let length: CGFloat = 18
+        let length = AnnotationStyle.arrowHeadLength * scale
         let spread: CGFloat = .pi / 7
         path.move(to: end)
         path.addLine(to: CGPoint(x: end.x - length * cos(angle - spread), y: end.y - length * sin(angle - spread)))
         path.move(to: end)
         path.addLine(to: CGPoint(x: end.x - length * cos(angle + spread), y: end.y - length * sin(angle + spread)))
-    }
-
-    private static func color(for colorHex: String, tool: AnnotationTool) -> CGColor {
-        let trimmed = colorHex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
-        var value: UInt64 = 0
-        guard Scanner(string: trimmed).scanHexInt64(&value) else {
-            return defaultColor(for: tool)
-        }
-
-        let red: CGFloat
-        let green: CGFloat
-        let blue: CGFloat
-        let alpha: CGFloat
-        switch trimmed.count {
-        case 6:
-            red = CGFloat((value >> 16) & 0xFF) / 255
-            green = CGFloat((value >> 8) & 0xFF) / 255
-            blue = CGFloat(value & 0xFF) / 255
-            alpha = tool == .highlight ? 0.55 : 1
-        case 8:
-            red = CGFloat((value >> 24) & 0xFF) / 255
-            green = CGFloat((value >> 16) & 0xFF) / 255
-            blue = CGFloat((value >> 8) & 0xFF) / 255
-            let parsedAlpha = CGFloat(value & 0xFF) / 255
-            alpha = tool == .highlight ? min(parsedAlpha, 0.55) : parsedAlpha
-        default:
-            return defaultColor(for: tool)
-        }
-
-        return CGColor(red: red, green: green, blue: blue, alpha: alpha)
-    }
-
-    private static func defaultColor(for tool: AnnotationTool) -> CGColor {
-        switch tool {
-        case .highlight:
-            CGColor(red: 1.0, green: 0.83, blue: 0.23, alpha: 0.55)
-        case .pen, .line, .arrow, .rectangle, .ellipse:
-            CGColor(red: 1.0, green: 0.23, blue: 0.19, alpha: 1)
-        }
     }
 }

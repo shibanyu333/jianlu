@@ -3,18 +3,29 @@ import Foundation
 
 public enum CameraFrameShape: String, Codable, CaseIterable, Sendable {
     case circle
+    case ellipse
     case square
     case roundedSquare
 
     public var displayName: String {
         switch self {
         case .circle:
-            "圆形"
+            tr("圆形", "Circle")
+        case .ellipse:
+            tr("椭圆", "Oval")
         case .square:
-            "方形"
+            tr("方形", "Square")
         case .roundedSquare:
-            "圆角方形"
+            tr("圆角方形", "Rounded")
         }
+    }
+
+    /// Whether the bubble is forced to a square box. 圆形/方形/圆角方形 all need a
+    /// square so a "circle" is a real circle on a 16:9 canvas; 椭圆 is the shape that
+    /// deliberately keeps the normalized frame's own aspect ratio and therefore looks
+    /// like an oval. See `NormalizedRect.cameraBubbleRect(in:shape:)`.
+    public var usesSquareBubble: Bool {
+        self != .ellipse
     }
 }
 
@@ -30,32 +41,40 @@ public enum CameraBackgroundStyle: String, Codable, CaseIterable, Sendable {
     case meetingRoom
     case cityWindow
     case lightStudio
+    case custom
 
     public var displayName: String {
         switch self {
         case .original:
-            "原始背景"
+            tr("原始背景", "Original")
         case .studioBlue:
-            "商务蓝"
+            tr("商务蓝", "Studio Blue")
         case .softGray:
-            "浅灰"
+            tr("浅灰", "Soft Gray")
         case .warmSunset:
-            "暖橙"
+            tr("暖橙", "Warm Sunset")
         case .mint:
-            "薄荷绿"
+            tr("薄荷绿", "Mint")
         case .graphite:
-            "深灰"
+            tr("深灰", "Graphite")
         case .office:
-            "真实办公室"
+            tr("真实办公室", "Office")
         case .bookshelf:
-            "书架"
+            tr("书架", "Bookshelf")
         case .meetingRoom:
-            "会议室"
+            tr("会议室", "Meeting Room")
         case .cityWindow:
-            "城市窗景"
+            tr("城市窗景", "City Window")
         case .lightStudio:
-            "明亮影棚"
+            tr("明亮影棚", "Bright Studio")
+        case .custom:
+            tr("自定义图片", "Custom Image")
         }
+    }
+
+    /// Whether this style paints a user-supplied image rather than a built-in scene.
+    public var usesCustomImage: Bool {
+        self == .custom
     }
 }
 
@@ -68,13 +87,13 @@ public enum CameraBackgroundBlur: String, Codable, CaseIterable, Sendable {
     public var displayName: String {
         switch self {
         case .off:
-            "关闭"
+            tr("关闭", "Off")
         case .light:
-            "轻度"
+            tr("轻度", "Light")
         case .medium:
-            "中度"
+            tr("中度", "Medium")
         case .strong:
-            "重度"
+            tr("重度", "Strong")
         }
     }
 
@@ -112,6 +131,89 @@ public enum ZoomShortcut: String, Codable, CaseIterable, Sendable {
     }
 }
 
+/// Which physical mouse button toggles the recording zoom. 简录 only *observes* the
+/// button state (`NSEvent.pressedMouseButtons` polling), so the click still reaches
+/// whatever app is under the cursor — nothing is swallowed.
+public enum ZoomMouseButton: String, Codable, CaseIterable, Sendable {
+    case off
+    case middle
+    case right
+    case left
+
+    public var displayName: String {
+        switch self {
+        case .off:
+            tr("关闭", "Off")
+        case .middle:
+            tr("鼠标中键", "Middle button")
+        case .right:
+            tr("鼠标右键", "Right button")
+        case .left:
+            tr("鼠标左键", "Left button")
+        }
+    }
+
+    /// The bit inside `NSEvent.pressedMouseButtons` for this button
+    /// (bit 0 = 左键, bit 1 = 右键, bit 2 = 中键). `0` means "no button".
+    public var pressedButtonMask: Int {
+        switch self {
+        case .off:
+            0
+        case .left:
+            1 << 0
+        case .right:
+            1 << 1
+        case .middle:
+            1 << 2
+        }
+    }
+}
+
+/// Individually adjustable beauty controls, all 0…1.
+///
+/// Split out of the old single `cameraBeautyLevel` so each effect can be dialled in on
+/// its own — smoothing evens skin texture, whitening lifts brightness, and slimming
+/// pinches the sides of the detected face inward.
+public struct CameraBeautySettings: Codable, Equatable, Sendable {
+    /// 磨皮 — surface smoothing that keeps edges.
+    public var smoothing: Double
+    /// 美白 — brightens and lightly warms skin.
+    public var whitening: Double
+    /// 瘦脸 — narrows the face using Vision's detected face box.
+    public var faceSlimming: Double
+
+    public static let off = CameraBeautySettings(smoothing: 0, whitening: 0, faceSlimming: 0)
+    public static let natural = CameraBeautySettings(smoothing: 0.35, whitening: 0.2, faceSlimming: 0)
+
+    public var isEnabled: Bool {
+        smoothing > 0.001 || whitening > 0.001 || faceSlimming > 0.001
+    }
+
+    /// Face slimming is the only control that needs a face detection pass, so the
+    /// processor can skip Vision entirely when it is off.
+    public var needsFaceDetection: Bool {
+        faceSlimming > 0.001
+    }
+
+    public init(smoothing: Double, whitening: Double, faceSlimming: Double) {
+        self.smoothing = Self.clamped(smoothing)
+        self.whitening = Self.clamped(whitening)
+        self.faceSlimming = Self.clamped(faceSlimming)
+    }
+
+    /// Migration for recordings and preferences saved with the single beauty slider:
+    /// the old slider mostly did light smoothing plus a touch of brightening.
+    public init(legacyLevel: Double) {
+        let level = Self.clamped(legacyLevel)
+        self.init(smoothing: level, whitening: level * 0.5, faceSlimming: 0)
+    }
+
+    private static func clamped(_ value: Double) -> Double {
+        guard value.isFinite else { return 0 }
+        return min(max(value, 0), 1)
+    }
+}
+
 public enum CaptureShortcutPreset: String, Codable, CaseIterable, Sendable {
     case jianLuDefault
     case macReplacement
@@ -119,18 +221,24 @@ public enum CaptureShortcutPreset: String, Codable, CaseIterable, Sendable {
     public var displayName: String {
         switch self {
         case .jianLuDefault:
-            "简录默认"
+            tr("简录默认", "JianLu default")
         case .macReplacement:
-            "Mac 同款替代"
+            tr("替代系统快捷键", "Replace system keys")
         }
     }
 
     public var detail: String {
         switch self {
         case .jianLuDefault:
-            "截图 ⌃⌥⌘4，录屏 ⌃⌥⌘R；不拦截 macOS 原生 ⇧⌘3、⇧⌘4、⇧⌘5"
+            tr(
+                "截图 ⌃⌥⌘4，录屏 ⌃⌥⌘R；不拦截 macOS 原生 ⇧⌘3、⇧⌘4、⇧⌘5",
+                "Screenshot ⌃⌥⌘4, recording ⌃⌥⌘R. macOS ⇧⌘3/4/5 keep working as usual."
+            )
         case .macReplacement:
-            "接管 ⇧⌘3、⇧⌘4、⇧⌘5：简录用于全屏截图、区域截图和录屏入口，并阻止 macOS 原生截图/录屏继续响应"
+            tr(
+                "接管 ⇧⌘3、⇧⌘4、⇧⌘5：简录用于全屏截图、区域截图和录屏入口，并阻止 macOS 原生截图/录屏继续响应",
+                "JianLu takes over ⇧⌘3, ⇧⌘4 and ⇧⌘5 for full-screen shots, region shots and recording, and blocks the macOS originals."
+            )
         }
     }
 }
@@ -142,12 +250,22 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
     public var microphoneNoiseReductionEnabled: Bool
     public var cameraBackgroundStyle: CameraBackgroundStyle
     public var cameraBackgroundBlur: CameraBackgroundBlur
-    public var cameraBeautyLevel: Double
+    /// Absolute path of the user's own background image, used when
+    /// `cameraBackgroundStyle == .custom`.
+    public var cameraBackgroundImagePath: String?
+    public var cameraBeauty: CameraBeautySettings
     public var cameraFrame: NormalizedRect
     public var cameraShape: CameraFrameShape
     public var zoomShortcut: ZoomShortcut
+    public var zoomMouseButton: ZoomMouseButton
     public var captureShortcutPreset: CaptureShortcutPreset
     public var screenshotAutoCopyOnFinish: Bool
+    /// Freeze the whole screen the instant the screenshot shortcut fires, and select
+    /// the region on that still frame, so the capture is exactly what the user saw
+    /// when they pressed the key. Off = select over the live screen (macOS behavior).
+    public var screenshotFreezesScreen: Bool
+    /// UI language; `.system` follows the Mac's preferred languages.
+    public var language: AppLanguage
     public var recordingDirectoryPath: String?
     public var lastSelectedRegion: RecordingRegion?
 
@@ -158,14 +276,23 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
         case microphoneNoiseReductionEnabled
         case cameraBackgroundStyle
         case cameraBackgroundBlur
-        case cameraBeautyLevel
+        case cameraBackgroundImagePath
+        case cameraBeauty
         case cameraFrame
         case cameraShape
         case zoomShortcut
+        case zoomMouseButton
         case captureShortcutPreset
         case screenshotAutoCopyOnFinish
+        case screenshotFreezesScreen
+        case language
         case recordingDirectoryPath
         case lastSelectedRegion
+    }
+
+    /// Keys that only exist in files written by older builds.
+    private enum LegacyCodingKeys: String, CodingKey {
+        case cameraBeautyLevel
     }
 
     public init(
@@ -175,12 +302,16 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
         microphoneNoiseReductionEnabled: Bool = false,
         cameraBackgroundStyle: CameraBackgroundStyle,
         cameraBackgroundBlur: CameraBackgroundBlur,
-        cameraBeautyLevel: Double,
+        cameraBackgroundImagePath: String? = nil,
+        cameraBeauty: CameraBeautySettings = .natural,
         cameraFrame: NormalizedRect = .defaultCameraFrame,
         cameraShape: CameraFrameShape = .circle,
         zoomShortcut: ZoomShortcut = .controlOptionCommandZ,
+        zoomMouseButton: ZoomMouseButton = .middle,
         captureShortcutPreset: CaptureShortcutPreset = .jianLuDefault,
         screenshotAutoCopyOnFinish: Bool = true,
+        screenshotFreezesScreen: Bool = true,
+        language: AppLanguage = .system,
         recordingDirectoryPath: String? = nil,
         lastSelectedRegion: RecordingRegion? = nil
     ) {
@@ -190,12 +321,16 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
         self.microphoneNoiseReductionEnabled = microphoneNoiseReductionEnabled
         self.cameraBackgroundStyle = cameraBackgroundStyle
         self.cameraBackgroundBlur = cameraBackgroundBlur
-        self.cameraBeautyLevel = min(max(cameraBeautyLevel, 0), 1)
+        self.cameraBackgroundImagePath = cameraBackgroundImagePath
+        self.cameraBeauty = cameraBeauty
         self.cameraFrame = cameraFrame.clampedCameraFrame
         self.cameraShape = cameraShape
         self.zoomShortcut = zoomShortcut
+        self.zoomMouseButton = zoomMouseButton
         self.captureShortcutPreset = captureShortcutPreset
         self.screenshotAutoCopyOnFinish = screenshotAutoCopyOnFinish
+        self.screenshotFreezesScreen = screenshotFreezesScreen
+        self.language = language
         self.recordingDirectoryPath = recordingDirectoryPath
         self.lastSelectedRegion = lastSelectedRegion
     }
@@ -208,12 +343,24 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
         microphoneNoiseReductionEnabled = try container.decodeIfPresent(Bool.self, forKey: .microphoneNoiseReductionEnabled) ?? false
         cameraBackgroundStyle = (try? container.decodeIfPresent(CameraBackgroundStyle.self, forKey: .cameraBackgroundStyle)) ?? .original
         cameraBackgroundBlur = (try? container.decodeIfPresent(CameraBackgroundBlur.self, forKey: .cameraBackgroundBlur)) ?? .light
-        cameraBeautyLevel = min(max(try container.decodeIfPresent(Double.self, forKey: .cameraBeautyLevel) ?? 0.25, 0), 1)
+        cameraBackgroundImagePath = try container.decodeIfPresent(String.self, forKey: .cameraBackgroundImagePath)
+        // Preferences and projects saved before the split still carry a single slider.
+        if let beauty = try? container.decodeIfPresent(CameraBeautySettings.self, forKey: .cameraBeauty) {
+            cameraBeauty = beauty
+        } else {
+            let legacy = try decoder.container(keyedBy: LegacyCodingKeys.self)
+            cameraBeauty = CameraBeautySettings(
+                legacyLevel: try legacy.decodeIfPresent(Double.self, forKey: .cameraBeautyLevel) ?? 0.25
+            )
+        }
         cameraFrame = (try container.decodeIfPresent(NormalizedRect.self, forKey: .cameraFrame) ?? .defaultCameraFrame).clampedCameraFrame
         cameraShape = (try? container.decodeIfPresent(CameraFrameShape.self, forKey: .cameraShape)) ?? .circle
         zoomShortcut = (try? container.decodeIfPresent(ZoomShortcut.self, forKey: .zoomShortcut)) ?? .controlOptionCommandZ
+        zoomMouseButton = (try? container.decodeIfPresent(ZoomMouseButton.self, forKey: .zoomMouseButton)) ?? .middle
         captureShortcutPreset = (try? container.decodeIfPresent(CaptureShortcutPreset.self, forKey: .captureShortcutPreset)) ?? .jianLuDefault
         screenshotAutoCopyOnFinish = try container.decodeIfPresent(Bool.self, forKey: .screenshotAutoCopyOnFinish) ?? true
+        screenshotFreezesScreen = try container.decodeIfPresent(Bool.self, forKey: .screenshotFreezesScreen) ?? true
+        language = (try? container.decodeIfPresent(AppLanguage.self, forKey: .language)) ?? .system
         recordingDirectoryPath = try container.decodeIfPresent(String.self, forKey: .recordingDirectoryPath)
         lastSelectedRegion = try container.decodeIfPresent(RecordingRegion.self, forKey: .lastSelectedRegion)
     }
@@ -225,12 +372,14 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
         microphoneNoiseReductionEnabled: false,
         cameraBackgroundStyle: .original,
         cameraBackgroundBlur: .light,
-        cameraBeautyLevel: 0.25,
+        cameraBeauty: .natural,
         cameraFrame: .defaultCameraFrame,
         cameraShape: .circle,
         zoomShortcut: .controlOptionCommandZ,
+        zoomMouseButton: .middle,
         captureShortcutPreset: .jianLuDefault,
-        screenshotAutoCopyOnFinish: true
+        screenshotAutoCopyOnFinish: true,
+        screenshotFreezesScreen: true
     )
 }
 
@@ -355,17 +504,17 @@ public enum AnnotationTool: String, Codable, CaseIterable, Sendable {
     public var displayName: String {
         switch self {
         case .pen:
-            "画笔"
+            tr("画笔", "Pen")
         case .highlight:
-            "高亮"
+            tr("高亮", "Highlight")
         case .line:
-            "直线"
+            tr("直线", "Line")
         case .arrow:
-            "箭头"
+            tr("箭头", "Arrow")
         case .rectangle:
-            "方框"
+            tr("方框", "Rectangle")
         case .ellipse:
-            "圆框"
+            tr("圆框", "Ellipse")
         }
     }
 

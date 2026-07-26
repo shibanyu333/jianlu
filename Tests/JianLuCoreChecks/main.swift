@@ -27,6 +27,7 @@ struct JianLuCoreChecks {
         runPreferenceChecks()
         runZoomLensGeometryChecks()
         runCameraFrameProcessorChecks()
+        runBeautyPipelineChecks()
         runAnnotationImageRendererChecks()
         runScreenshotMarkupRendererChecks()
 
@@ -496,24 +497,70 @@ private func runPreferenceChecks() {
         microphoneNoiseReductionEnabled: true,
         cameraBackgroundStyle: .graphite,
         cameraBackgroundBlur: .medium,
-        cameraBeautyLevel: 4,
+        cameraBeauty: CameraBeautySettings(smoothing: 4, whitening: 0.6, faceSlimming: 0.3),
         cameraFrame: savedCameraFrame,
         cameraShape: .square,
         zoomShortcut: .controlOptionSpace,
+        zoomMouseButton: .right,
         captureShortcutPreset: .macReplacement,
         screenshotAutoCopyOnFinish: false,
+        screenshotFreezesScreen: false,
         recordingDirectoryPath: "/tmp/jianlu-checks",
         lastSelectedRegion: usableRegion
     )
     expect(!preferences.cameraEnabled, "camera preference can be disabled")
     expect(!preferences.microphoneEnabled, "microphone preference can be disabled")
     expect(preferences.microphoneNoiseReductionEnabled, "microphone noise reduction preference can be enabled")
-    expect(preferences.cameraBeautyLevel == 1, "beauty level is clamped")
+    expect(preferences.cameraBeauty.smoothing == 1, "beauty smoothing is clamped to 1")
+    expect(preferences.cameraBeauty.whitening == 0.6, "beauty whitening is stored on its own")
+    expect(preferences.cameraBeauty.faceSlimming == 0.3, "face slimming is stored on its own")
+    expect(preferences.cameraBeauty.isEnabled, "any non-zero beauty control enables processing")
+    expect(preferences.cameraBeauty.needsFaceDetection, "face slimming is what needs the face detection pass")
+    expect(!CameraBeautySettings.off.isEnabled, "all-zero beauty skips processing entirely")
+    expect(!CameraBeautySettings.natural.needsFaceDetection, "the natural preset does not pay for face detection")
+    expect(CameraBeautySettings(legacyLevel: 0.4).smoothing == 0.4, "the old single beauty slider migrates to smoothing")
+    expect(CameraBeautySettings(legacyLevel: 0.4).faceSlimming == 0, "migrated settings never switch on face slimming by surprise")
+    expect(CameraBackgroundStyle.allCases.contains(.custom), "a custom image background is available")
+    expect(CameraBackgroundStyle.custom.usesCustomImage, "the custom style is the one that paints a user image")
+    expect(!CameraBackgroundStyle.office.usesCustomImage, "built-in scenes are not custom images")
     expect(preferences.cameraFrame == savedCameraFrame, "camera avatar frame preference is stored")
     expect(preferences.cameraShape == .square, "camera avatar shape preference is stored")
     expect(preferences.zoomShortcut == .controlOptionSpace, "zoom shortcut preference is stored")
+    expect(preferences.zoomMouseButton == .right, "zoom mouse button preference is stored")
+    expect(RecordingPreferences.defaults.zoomMouseButton == .middle, "clicking the middle mouse button zooms by default")
+    expect(ZoomMouseButton.middle.pressedButtonMask == 1 << 2, "middle mouse button maps to the NSEvent middle button bit")
+    expect(ZoomMouseButton.left.pressedButtonMask == 1, "left mouse button maps to the NSEvent left button bit")
+    expect(ZoomMouseButton.right.pressedButtonMask == 1 << 1, "right mouse button maps to the NSEvent right button bit")
+    expect(ZoomMouseButton.off.pressedButtonMask == 0, "mouse zoom can be turned off entirely")
+    expect(ZoomMouseButton.allCases.allSatisfy { !$0.displayName.isEmpty }, "every mouse zoom button has a Chinese display name")
     expect(preferences.captureShortcutPreset == .macReplacement, "capture shortcut preset preference is stored")
     expect(!preferences.screenshotAutoCopyOnFinish, "screenshot auto-copy preference can be disabled")
+    expect(RecordingPreferences.defaults.screenshotFreezesScreen, "screenshots freeze the screen at the shortcut by default")
+
+    // Cropping the frozen full-display still down to the selection: the still is in
+    // pixels, the selection is in display points.
+    let frozenCrop = RecordingRegion(displayID: 1, x: 100, y: 50, width: 400, height: 300)
+        .sourceRect(
+            displayPixelWidth: 2940,
+            displayPixelHeight: 1912,
+            displayPointWidth: 1470,
+            displayPointHeight: 956
+        )
+    expect(
+        frozenCrop == CGRect(x: 200, y: 100, width: 800, height: 600),
+        "the frozen screenshot is cropped with the region scaled from points to the still's pixels"
+    )
+    let frozenFullScreenCrop = RecordingRegion(displayID: 1, x: 0, y: 0, width: 1470, height: 956)
+        .sourceRect(
+            displayPixelWidth: 2940,
+            displayPixelHeight: 1912,
+            displayPointWidth: 1470,
+            displayPointHeight: 956
+        )
+    expect(
+        frozenFullScreenCrop == CGRect(x: 0, y: 0, width: 2940, height: 1912),
+        "a full-screen selection keeps the whole frozen still"
+    )
     expect(preferences.captureShortcutPreset.detail.contains("⇧⌘4"), "mac replacement preset names the screenshot shortcut")
     expect(preferences.captureShortcutPreset.detail.contains("阻止 macOS 原生"), "mac replacement preset explains that it suppresses original system shortcuts")
     expect(RecordingPreferences.defaults.captureShortcutPreset.detail.contains("不拦截"), "default capture shortcut preset leaves original macOS shortcuts enabled")
@@ -529,7 +576,7 @@ private func runPreferenceChecks() {
         includeAppInterface: false,
         cameraBackgroundStyle: .original,
         cameraBackgroundBlur: .off,
-        cameraBeautyLevel: 0.2,
+        cameraBeauty: .natural,
         cameraFrame: NormalizedRect(x: -0.5, y: 1.4, width: 0.02, height: 0.9)
     )
     expect(
@@ -568,9 +615,14 @@ private func runPreferenceChecks() {
     expect(legacyPreferences?.zoomShortcut == .controlOptionCommandZ, "legacy preferences get the default zoom shortcut")
     expect(legacyPreferences?.captureShortcutPreset == .jianLuDefault, "legacy preferences get the default capture shortcut preset")
     expect(legacyPreferences?.screenshotAutoCopyOnFinish == true, "legacy preferences auto-copy screenshots by default")
+    expect(legacyPreferences?.screenshotFreezesScreen == true, "legacy preferences get the frozen-screen screenshot default")
     expect(legacyPreferences?.cameraEnabled == true, "legacy preferences keep camera enabled by default")
     expect(legacyPreferences?.cameraFrame == .defaultCameraFrame, "legacy preferences get the default camera frame")
     expect(legacyPreferences?.cameraShape == .circle, "legacy preferences get the default camera shape")
+    expect(legacyPreferences?.cameraBeauty.smoothing == 0.3, "a legacy beauty level becomes the smoothing amount")
+    expect(legacyPreferences?.cameraBeauty.faceSlimming == 0, "legacy recordings do not gain face slimming")
+    expect(legacyPreferences?.language == .system, "legacy preferences follow the system language")
+    expect(legacyPreferences?.zoomMouseButton == .middle, "legacy preferences get the default middle-button mouse zoom")
     expect(legacyPreferences?.recordingDirectoryPath == "/tmp/legacy-jianlu", "legacy preferences keep the recording path")
 
     let encodedPreferences = try? JSONEncoder().encode(preferences)
@@ -578,6 +630,73 @@ private func runPreferenceChecks() {
         try? JSONDecoder().decode(RecordingPreferences.self, from: $0)
     }
     expect(decodedPreferences?.screenshotAutoCopyOnFinish == false, "screenshot auto-copy preference round-trips when disabled")
+    expect(decodedPreferences?.zoomMouseButton == .right, "zoom mouse button preference round-trips")
+    expect(decodedPreferences?.screenshotFreezesScreen == false, "screen freeze preference round-trips when disabled")
+
+    runCameraBubbleGeometryChecks()
+    runLocalizationChecks()
+}
+
+/// The whole UI is bilingual through `tr(zh, en)`, so switching the language has to
+/// switch every localized string the model exposes.
+private func runLocalizationChecks() {
+    let original = L10n.current
+    defer { L10n.setLanguage(original) }
+
+    L10n.setLanguage(.chinese)
+    expect(L10n.current == .chinese, "the language can be forced to Chinese")
+    expect(tr("中文", "English") == "中文", "tr picks the Chinese string")
+    expect(CameraFrameShape.ellipse.displayName == "椭圆", "shape names follow the language")
+    expect(CameraBackgroundStyle.custom.displayName == "自定义图片", "background names follow the language")
+    expect(ZoomMouseButton.middle.displayName == "鼠标中键", "mouse button names follow the language")
+    expect(AnnotationTool.arrow.displayName == "箭头", "annotation tool names follow the language")
+
+    L10n.setLanguage(.english)
+    expect(tr("中文", "English") == "English", "tr picks the English string")
+    expect(CameraFrameShape.ellipse.displayName == "Oval", "shape names switch to English")
+    expect(CameraBackgroundStyle.custom.displayName == "Custom Image", "background names switch to English")
+    expect(ZoomMouseButton.middle.displayName == "Middle button", "mouse button names switch to English")
+    expect(AnnotationTool.arrow.displayName == "Arrow", "annotation tool names switch to English")
+    expect(CaptureShortcutPreset.macReplacement.detail.contains("⇧⌘3"), "the English shortcut blurb still names the keys")
+
+    expect(AppLanguage.chinese.resolved == .chinese, "an explicit language resolves to itself")
+    expect(AppLanguage.english.resolved == .english, "an explicit language resolves to itself")
+    expect(AppLanguage.system.resolved != .system, "the system language always resolves to a concrete language")
+    expect(AppLanguage.allCases.count == 3, "language options are system, Chinese and English")
+}
+
+/// The camera bubble geometry both the live overlay and the export compositor use.
+/// "圆形" must be a real circle on any aspect ratio; "椭圆" is the shape that keeps
+/// the frame's own aspect ratio and therefore looks like an oval.
+private func runCameraBubbleGeometryChecks() {
+    expect(CameraFrameShape.allCases.contains(.ellipse), "an explicit oval camera avatar shape is available")
+    expect(CameraFrameShape.ellipse.displayName == "椭圆", "the oval camera avatar shape is named 椭圆")
+    expect(CameraFrameShape.circle.usesSquareBubble, "圆形 camera avatar uses a square box so it stays a true circle")
+    expect(CameraFrameShape.square.usesSquareBubble, "方形 camera avatar uses a square box")
+    expect(CameraFrameShape.roundedSquare.usesSquareBubble, "圆角方形 camera avatar uses a square box")
+    expect(!CameraFrameShape.ellipse.usesSquareBubble, "椭圆 camera avatar keeps the frame aspect ratio")
+
+    let wideCanvas = CGSize(width: 1600, height: 900)
+    let avatarFrame = NormalizedRect(x: 0.5, y: 0.4, width: 0.22, height: 0.22)
+
+    let circleBubble = avatarFrame.cameraBubbleRect(in: wideCanvas, shape: .circle)
+    expectClose(circleBubble.width, 352, "圆形 camera avatar takes its size from the width fraction")
+    expectClose(circleBubble.height, 352, "圆形 camera avatar is square on a 16:9 canvas, so it renders as a true circle")
+
+    let ellipseBubble = avatarFrame.cameraBubbleRect(in: wideCanvas, shape: .ellipse)
+    expectClose(ellipseBubble.width, 352, "椭圆 camera avatar keeps the width fraction")
+    expectClose(ellipseBubble.height, 198, "椭圆 camera avatar follows the canvas aspect ratio")
+    expect(ellipseBubble.width > ellipseBubble.height, "椭圆 camera avatar really is an oval, unlike 圆形")
+
+    let offscreenFrame = NormalizedRect(x: 0.95, y: 0.95, width: 0.22, height: 0.22)
+    for shape in CameraFrameShape.allCases {
+        let bubble = offscreenFrame.cameraBubbleRect(in: wideCanvas, shape: shape)
+        expect(bubble.minX >= -0.001 && bubble.minY >= -0.001, "\(shape.displayName) camera avatar stays inside the canvas")
+        expect(
+            bubble.maxX <= wideCanvas.width + 0.001 && bubble.maxY <= wideCanvas.height + 0.001,
+            "\(shape.displayName) camera avatar never hangs off the canvas edge"
+        )
+    }
 }
 
 private func runAnnotationImageRendererChecks() {
@@ -721,6 +840,58 @@ private func runZoomLensGeometryChecks() {
     expect(abs(anchoredFocusX - 250) < 0.001, "open-recorder-style zoom keeps the focus pinned horizontally")
     expect(abs(anchoredFocusY - 300) < 0.001, "open-recorder-style zoom keeps the focus pinned vertically")
 
+    // WYSIWYG guard: the region the presenter sees magnified in the live overlay must
+    // be the region the exported video magnifies. The live frame is y-down, the export
+    // transform is y-up, so the vertical edges are compared after flipping.
+    let wysiwygCaptureSize = CGSize(width: 1600, height: 900)
+    let wysiwygFocus = NormalizedPoint(x: 0.32, y: 0.71)
+    let wysiwygDepth = 2.1
+    let liveZoomFrame = ZoomLensGeometry(lensSize: wysiwygCaptureSize).zoomedRegionImageFrame(
+        captureSize: wysiwygCaptureSize,
+        focus: wysiwygFocus,
+        magnification: wysiwygDepth
+    )
+    let exportRenderRect = CGRect(origin: .zero, size: wysiwygCaptureSize)
+    let exportedZoomFrame = exportRenderRect.applying(
+        ExportZoomTimeline.transform(
+            for: ExportZoomEffect(depth: wysiwygDepth, focusX: wysiwygFocus.x, focusY: wysiwygFocus.y),
+            in: exportRenderRect,
+            flipsY: true
+        )
+    )
+    expectClose(liveZoomFrame.width, exportedZoomFrame.width, "live zoom magnifies the same width the export does")
+    expectClose(liveZoomFrame.height, exportedZoomFrame.height, "live zoom magnifies the same height the export does")
+    expectClose(liveZoomFrame.minX, exportedZoomFrame.minX, "live zoom and exported zoom keep the same horizontal region")
+    expectClose(
+        liveZoomFrame.minY,
+        wysiwygCaptureSize.height - exportedZoomFrame.maxY,
+        "live zoom and exported zoom keep the same vertical region"
+    )
+
+    // The live overlay ramps its magnification on the export's own curve, so it never
+    // shows a zoom depth the exported frame at that moment will not have.
+    expectClose(ExportZoomTimeline.rampedDepth(target: 2, elapsed: 0), 1, "live zoom opens from 1x like the export")
+    expectClose(
+        ExportZoomTimeline.rampedDepth(target: 2, elapsed: ExportZoomTimeline.rampInSeconds),
+        2,
+        "live zoom reaches the target depth when the export ramp completes"
+    )
+    expectClose(
+        ExportZoomTimeline.rampedDepth(target: 2, elapsed: ExportZoomTimeline.rampInSeconds / 2),
+        1.5,
+        "live zoom follows the export smoothstep ramp"
+    )
+    let rampStates = [
+        ZoomEvent(time: 0, magnification: 2, focus: wysiwygFocus),
+        ZoomEvent(time: 5, magnification: 1, focus: wysiwygFocus)
+    ]
+    let rampingExportEffect = ExportZoomTimeline.activeEffect(states: rampStates, duration: 6, at: 0.2)
+    expectClose(
+        rampingExportEffect?.depth ?? 0,
+        ExportZoomTimeline.rampedDepth(target: 2, elapsed: 0.2),
+        "live overlay depth matches the exported frame depth while the zoom ramps in"
+    )
+
     let clampedCenter = lens.clampedLensCenter(
         in: CGRect(x: 10, y: 20, width: 800, height: 400),
         focus: NormalizedPoint(x: 0.02, y: 0.03)
@@ -825,7 +996,7 @@ private func runCameraFrameProcessorChecks() {
         includeAppInterface: false,
         cameraBackgroundStyle: .original,
         cameraBackgroundBlur: .off,
-        cameraBeautyLevel: 0
+        cameraBeauty: .off
     )
     guard let originalImage = processor.makePreviewImage(from: pixelBuffer, preferences: originalPreferences) else {
         expect(false, "camera frame processor renders original preview image")
@@ -838,7 +1009,7 @@ private func runCameraFrameProcessorChecks() {
         includeAppInterface: false,
         cameraBackgroundStyle: .studioBlue,
         cameraBackgroundBlur: .off,
-        cameraBeautyLevel: 0
+        cameraBeauty: .off
     )
     guard let processedImage = processor.makePreviewImage(from: pixelBuffer, preferences: virtualBackgroundPreferences) else {
         expect(false, "camera frame processor renders virtual background preview image")
@@ -854,7 +1025,7 @@ private func runCameraFrameProcessorChecks() {
         includeAppInterface: false,
         cameraBackgroundStyle: .office,
         cameraBackgroundBlur: .off,
-        cameraBeautyLevel: 0
+        cameraBeauty: .off
     )
     guard let realisticImage = processor.makePreviewImage(from: pixelBuffer, preferences: realisticBackgroundPreferences) else {
         expect(false, "camera frame processor renders real photo background preview image")
@@ -907,6 +1078,39 @@ private func runVideoCompositorChecks() async throws {
     expect(center.r > 170 && center.g < 90 && center.b < 90, "circle camera compositor keeps camera visible at the center")
     expect(maskedCorner.b > 150 && maskedCorner.r < 100, "circle camera compositor masks the camera corners")
 
+    // 椭圆: a 140×50 bubble centered in the 200×200 frame. Sampling proves the export
+    // really draws a wide oval instead of falling back to the square bubble the other
+    // shapes use (a square bubble would cover x=100,y=130 as well).
+    let ellipseOutputURL = directory.appendingPathComponent("composited-ellipse.mov")
+    do {
+        try await exportSyntheticCompositorMovie(
+            screenURL: screenURL,
+            cameraURL: cameraURL,
+            outputURL: ellipseOutputURL,
+            overlaysAnnotation: false,
+            cameraState: CameraLayoutEvent(
+                time: 0,
+                frame: NormalizedRect(x: 0.15, y: 0.375, width: 0.7, height: 0.25),
+                shape: .ellipse,
+                isVisible: true
+            )
+        )
+    } catch {
+        throw CheckError("ellipse camera compositor export failed: \(error.localizedDescription)")
+    }
+    let ellipseFrame: CGImage
+    do {
+        ellipseFrame = try await firstFrameImage(from: ellipseOutputURL)
+    } catch {
+        throw CheckError("ellipse camera compositor frame read failed: \(error.localizedDescription)")
+    }
+    let ellipseCenter = pixelColor(in: ellipseFrame, x: 100, y: 100)
+    let ellipseWideEdge = pixelColor(in: ellipseFrame, x: 35, y: 100)
+    let ellipseBelowBubble = pixelColor(in: ellipseFrame, x: 100, y: 130)
+    expect(ellipseCenter.r > 170 && ellipseCenter.b < 90, "ellipse camera compositor keeps camera visible at the center")
+    expect(ellipseWideEdge.r > 150 && ellipseWideEdge.b < 110, "ellipse camera bubble spans the full frame width")
+    expect(ellipseBelowBubble.b > 150 && ellipseBelowBubble.r < 100, "ellipse camera bubble stays short instead of falling back to a square box")
+
     do {
         try await exportSyntheticCompositorMovie(screenURL: screenURL, cameraURL: cameraURL, outputURL: annotatedOutputURL, overlaysAnnotation: true)
     } catch {
@@ -918,8 +1122,13 @@ private func runVideoCompositorChecks() async throws {
     } catch {
         throw CheckError("annotated compositor frame read failed: \(error.localizedDescription)")
     }
+    // The annotation runs along the bottom; sample it where the camera bubble does
+    // not cover it. The center stays red because the camera correctly composites on
+    // top of annotations, mirroring the live overlay z-order.
+    let annotatedStripe = pixelColor(in: annotatedFrame, x: 100, y: 170)
     let annotatedCenter = pixelColor(in: annotatedFrame, x: 100, y: 100)
-    expect(annotatedCenter.g > 150 && annotatedCenter.r < 120, "camera compositor still renders annotation overlays")
+    expect(annotatedStripe.g > 150 && annotatedStripe.r < 120, "camera compositor still renders annotation overlays")
+    expect(annotatedCenter.r > 150 && annotatedCenter.g < 110, "camera bubble composites on top of annotations (matches live z-order)")
 
     let projectExport = RecordingProject(
         screenRecordingURL: screenURL,
@@ -1152,7 +1361,13 @@ private func exportSyntheticCompositorMovie(
     cameraURL: URL?,
     outputURL: URL,
     zoomStates: [ZoomEvent] = [],
-    overlaysAnnotation: Bool
+    overlaysAnnotation: Bool,
+    cameraState: CameraLayoutEvent = CameraLayoutEvent(
+        time: 0,
+        frame: NormalizedRect(x: 0.25, y: 0.25, width: 0.5, height: 0.5),
+        shape: .circle,
+        isVisible: true
+    )
 ) async throws {
     let screenAsset = AVURLAsset(url: screenURL)
     guard let screenTrack = try await screenAsset.loadTracks(withMediaType: .video).first else {
@@ -1204,23 +1419,20 @@ private func exportSyntheticCompositorMovie(
                         id: UUID(uuidString: "00000000-0000-0000-0000-000000000020")!,
                         time: 0,
                         tool: .line,
+                        // Runs along the bottom (below the centered camera bubble) so
+                        // the overlay is visible where it is not covered, while the
+                        // camera correctly sits on top at the center — matching the
+                        // live overlay z-order (screen < annotations < camera).
                         points: [
-                            StrokePoint(time: 0, point: NormalizedPoint(x: 0.38, y: 0.5)),
-                            StrokePoint(time: 0, point: NormalizedPoint(x: 0.62, y: 0.5))
+                            StrokePoint(time: 0, point: NormalizedPoint(x: 0.10, y: 0.85)),
+                            StrokePoint(time: 0, point: NormalizedPoint(x: 0.90, y: 0.85))
                         ],
                         colorHex: "#14E62E",
                         lineWidth: 24
                     )
                 )
             ] : [],
-            cameraStates: [
-                CameraLayoutEvent(
-                    time: 0,
-                    frame: NormalizedRect(x: 0.25, y: 0.25, width: 0.5, height: 0.5),
-                    shape: .circle,
-                    isVisible: true
-                )
-            ]
+            cameraStates: [cameraState]
         )
     ]
 
@@ -1388,4 +1600,96 @@ private func runPermissionGateChecks() {
         RecordingPermissionGate.decision(for: noMicrophone, cameraEnabled: true, microphoneEnabled: false) == .allowed,
         "disabled microphone does not block recording"
     )
+}
+
+
+/// Each retouch control has to actually change the picture on its own, and doing
+/// nothing has to stay a true no-op (so "all off" really is the cheap path).
+private func runBeautyPipelineChecks() {
+    let width = 160
+    let height = 120
+    var buffer: CVPixelBuffer?
+    CVPixelBufferCreate(nil, width, height, kCVPixelFormatType_32BGRA, nil, &buffer)
+    guard let pixelBuffer = buffer else {
+        expect(false, "beauty check allocates a pixel buffer")
+        return
+    }
+    // Mid grey with a bright block, so smoothing has an edge to work against.
+    fill(pixelBuffer, width: width, height: height, color: (r: 120, g: 110, b: 105))
+    fillBlock(pixelBuffer, x: 55, y: 35, width: 50, height: 50, color: (r: 240, g: 235, b: 230))
+
+    let processor = CameraFrameProcessor()
+    func preferences(_ beauty: CameraBeautySettings) -> RecordingPreferences {
+        RecordingPreferences(
+            includeAppInterface: false,
+            cameraBackgroundStyle: .original,
+            cameraBackgroundBlur: .off,
+            cameraBeauty: beauty
+        )
+    }
+    func sample(_ beauty: CameraBeautySettings, x: Int, y: Int) -> (r: UInt8, g: UInt8, b: UInt8, a: UInt8)? {
+        guard let image = processor.makePreviewImage(from: pixelBuffer, preferences: preferences(beauty)) else { return nil }
+        return pixelColor(in: image, x: x, y: y)
+    }
+
+    // Sample right on the bright block's edge, where a surface blur has to change the
+    // value; the middle of a flat block would look identical either way.
+    guard let untouched = sample(.off, x: 54, y: 60),
+          let smoothed = sample(CameraBeautySettings(smoothing: 1, whitening: 0, faceSlimming: 0), x: 54, y: 60),
+          let flatUntouched = sample(.off, x: 20, y: 20),
+          let whitened = sample(CameraBeautySettings(smoothing: 0, whitening: 1, faceSlimming: 0), x: 20, y: 20) else {
+        expect(false, "beauty check renders preview frames")
+        return
+    }
+
+    // Sampled on the bright block's edge, where blurring changes the value.
+    let smoothingDelta = abs(Int(smoothed.r) - Int(untouched.r))
+        + abs(Int(smoothed.g) - Int(untouched.g))
+        + abs(Int(smoothed.b) - Int(untouched.b))
+    expect(smoothingDelta > 6, "smoothing visibly softens the frame (delta \(smoothingDelta))")
+    expect(Int(whitened.r) > Int(flatUntouched.r) + 5, "whitening brightens the frame")
+    expect(Int(whitened.g) > Int(flatUntouched.g) + 5, "whitening brightens every channel")
+
+    // Face slimming runs its own detection + warp path; exercise it repeatedly so the
+    // detection throttle is executed too, not just the first frame.
+    let slimming = CameraBeautySettings(smoothing: 0, whitening: 0, faceSlimming: 1)
+    for _ in 0..<12 {
+        guard sample(slimming, x: 20, y: 20) != nil else {
+            expect(false, "face slimming renders a frame even when no face is detected")
+            return
+        }
+    }
+
+    guard let noBeauty = sample(.off, x: 20, y: 20) else {
+        expect(false, "beauty check renders the untouched frame")
+        return
+    }
+    expect(
+        abs(Int(noBeauty.r) - 120) <= 2 && abs(Int(noBeauty.g) - 110) <= 2,
+        "with every control at zero the frame comes through untouched"
+    )
+}
+
+private func fillBlock(
+    _ pixelBuffer: CVPixelBuffer,
+    x originX: Int,
+    y originY: Int,
+    width blockWidth: Int,
+    height blockHeight: Int,
+    color: (r: UInt8, g: UInt8, b: UInt8)
+) {
+    CVPixelBufferLockBaseAddress(pixelBuffer, [])
+    defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, []) }
+    guard let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) else { return }
+    let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
+    for y in originY..<(originY + blockHeight) {
+        let row = baseAddress.advanced(by: y * bytesPerRow).assumingMemoryBound(to: UInt8.self)
+        for x in originX..<(originX + blockWidth) {
+            let offset = x * 4
+            row[offset] = color.b
+            row[offset + 1] = color.g
+            row[offset + 2] = color.r
+            row[offset + 3] = 255
+        }
+    }
 }

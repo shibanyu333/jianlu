@@ -8,6 +8,11 @@ public final class CameraFrameProcessor: @unchecked Sendable {
     private let ciContext = CIContext(options: [.cacheIntermediates: false])
     private let colorSpace = CGColorSpaceCreateDeviceRGB()
     private var photoBackgroundCache: [CameraBackgroundStyle: CIImage] = [:]
+    private var customBackgroundCache: [String: CIImage] = [:]
+    private var lastFaceRect: CGRect?
+    private var faceDetectionCountdown = 0
+    private let faceDetectionFrameInterval = 8
+    private lazy var faceRequest = VNDetectFaceRectanglesRequest()
     private lazy var segmentationRequest: VNGeneratePersonSegmentationRequest = {
         let request = VNGeneratePersonSegmentationRequest()
         request.qualityLevel = .balanced
@@ -62,8 +67,13 @@ public final class CameraFrameProcessor: @unchecked Sendable {
             .cropped(to: extent)
     }
 
-    private func backgroundImage(for source: CIImage, extent: CGRect, preferences: RecordingPreferences) -> CIImage {
-        switch preferences.cameraBackgroundStyle {
+    private func backgroundImage(
+        for source: CIImage,
+        extent: CGRect,
+        preferences: RecordingPreferences,
+        overridingStyle: CameraBackgroundStyle? = nil
+    ) -> CIImage {
+        switch overridingStyle ?? preferences.cameraBackgroundStyle {
         case .original:
             let radius = preferences.cameraBackgroundBlur.radius
             guard radius > 0 else { return source }
@@ -100,6 +110,13 @@ public final class CameraFrameProcessor: @unchecked Sendable {
                 bottom: CIColor(red: 0.04, green: 0.05, blue: 0.06),
                 extent: extent
             )
+        case .custom:
+            if let custom = customBackground(path: preferences.cameraBackgroundImagePath, extent: extent, preferences: preferences) {
+                return custom
+            }
+            // Missing or unreadable file: fall back to the plain blurred camera feed
+            // rather than dropping the person onto a flat colour.
+            return backgroundImage(for: source, extent: extent, preferences: preferences, overridingStyle: .original)
         case .office, .bookshelf, .meetingRoom, .cityWindow, .lightStudio:
             if let photo = photoBackground(preferences.cameraBackgroundStyle, extent: extent, preferences: preferences) {
                 return photo
@@ -127,6 +144,50 @@ public final class CameraFrameProcessor: @unchecked Sendable {
             .cropped(to: extent)
 
         let blurRadius = preferences.cameraBackgroundBlur.radius * 0.16
+        if blurRadius > 0 {
+            fitted = fitted
+                .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: blurRadius])
+                .cropped(to: extent)
+        }
+        return fitted
+    }
+
+    /// The user's own background picture, aspect-filled into the camera frame and
+    /// blurred by the same amount the built-in photo scenes use.
+    private func customBackground(path: String?, extent: CGRect, preferences: RecordingPreferences) -> CIImage? {
+        guard let path, !path.isEmpty, let image = cachedCustomBackground(path: path) else { return nil }
+        return aspectFilled(image, into: extent, blurRadius: preferences.cameraBackgroundBlur.radius * 0.16)
+    }
+
+    private func cachedCustomBackground(path: String) -> CIImage? {
+        if let cached = customBackgroundCache[path] {
+            return cached
+        }
+        guard let image = CIImage(contentsOf: URL(fileURLWithPath: path), options: [.colorSpace: colorSpace]) else {
+            return nil
+        }
+        // One slot only: the path changes rarely and holding every image ever picked
+        // would pin full-resolution photos in memory for the whole session.
+        customBackgroundCache = [path: image]
+        return image
+    }
+
+    private func aspectFilled(_ image: CIImage, into extent: CGRect, blurRadius: Double) -> CIImage {
+        let scale = max(
+            extent.width / max(1, image.extent.width),
+            extent.height / max(1, image.extent.height)
+        )
+        let scaledWidth = image.extent.width * scale
+        let scaledHeight = image.extent.height * scale
+        var fitted = image
+            .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+            .transformed(
+                by: CGAffineTransform(
+                    translationX: extent.midX - scaledWidth / 2,
+                    y: extent.midY - scaledHeight / 2
+                )
+            )
+            .cropped(to: extent)
         if blurRadius > 0 {
             fitted = fitted
                 .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: blurRadius])
@@ -347,26 +408,126 @@ public final class CameraFrameProcessor: @unchecked Sendable {
         }
     }
 
-    private func beautified(_ image: CIImage, preferences: RecordingPreferences) -> CIImage {
-        let level = min(max(preferences.cameraBeautyLevel, 0), 1)
-        guard level > 0 else { return image }
+    // MARK: - Beauty
 
-        return image
+    private func beautified(_ image: CIImage, preferences: RecordingPreferences) -> CIImage {
+        let beauty = preferences.cameraBeauty
+        guard beauty.isEnabled else { return image }
+
+        var result = image
+        if beauty.faceSlimming > 0.001 {
+            result = slimmedFace(result, amount: beauty.faceSlimming)
+        }
+        if beauty.smoothing > 0.001 {
+            result = smoothedSkin(result, amount: beauty.smoothing)
+        }
+        if beauty.whitening > 0.001 {
+            result = whitened(result, amount: beauty.whitening)
+        }
+        return result.cropped(to: image.extent)
+    }
+
+    /// 磨皮: blend a blurred copy back over the original so texture softens while the
+    /// original detail still shows through, then restore a little micro-contrast so the
+    /// face does not turn into plastic.
+    private func smoothedSkin(_ image: CIImage, amount: Double) -> CIImage {
+        let extent = image.extent
+        let radius = max(1, min(extent.width, extent.height) * 0.012) * (0.5 + amount)
+        let blurred = image
+            .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: radius])
+            .cropped(to: extent)
+        let blended = blurred
             .applyingFilter(
-                "CINoiseReduction",
-                parameters: [
-                    "inputNoiseLevel": 0.015 + level * 0.02,
-                    "inputSharpness": 0.45
-                ]
+                "CIColorMatrix",
+                parameters: ["inputAVector": CIVector(x: 0, y: 0, z: 0, w: 0.15 + 0.7 * amount)]
             )
+            .applyingFilter("CISourceOverCompositing", parameters: [kCIInputBackgroundImageKey: image])
+            .cropped(to: extent)
+        return blended
+            .applyingFilter(
+                "CIUnsharpMask",
+                parameters: [kCIInputRadiusKey: radius * 0.6, kCIInputIntensityKey: 0.25 * amount]
+            )
+            .cropped(to: extent)
+    }
+
+    /// 美白: lift exposure and shadows, pull saturation back slightly so the lift reads
+    /// as brighter skin instead of a blown-out, oversaturated picture.
+    private func whitened(_ image: CIImage, amount: Double) -> CIImage {
+        let extent = image.extent
+        return image
+            .applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: 0.35 * amount])
             .applyingFilter(
                 "CIColorControls",
                 parameters: [
-                    kCIInputBrightnessKey: 0.02 * level,
-                    kCIInputSaturationKey: 1 + 0.06 * level,
-                    kCIInputContrastKey: 1 - 0.04 * level
+                    kCIInputBrightnessKey: 0.05 * amount,
+                    kCIInputSaturationKey: 1 - 0.12 * amount,
+                    kCIInputContrastKey: 1 - 0.05 * amount
                 ]
             )
-            .cropped(to: image.extent)
+            .applyingFilter(
+                "CIHighlightShadowAdjust",
+                parameters: ["inputShadowAmount": 0.35 * amount, "inputHighlightAmount": 1]
+            )
+            .cropped(to: extent)
+    }
+
+    /// 瘦脸: squeeze both sides of the detected face inward with a pair of negative
+    /// bump distortions, which narrows the jaw and cheeks while leaving the centre of
+    /// the face (eyes, nose, mouth) where it is.
+    private func slimmedFace(_ image: CIImage, amount: Double) -> CIImage {
+        let extent = image.extent
+        guard let face = faceRect(in: image, extent: extent) else { return image }
+
+        let radius = max(8, face.width * 0.55)
+        let scale = -0.28 * amount
+        let centerY = face.midY - face.height * 0.12
+        var result = image
+        for centerX in [face.minX + face.width * 0.06, face.maxX - face.width * 0.06] {
+            result = result.applyingFilter(
+                "CIBumpDistortion",
+                parameters: [
+                    kCIInputCenterKey: CIVector(x: centerX, y: centerY),
+                    kCIInputRadiusKey: radius,
+                    kCIInputScaleKey: scale
+                ]
+            )
+        }
+        return result.cropped(to: extent)
+    }
+
+    /// Vision face detection is far too slow to run on every frame at 30fps, and a face
+    /// barely moves between frames, so detect a few times a second and reuse the box in
+    /// between.
+    private func faceRect(in image: CIImage, extent: CGRect) -> CGRect? {
+        // Reuse the last result between detections — including a result of "nobody
+        // here", otherwise an empty frame would run Vision on every single frame.
+        guard faceDetectionCountdown <= 0 else {
+            faceDetectionCountdown -= 1
+            return lastFaceRect
+        }
+        faceDetectionCountdown = faceDetectionFrameInterval
+
+        let handler = VNImageRequestHandler(ciImage: image, orientation: .up, options: [:])
+        do {
+            try handler.perform([faceRequest])
+            guard let observation = (faceRequest.results as? [VNFaceObservation])?
+                .max(by: { $0.boundingBox.width * $0.boundingBox.height < $1.boundingBox.width * $1.boundingBox.height }) else {
+                lastFaceRect = nil
+                return nil
+            }
+            let box = observation.boundingBox
+            let rect = CGRect(
+                x: extent.minX + box.minX * extent.width,
+                y: extent.minY + box.minY * extent.height,
+                width: box.width * extent.width,
+                height: box.height * extent.height
+            )
+            lastFaceRect = rect
+            return rect
+        } catch {
+            lastFaceRect = nil
+            return nil
+        }
     }
 }

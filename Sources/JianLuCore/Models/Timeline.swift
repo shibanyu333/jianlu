@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 public struct NormalizedRect: Codable, Equatable, Hashable, Sendable {
@@ -40,6 +41,38 @@ public struct NormalizedRect: Codable, Equatable, Hashable, Sendable {
             width: clampedSize,
             height: clampedSize
         ).clampedCameraFrame
+    }
+
+    /// The camera bubble's pixel/point rect inside `containerSize`.
+    ///
+    /// For every shape except `.ellipse` the box is a **square** so the "圆形" shape
+    /// renders as a true circle regardless of the recording's aspect ratio (a
+    /// normalized 0.22×0.22 frame would otherwise become an oval on a 16:9 canvas).
+    /// The side is driven by the width fraction and capped to the shorter container
+    /// edge. `.ellipse` intentionally keeps the normalized frame's own aspect ratio,
+    /// which is what makes it an oval. The origin is clamped either way so the bubble
+    /// stays fully on screen.
+    ///
+    /// Both the live overlay and the export compositor call this so the preview, the
+    /// overlay's mouse hit-testing and the exported video always agree. Returns a
+    /// top-left-origin (y-down) rect.
+    public func cameraBubbleRect(in containerSize: CGSize, shape: CameraFrameShape) -> CGRect {
+        let containerWidth = max(1, containerSize.width)
+        let containerHeight = max(1, containerSize.height)
+        let size: CGSize
+        if shape.usesSquareBubble {
+            let maxSide = max(1, min(containerWidth, containerHeight))
+            let side = min(max(1, CGFloat(width) * containerWidth), maxSide)
+            size = CGSize(width: side, height: side)
+        } else {
+            size = CGSize(
+                width: min(max(1, CGFloat(width) * containerWidth), containerWidth),
+                height: min(max(1, CGFloat(height) * containerHeight), containerHeight)
+            )
+        }
+        let originX = min(max(0, CGFloat(x) * containerWidth), max(0, containerWidth - size.width))
+        let originY = min(max(0, CGFloat(y) * containerHeight), max(0, containerHeight - size.height))
+        return CGRect(origin: CGPoint(x: originX, y: originY), size: size)
     }
 }
 

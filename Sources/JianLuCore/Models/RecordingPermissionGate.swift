@@ -30,10 +30,10 @@ public enum RecordingPermissionGate {
 
         var missing: [String] = []
         if cameraEnabled && !state.cameraGranted {
-            missing.append("摄像头")
+            missing.append(tr("摄像头", "Camera"))
         }
         if microphoneEnabled && !state.microphoneGranted {
-            missing.append("麦克风")
+            missing.append(tr("麦克风", "Microphone"))
         }
 
         if missing.isEmpty {

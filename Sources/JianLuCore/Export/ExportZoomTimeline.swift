@@ -54,10 +54,12 @@ public enum ExportZoomTimeline {
             if state.magnification > 1.001 {
                 if activeStart == nil {
                     activeStart = eventTime
+                    // Store the depth the zoom opened at. The exact depth at any later
+                    // instant is resolved per-frame from the recorded events (see
+                    // resolvedDepth) so mid-zoom ⌃⌥⌘=/- changes — including zoom-outs —
+                    // are honored instead of being flattened to the region maximum.
                     activeDepth = state.magnification
                     activeFocus = clamped(state.focus)
-                } else if state.magnification > activeDepth {
-                    activeDepth = state.magnification
                 }
             } else if let start = activeStart {
                 appendRegion(
@@ -105,7 +107,8 @@ public enum ExportZoomTimeline {
         }
 
         let progress = animationProgress(for: active, at: time)
-        let depth = 1 + (max(1, active.depth) - 1) * progress
+        let baseDepth = resolvedDepth(for: active, states: states, at: time)
+        let depth = 1 + (max(1, baseDepth) - 1) * progress
         guard depth > 1.001 else { return nil }
         let focus = resolvedFocus(for: active, states: states, at: time)
         return ExportZoomEffect(
@@ -129,6 +132,17 @@ public enum ExportZoomTimeline {
             return smoothstep((region.end - time) / rampOut)
         }
         return 1
+    }
+
+    /// The depth a zoom has reached `elapsed` seconds after it opened, using the same
+    /// ramp-in curve the export replays. The live overlay drives its magnification
+    /// through this so the presenter watches the zoom grow exactly the way the
+    /// finished video will. (The export's ramp-*out* starts before the presenter
+    /// releases the zoom, so only the ramp-in can be mirrored live.)
+    public static func rampedDepth(target: Double, elapsed: TimeInterval) -> Double {
+        guard elapsed.isFinite else { return max(1, target) }
+        let progress = rampInSeconds > 0 ? smoothstep(elapsed / rampInSeconds) : 1
+        return 1 + (max(1, target) - 1) * progress
     }
 
     public static func transform(for effect: ExportZoomEffect?, in rect: CGRect, flipsY: Bool = false) -> CGAffineTransform {
@@ -190,6 +204,25 @@ public enum ExportZoomTimeline {
         }
 
         return clamped(focus)
+    }
+
+    /// The zoom depth at `time`, following the latest recorded magnification within
+    /// the region (so mid-zoom adjustments, up or down, are reflected). Falls back to
+    /// the region's opening depth before any later event applies.
+    private static func resolvedDepth(
+        for region: ExportZoomRegion,
+        states: [ZoomEvent],
+        at time: TimeInterval
+    ) -> Double {
+        let rampOut = min(rampOutSeconds, region.duration * 0.4)
+        let effectiveTime = min(max(time, region.start), max(region.start, region.end - rampOut))
+        var depth = region.depth
+
+        for state in states where state.time >= region.start && state.time <= effectiveTime && state.magnification > 1.001 {
+            depth = state.magnification
+        }
+
+        return max(1, depth)
     }
 
     private static func smoothstep(_ rawValue: Double) -> Double {

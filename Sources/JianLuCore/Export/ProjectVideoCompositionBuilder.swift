@@ -9,9 +9,9 @@ public enum ProjectVideoCompositionBuilderError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .missingVideoTrack:
-            "录屏文件里没有找到视频轨道。"
+            tr("录屏文件里没有找到视频轨道。", "The recording has no video track.")
         case .emptyTimeline:
-            "没有可导出的录制片段。"
+            tr("没有可导出的录制片段。", "There is nothing to export.")
         }
     }
 }
@@ -98,6 +98,10 @@ public enum ProjectVideoCompositionBuilder {
                     screenTrackID: compositionVideo.trackID,
                     cameraTrackID: cameraTrackID,
                     renderSize: renderSize,
+                    strokeScale: annotationStrokeScale(
+                        renderSize: renderSize,
+                        region: effectiveProject.preferences.lastSelectedRegion
+                    ),
                     zoomStates: zoomStates,
                     annotationEvents: annotationEvents,
                     cameraStates: effectiveProject.exportedCameraLayoutStates()
@@ -262,6 +266,17 @@ public enum ProjectVideoCompositionBuilder {
             ),
             destinationOffset: CMTime(seconds: destinationDelay, preferredTimescale: 600)
         )
+    }
+
+    /// points→pixels scale so exported annotation strokes keep the thickness the
+    /// presenter saw live. `renderSize` is the region's pixel size; the recording
+    /// region width is in points, so the ratio is the display's backing scale.
+    private static func annotationStrokeScale(renderSize: CGSize, region: RecordingRegion?) -> CGFloat {
+        guard let region, region.width > 1, region.height > 1 else { return 1 }
+        let scaleX = renderSize.width / region.width
+        let scaleY = renderSize.height / region.height
+        let scale = (scaleX + scaleY) / 2
+        return scale.isFinite && scale > 0 ? scale : 1
     }
 
     private static func normalizedRenderSize(for track: AVAssetTrack) async throws -> CGSize {

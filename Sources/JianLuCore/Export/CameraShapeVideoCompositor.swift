@@ -15,6 +15,10 @@ public final class CameraShapeVideoCompositionInstruction: NSObject, AVVideoComp
     public let screenTrackID: CMPersistentTrackID
     public let cameraTrackID: CMPersistentTrackID?
     public let renderSize: CGSize
+    /// points→pixels scale for absolute annotation metrics (line width, arrow head,
+    /// corner radius). Keeps exported strokes the same visual thickness the presenter
+    /// saw in the live overlay instead of half-size on Retina recordings.
+    public let strokeScale: CGFloat
     public let zoomStates: [ZoomEvent]
     public let zoomRegions: [ExportZoomRegion]
     public let annotationEvents: [EffectEvent]
@@ -25,6 +29,7 @@ public final class CameraShapeVideoCompositionInstruction: NSObject, AVVideoComp
         screenTrackID: CMPersistentTrackID,
         cameraTrackID: CMPersistentTrackID?,
         renderSize: CGSize,
+        strokeScale: CGFloat = 1,
         zoomStates: [ZoomEvent],
         annotationEvents: [EffectEvent] = [],
         cameraStates: [CameraLayoutEvent]
@@ -33,6 +38,7 @@ public final class CameraShapeVideoCompositionInstruction: NSObject, AVVideoComp
         self.screenTrackID = screenTrackID
         self.cameraTrackID = cameraTrackID
         self.renderSize = renderSize
+        self.strokeScale = max(0.01, strokeScale)
         let sortedZoomStates = zoomStates.sorted { $0.time < $1.time }
         self.zoomStates = sortedZoomStates
         self.zoomRegions = ExportZoomTimeline.regions(
@@ -103,6 +109,28 @@ public final class CameraShapeVideoCompositor: NSObject, AVVideoCompositing {
             let compositionTime = CMTimeGetSeconds(request.compositionTime)
             var image = normalizedImage(from: screenBuffer, renderSize: instruction.renderSize)
 
+            // Layer order must mirror the live overlay exactly: the zoom magnifies
+            // ONLY the screen content, then annotations and the camera bubble sit on
+            // top at their fixed full-frame positions (they do not get scaled or
+            // pushed off-frame by the zoom). Previously the camera and annotations
+            // were composited first and then the whole frame was zoomed, so the
+            // bubble drifted and annotations diverged from what was recorded.
+            image = zoomedImage(
+                image,
+                at: compositionTime,
+                states: instruction.zoomStates,
+                regions: instruction.zoomRegions,
+                renderSize: instruction.renderSize
+            )
+
+            image = compositeAnnotations(
+                over: image,
+                at: compositionTime,
+                events: instruction.annotationEvents,
+                renderSize: instruction.renderSize,
+                strokeScale: instruction.strokeScale
+            )
+
             if let cameraTrackID = instruction.cameraTrackID,
                let cameraBuffer = request.sourceFrame(byTrackID: cameraTrackID),
                let cameraState = state(at: compositionTime, in: instruction.cameraStates),
@@ -112,23 +140,10 @@ public final class CameraShapeVideoCompositor: NSObject, AVVideoCompositing {
                     cameraImage,
                     over: image,
                     state: cameraState,
-                    renderSize: instruction.renderSize
+                    renderSize: instruction.renderSize,
+                    strokeScale: instruction.strokeScale
                 )
             }
-
-            image = compositeAnnotations(
-                over: image,
-                at: compositionTime,
-                events: instruction.annotationEvents,
-                renderSize: instruction.renderSize
-            )
-            image = zoomedImage(
-                image,
-                at: compositionTime,
-                states: instruction.zoomStates,
-                regions: instruction.zoomRegions,
-                renderSize: instruction.renderSize
-            )
 
             ciContext.render(
                 image.cropped(to: renderRect),
@@ -181,10 +196,11 @@ public final class CameraShapeVideoCompositor: NSObject, AVVideoCompositing {
         over baseImage: CIImage,
         at time: TimeInterval,
         events: [EffectEvent],
-        renderSize: CGSize
+        renderSize: CGSize,
+        strokeScale: CGFloat
     ) -> CIImage {
         guard !events.isEmpty,
-              let overlay = annotationOverlayImage(at: time, events: events, renderSize: renderSize) else {
+              let overlay = annotationOverlayImage(at: time, events: events, renderSize: renderSize, strokeScale: strokeScale) else {
             return baseImage
         }
 
@@ -194,7 +210,8 @@ public final class CameraShapeVideoCompositor: NSObject, AVVideoCompositing {
     private func annotationOverlayImage(
         at time: TimeInterval,
         events: [EffectEvent],
-        renderSize: CGSize
+        renderSize: CGSize,
+        strokeScale: CGFloat
     ) -> CIImage? {
         let annotations = activeAnnotations(at: time, events: events)
         guard !annotations.isEmpty else { return nil }
@@ -222,7 +239,7 @@ public final class CameraShapeVideoCompositor: NSObject, AVVideoCompositing {
         context.scaleBy(x: 1, y: -1)
 
         for annotation in annotations {
-            draw(annotation, in: context, renderSize: renderSize)
+            draw(annotation, in: context, renderSize: renderSize, strokeScale: strokeScale)
         }
 
         guard let image = context.makeImage() else { return nil }
@@ -253,7 +270,7 @@ public final class CameraShapeVideoCompositor: NSObject, AVVideoCompositing {
         return order.compactMap { activeByID[$0] }
     }
 
-    private func draw(_ annotation: AnnotationEvent, in context: CGContext, renderSize: CGSize) {
+    private func draw(_ annotation: AnnotationEvent, in context: CGContext, renderSize: CGSize, strokeScale: CGFloat) {
         let points = annotation.points.map {
             CGPoint(
                 x: CGFloat($0.point.x) * renderSize.width,
@@ -277,13 +294,14 @@ public final class CameraShapeVideoCompositor: NSObject, AVVideoCompositing {
             if annotation.tool == .ellipse {
                 path.addEllipse(in: rect)
             } else {
-                path.addRoundedRect(in: rect, cornerWidth: 4, cornerHeight: 4)
+                let corner = AnnotationStyle.rectangleCornerRadius * strokeScale
+                path.addRoundedRect(in: rect, cornerWidth: corner, cornerHeight: corner)
             }
         case .line, .arrow:
             guard let last = points.last else { return }
             path.addLine(to: last)
             if annotation.tool == .arrow {
-                addArrowHead(to: path, from: points.dropLast().last ?? first, to: last)
+                addArrowHead(to: path, from: points.dropLast().last ?? first, to: last, scale: strokeScale)
             }
         case .pen, .highlight:
             for point in points.dropFirst() {
@@ -291,17 +309,17 @@ public final class CameraShapeVideoCompositor: NSObject, AVVideoCompositing {
             }
         }
 
-        context.setStrokeColor(annotationColor(for: annotation))
-        context.setLineWidth(CGFloat(annotation.lineWidth))
+        context.setStrokeColor(AnnotationStyle.cgColor(hex: annotation.colorHex, tool: annotation.tool))
+        context.setLineWidth(AnnotationStyle.lineWidth(for: annotation.tool, stored: annotation.lineWidth) * strokeScale)
         context.setLineCap(.round)
         context.setLineJoin(.round)
         context.addPath(path)
         context.strokePath()
     }
 
-    private func addArrowHead(to path: CGMutablePath, from start: CGPoint, to end: CGPoint) {
+    private func addArrowHead(to path: CGMutablePath, from start: CGPoint, to end: CGPoint, scale: CGFloat) {
         let angle = atan2(end.y - start.y, end.x - start.x)
-        let length: CGFloat = 18
+        let length = AnnotationStyle.arrowHeadLength * scale
         let spread: CGFloat = .pi / 7
         path.move(to: end)
         path.addLine(to: CGPoint(x: end.x - length * cos(angle - spread), y: end.y - length * sin(angle - spread)))
@@ -309,59 +327,74 @@ public final class CameraShapeVideoCompositor: NSObject, AVVideoCompositing {
         path.addLine(to: CGPoint(x: end.x - length * cos(angle + spread), y: end.y - length * sin(angle + spread)))
     }
 
-    private func annotationColor(for annotation: AnnotationEvent) -> CGColor {
-        let trimmed = annotation.colorHex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
-        var value: UInt64 = 0
-        guard Scanner(string: trimmed).scanHexInt64(&value) else {
-            return defaultAnnotationColor(for: annotation.tool)
-        }
-
-        let red: CGFloat
-        let green: CGFloat
-        let blue: CGFloat
-        let alpha: CGFloat
-        switch trimmed.count {
-        case 6:
-            red = CGFloat((value >> 16) & 0xFF) / 255
-            green = CGFloat((value >> 8) & 0xFF) / 255
-            blue = CGFloat(value & 0xFF) / 255
-            alpha = annotation.tool == .highlight ? 0.55 : 1
-        case 8:
-            red = CGFloat((value >> 24) & 0xFF) / 255
-            green = CGFloat((value >> 16) & 0xFF) / 255
-            blue = CGFloat((value >> 8) & 0xFF) / 255
-            let parsedAlpha = CGFloat(value & 0xFF) / 255
-            alpha = annotation.tool == .highlight ? min(parsedAlpha, 0.55) : parsedAlpha
-        default:
-            return defaultAnnotationColor(for: annotation.tool)
-        }
-
-        return CGColor(red: red, green: green, blue: blue, alpha: alpha)
-    }
-
-    private func defaultAnnotationColor(for tool: AnnotationTool) -> CGColor {
-        switch tool {
-        case .highlight:
-            return CGColor(red: 1.0, green: 0.83, blue: 0.23, alpha: 0.55)
-        case .pen, .line, .arrow, .rectangle, .ellipse:
-            return CGColor(red: 1.0, green: 0.23, blue: 0.19, alpha: 1)
-        }
-    }
-
     private func compositeCamera(
         _ cameraImage: CIImage,
         over baseImage: CIImage,
         state: CameraLayoutEvent,
-        renderSize: CGSize
+        renderSize: CGSize,
+        strokeScale: CGFloat
     ) -> CIImage {
-        let targetRect = cameraTargetRect(frame: state.frame, renderSize: renderSize)
+        let targetRect = cameraTargetRect(frame: state.frame, shape: state.shape, renderSize: renderSize)
         guard targetRect.width > 1, targetRect.height > 1 else {
             return baseImage
         }
 
         let fittedCamera = aspectFill(cameraImage, into: targetRect)
         let shapedCamera = maskedCamera(fittedCamera, shape: state.shape, targetRect: targetRect)
-        return shapedCamera.composited(over: baseImage)
+        var composited = shapedCamera.composited(over: baseImage)
+        if let border = cameraBorderImage(shape: state.shape, targetRect: targetRect, strokeScale: strokeScale) {
+            composited = border.composited(over: composited)
+        }
+        return composited
+    }
+
+    /// The white bubble border the live preview draws (3pt stroke). Rendered here so
+    /// the exported bubble matches the overlay instead of appearing borderless.
+    private func cameraBorderImage(shape: CameraFrameShape, targetRect: CGRect, strokeScale: CGFloat) -> CIImage? {
+        let lineWidth = max(1, 3 * strokeScale)
+        let inset = lineWidth / 2
+        let strokeRect = targetRect.insetBy(dx: inset, dy: inset)
+        guard strokeRect.width > 1, strokeRect.height > 1 else { return nil }
+
+        let width = max(1, Int(targetRect.width.rounded(.up)))
+        let height = max(1, Int(targetRect.height.rounded(.up)))
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return nil
+        }
+
+        // Draw in a local, target-rect-origin space, then translate the resulting
+        // image back to the bubble's position in the full frame.
+        let localRect = strokeRect.offsetBy(dx: -targetRect.minX, dy: -targetRect.minY)
+        let path = cameraShapePath(shape: shape, in: localRect)
+        context.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.9))
+        context.setLineWidth(lineWidth)
+        context.addPath(path)
+        context.strokePath()
+
+        guard let image = context.makeImage() else { return nil }
+        return CIImage(cgImage: image)
+            .transformed(by: CGAffineTransform(translationX: targetRect.minX, y: targetRect.minY))
+            .cropped(to: targetRect)
+    }
+
+    private func cameraShapePath(shape: CameraFrameShape, in rect: CGRect) -> CGPath {
+        switch shape {
+        case .circle, .ellipse:
+            return CGPath(ellipseIn: rect, transform: nil)
+        case .square:
+            return CGPath(rect: rect, transform: nil)
+        case .roundedSquare:
+            let radius = min(rect.width, rect.height) * 0.14
+            return CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
+        }
     }
 
     private func aspectFill(_ image: CIImage, into targetRect: CGRect) -> CIImage {
@@ -390,30 +423,45 @@ public final class CameraShapeVideoCompositor: NSObject, AVVideoCompositing {
         switch shape {
         case .square:
             return image.cropped(to: targetRect)
-        case .circle, .roundedSquare:
-            let radius: CGFloat
-            switch shape {
-            case .circle:
-                radius = min(targetRect.width, targetRect.height) / 2
-            case .roundedSquare:
-                radius = min(targetRect.width, targetRect.height) * 0.14
-            case .square:
-                radius = 0
-            }
-            guard let mask = roundedRectangleMask(in: targetRect, radius: radius) else {
+        case .circle, .ellipse:
+            // A true ellipse mask matching the live overlay's Path(ellipseIn:). The
+            // target rect is square for 圆形 (so this is a real circle) and keeps the
+            // frame's aspect ratio for 椭圆.
+            guard let mask = shapeMask(shape: shape, in: targetRect) else {
                 return image.cropped(to: targetRect)
             }
-            let transparent = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0))
-                .cropped(to: targetRect)
-            return image
-                .applyingFilter(
-                    "CIBlendWithAlphaMask",
-                    parameters: [
-                        kCIInputBackgroundImageKey: transparent,
-                        "inputMaskImage": mask
-                    ]
-                )
-                .cropped(to: targetRect)
+            return blend(image, mask: mask, targetRect: targetRect)
+        case .roundedSquare:
+            guard let mask = shapeMask(shape: .roundedSquare, in: targetRect) else {
+                return image.cropped(to: targetRect)
+            }
+            return blend(image, mask: mask, targetRect: targetRect)
+        }
+    }
+
+    private func blend(_ image: CIImage, mask: CIImage, targetRect: CGRect) -> CIImage {
+        let transparent = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0))
+            .cropped(to: targetRect)
+        return image
+            .applyingFilter(
+                "CIBlendWithAlphaMask",
+                parameters: [
+                    kCIInputBackgroundImageKey: transparent,
+                    "inputMaskImage": mask
+                ]
+            )
+            .cropped(to: targetRect)
+    }
+
+    private func shapeMask(shape: CameraFrameShape, in rect: CGRect) -> CIImage? {
+        switch shape {
+        case .roundedSquare:
+            let radius = min(rect.width, rect.height) * 0.14
+            return roundedRectangleMask(in: rect, radius: radius)
+        case .circle, .ellipse:
+            return ellipseMask(in: rect)
+        case .square:
+            return roundedRectangleMask(in: rect, radius: 0)
         }
     }
 
@@ -427,12 +475,37 @@ public final class CameraShapeVideoCompositor: NSObject, AVVideoCompositing {
         return filter.outputImage?.cropped(to: rect)
     }
 
-    private func cameraTargetRect(frame: NormalizedRect, renderSize: CGSize) -> CGRect {
-        CGRect(
-            x: renderSize.width * frame.x,
-            y: renderSize.height * (1 - frame.y - frame.height),
-            width: renderSize.width * frame.width,
-            height: renderSize.height * frame.height
+    private func ellipseMask(in rect: CGRect) -> CIImage? {
+        let width = max(1, Int(rect.width.rounded(.up)))
+        let height = max(1, Int(rect.height.rounded(.up)))
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return nil
+        }
+        context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        context.fillEllipse(in: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
+        guard let image = context.makeImage() else { return nil }
+        return CIImage(cgImage: image)
+            .transformed(by: CGAffineTransform(translationX: rect.minX, y: rect.minY))
+            .cropped(to: rect)
+    }
+
+    private func cameraTargetRect(frame: NormalizedRect, shape: CameraFrameShape, renderSize: CGSize) -> CGRect {
+        // Shared bubble geometry (see NormalizedRect.cameraBubbleRect) returns a
+        // top-left-origin rect; CIImage space is bottom-left, so flip Y here.
+        let topLeft = frame.cameraBubbleRect(in: renderSize, shape: shape)
+        return CGRect(
+            x: topLeft.minX,
+            y: renderSize.height - topLeft.maxY,
+            width: topLeft.width,
+            height: topLeft.height
         )
     }
 
