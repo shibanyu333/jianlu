@@ -66,6 +66,32 @@ public final class CameraShapeVideoCompositor: NSObject, AVVideoCompositing {
     private let ciContext = CIContext(options: [.cacheIntermediates: false])
     private let colorSpace = CGColorSpaceCreateDeviceRGB()
 
+    // Frame-to-frame caches, only ever touched from the serial `renderQueue`. The
+    // annotation overlay is identical for every frame between two annotation
+    // events, and the bubble mask/border are identical while the bubble is not
+    // being dragged — rebuilding them per frame allocated and redrew full-size
+    // bitmaps 30 times per exported second.
+    private let cache = RenderCache()
+
+    private final class RenderCache: @unchecked Sendable {
+        var annotationInstruction: CameraShapeVideoCompositionInstruction?
+        var annotationEventCount = -1
+        var annotationOverlay: CIImage?
+        var cameraChromeKey: CameraChromeKey?
+        var cameraChrome = CameraChrome(mask: nil, border: nil)
+    }
+
+    private struct CameraChromeKey: Equatable {
+        var shape: CameraFrameShape
+        var targetRect: CGRect
+        var strokeScale: CGFloat
+    }
+
+    private struct CameraChrome {
+        var mask: CIImage?
+        var border: CIImage?
+    }
+
     public var sourcePixelBufferAttributes: [String: any Sendable]? {
         [
             kCVPixelBufferPixelFormatTypeKey as String: [
@@ -126,9 +152,7 @@ public final class CameraShapeVideoCompositor: NSObject, AVVideoCompositing {
             image = compositeAnnotations(
                 over: image,
                 at: compositionTime,
-                events: instruction.annotationEvents,
-                renderSize: instruction.renderSize,
-                strokeScale: instruction.strokeScale
+                instruction: instruction
             )
 
             if let cameraTrackID = instruction.cameraTrackID,
@@ -195,25 +219,56 @@ public final class CameraShapeVideoCompositor: NSObject, AVVideoCompositing {
     private func compositeAnnotations(
         over baseImage: CIImage,
         at time: TimeInterval,
-        events: [EffectEvent],
-        renderSize: CGSize,
-        strokeScale: CGFloat
+        instruction: CameraShapeVideoCompositionInstruction
     ) -> CIImage {
-        guard !events.isEmpty,
-              let overlay = annotationOverlayImage(at: time, events: events, renderSize: renderSize, strokeScale: strokeScale) else {
-            return baseImage
+        let events = instruction.annotationEvents
+        guard !events.isEmpty else { return baseImage }
+
+        // The visible annotation set only changes when another event crosses the
+        // time cutoff, so the cached overlay is keyed on how many (time-sorted)
+        // events apply at this frame.
+        let eventCount = eventCount(atOrBefore: time + 0.0001, in: events)
+        if cache.annotationInstruction !== instruction || cache.annotationEventCount != eventCount {
+            cache.annotationInstruction = instruction
+            cache.annotationEventCount = eventCount
+            cache.annotationOverlay = annotationOverlayImage(
+                eventCount: eventCount,
+                events: events,
+                renderSize: instruction.renderSize,
+                strokeScale: instruction.strokeScale
+            )
         }
 
+        guard let overlay = cache.annotationOverlay else {
+            return baseImage
+        }
         return overlay.composited(over: baseImage)
     }
 
+    /// How many events apply at or before `cutoff`. `events` is sorted by time
+    /// (see the instruction initializer), so a binary search replaces the previous
+    /// per-frame walk over every recorded event.
+    private func eventCount(atOrBefore cutoff: TimeInterval, in events: [EffectEvent]) -> Int {
+        var low = 0
+        var high = events.count
+        while low < high {
+            let mid = (low + high) / 2
+            if events[mid].time <= cutoff {
+                low = mid + 1
+            } else {
+                high = mid
+            }
+        }
+        return low
+    }
+
     private func annotationOverlayImage(
-        at time: TimeInterval,
+        eventCount: Int,
         events: [EffectEvent],
         renderSize: CGSize,
         strokeScale: CGFloat
     ) -> CIImage? {
-        let annotations = activeAnnotations(at: time, events: events)
+        let annotations = activeAnnotations(in: events.prefix(eventCount))
         guard !annotations.isEmpty else { return nil }
 
         let width = max(1, Int(renderSize.width.rounded(.up)))
@@ -246,13 +301,11 @@ public final class CameraShapeVideoCompositor: NSObject, AVVideoCompositing {
         return CIImage(cgImage: image).cropped(to: CGRect(origin: .zero, size: renderSize))
     }
 
-    private func activeAnnotations(at time: TimeInterval, events: [EffectEvent]) -> [AnnotationEvent] {
-        let eventCutoff = time + 0.0001
+    private func activeAnnotations(in events: ArraySlice<EffectEvent>) -> [AnnotationEvent] {
         var activeByID: [UUID: AnnotationEvent] = [:]
         var order: [UUID] = []
 
         for event in events {
-            guard event.time <= eventCutoff else { break }
             switch event {
             case .annotation(let annotation):
                 if activeByID[annotation.id] == nil {
@@ -339,13 +392,31 @@ public final class CameraShapeVideoCompositor: NSObject, AVVideoCompositing {
             return baseImage
         }
 
+        let chrome = cameraChrome(shape: state.shape, targetRect: targetRect, strokeScale: strokeScale)
         let fittedCamera = aspectFill(cameraImage, into: targetRect)
-        let shapedCamera = maskedCamera(fittedCamera, shape: state.shape, targetRect: targetRect)
+        let shapedCamera = maskedCamera(fittedCamera, shape: state.shape, targetRect: targetRect, mask: chrome.mask)
         var composited = shapedCamera.composited(over: baseImage)
-        if let border = cameraBorderImage(shape: state.shape, targetRect: targetRect, strokeScale: strokeScale) {
+        if let border = chrome.border {
             composited = border.composited(over: composited)
         }
         return composited
+    }
+
+    /// The bubble's shape mask and white border depend only on shape, rect and
+    /// stroke scale, which stay constant unless the bubble is being dragged —
+    /// reuse them instead of drawing two fresh bitmaps for every exported frame.
+    private func cameraChrome(shape: CameraFrameShape, targetRect: CGRect, strokeScale: CGFloat) -> CameraChrome {
+        let key = CameraChromeKey(shape: shape, targetRect: targetRect, strokeScale: strokeScale)
+        if key == cache.cameraChromeKey {
+            return cache.cameraChrome
+        }
+        let chrome = CameraChrome(
+            mask: shape == .square ? nil : shapeMask(shape: shape, in: targetRect),
+            border: cameraBorderImage(shape: shape, targetRect: targetRect, strokeScale: strokeScale)
+        )
+        cache.cameraChromeKey = key
+        cache.cameraChrome = chrome
+        return chrome
     }
 
     /// The white bubble border the live preview draws (3pt stroke). Rendered here so
@@ -419,7 +490,7 @@ public final class CameraShapeVideoCompositor: NSObject, AVVideoCompositing {
             .cropped(to: targetRect)
     }
 
-    private func maskedCamera(_ image: CIImage, shape: CameraFrameShape, targetRect: CGRect) -> CIImage {
+    private func maskedCamera(_ image: CIImage, shape: CameraFrameShape, targetRect: CGRect, mask: CIImage?) -> CIImage {
         switch shape {
         case .square:
             return image.cropped(to: targetRect)
@@ -427,12 +498,12 @@ public final class CameraShapeVideoCompositor: NSObject, AVVideoCompositing {
             // A true ellipse mask matching the live overlay's Path(ellipseIn:). The
             // target rect is square for 圆形 (so this is a real circle) and keeps the
             // frame's aspect ratio for 椭圆.
-            guard let mask = shapeMask(shape: shape, in: targetRect) else {
+            guard let mask else {
                 return image.cropped(to: targetRect)
             }
             return blend(image, mask: mask, targetRect: targetRect)
         case .roundedSquare:
-            guard let mask = shapeMask(shape: .roundedSquare, in: targetRect) else {
+            guard let mask else {
                 return image.cropped(to: targetRect)
             }
             return blend(image, mask: mask, targetRect: targetRect)
@@ -509,7 +580,21 @@ public final class CameraShapeVideoCompositor: NSObject, AVVideoCompositing {
         )
     }
 
+    /// The newest layout at or before `time`. `states` is sorted by time (see the
+    /// instruction initializer), so this is a binary search instead of a linear
+    /// walk per frame — camera drags record up to 30 layout events per second.
     private func state(at time: TimeInterval, in states: [CameraLayoutEvent]) -> CameraLayoutEvent? {
-        states.last { $0.time <= time } ?? states.first
+        guard !states.isEmpty else { return nil }
+        var low = 0
+        var high = states.count
+        while low < high {
+            let mid = (low + high) / 2
+            if states[mid].time <= time {
+                low = mid + 1
+            } else {
+                high = mid
+            }
+        }
+        return low > 0 ? states[low - 1] : states.first
     }
 }

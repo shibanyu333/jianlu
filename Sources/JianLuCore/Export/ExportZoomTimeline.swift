@@ -92,9 +92,13 @@ public enum ExportZoomTimeline {
         duration: TimeInterval,
         at time: TimeInterval
     ) -> ExportZoomEffect? {
-        activeEffect(regions: regions(from: states, duration: duration), states: states, at: time)
+        let sortedStates = states.sorted { $0.time < $1.time }
+        return activeEffect(regions: regions(from: sortedStates, duration: duration), states: sortedStates, at: time)
     }
 
+    /// `states` must be sorted by time (the compositor instruction sorts once up
+    /// front; the convenience overload above sorts before delegating), so the
+    /// per-frame lookup can binary-search instead of walking every recorded event.
     public static func activeEffect(
         regions: [ExportZoomRegion],
         states: [ZoomEvent],
@@ -107,14 +111,13 @@ public enum ExportZoomTimeline {
         }
 
         let progress = animationProgress(for: active, at: time)
-        let baseDepth = resolvedDepth(for: active, states: states, at: time)
-        let depth = 1 + (max(1, baseDepth) - 1) * progress
+        let resolved = resolvedFocusAndDepth(for: active, states: states, at: time)
+        let depth = 1 + (max(1, resolved.depth) - 1) * progress
         guard depth > 1.001 else { return nil }
-        let focus = resolvedFocus(for: active, states: states, at: time)
         return ExportZoomEffect(
             depth: depth,
-            focusX: focus.x,
-            focusY: focus.y
+            focusX: resolved.focus.x,
+            focusY: resolved.focus.y
         )
     }
 
@@ -190,39 +193,46 @@ public enum ExportZoomTimeline {
         )
     }
 
-    private static func resolvedFocus(
+    /// The focus and depth at `time`, following the latest recorded zoom event within
+    /// the region (so mid-zoom focus moves and ⌃⌥⌘=/- adjustments are reflected).
+    /// Falls back to the region's opening state before any later event applies.
+    ///
+    /// `states` is sorted by time, so instead of scanning every recorded event on
+    /// every exported frame this binary-searches the newest event at or before the
+    /// effective time and walks back at most past same-instant events.
+    private static func resolvedFocusAndDepth(
         for region: ExportZoomRegion,
         states: [ZoomEvent],
         at time: TimeInterval
-    ) -> NormalizedPoint {
+    ) -> (focus: NormalizedPoint, depth: Double) {
         let rampOut = min(rampOutSeconds, region.duration * 0.4)
         let effectiveTime = min(max(time, region.start), max(region.start, region.end - rampOut))
         var focus = region.focus
-
-        for state in states where state.time >= region.start && state.time <= effectiveTime && state.magnification > 1.001 {
-            focus = clamped(state.focus)
-        }
-
-        return clamped(focus)
-    }
-
-    /// The zoom depth at `time`, following the latest recorded magnification within
-    /// the region (so mid-zoom adjustments, up or down, are reflected). Falls back to
-    /// the region's opening depth before any later event applies.
-    private static func resolvedDepth(
-        for region: ExportZoomRegion,
-        states: [ZoomEvent],
-        at time: TimeInterval
-    ) -> Double {
-        let rampOut = min(rampOutSeconds, region.duration * 0.4)
-        let effectiveTime = min(max(time, region.start), max(region.start, region.end - rampOut))
         var depth = region.depth
 
-        for state in states where state.time >= region.start && state.time <= effectiveTime && state.magnification > 1.001 {
-            depth = state.magnification
+        var low = 0
+        var high = states.count
+        while low < high {
+            let mid = (low + high) / 2
+            if states[mid].time <= effectiveTime {
+                low = mid + 1
+            } else {
+                high = mid
+            }
         }
 
-        return max(1, depth)
+        var index = low - 1
+        while index >= 0, states[index].time >= region.start {
+            let state = states[index]
+            if state.magnification > 1.001 {
+                focus = clamped(state.focus)
+                depth = state.magnification
+                break
+            }
+            index -= 1
+        }
+
+        return (clamped(focus), max(1, depth))
     }
 
     private static func smoothstep(_ rawValue: Double) -> Double {

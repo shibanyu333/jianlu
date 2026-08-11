@@ -9,6 +9,15 @@ public final class CameraFrameProcessor: @unchecked Sendable {
     private let colorSpace = CGColorSpaceCreateDeviceRGB()
     private var photoBackgroundCache: [CameraBackgroundStyle: CIImage] = [:]
     private var customBackgroundCache: [String: CIImage] = [:]
+    private var staticBackgroundKey: StaticBackgroundKey?
+    private var staticBackgroundImage: CIImage?
+
+    private struct StaticBackgroundKey: Equatable {
+        var style: CameraBackgroundStyle
+        var blur: CameraBackgroundBlur
+        var customImagePath: String?
+        var extent: CGRect
+    }
     private var lastFaceRect: CGRect?
     private var faceDetectionCountdown = 0
     private let faceDetectionFrameInterval = 8
@@ -34,7 +43,7 @@ public final class CameraFrameProcessor: @unchecked Sendable {
 
         if preferences.cameraBackgroundStyle != .original || preferences.cameraBackgroundBlur != .off {
             if let mask = personMask(for: pixelBuffer, extent: extent) {
-                let background = backgroundImage(for: source, extent: extent, preferences: preferences)
+                let background = resolvedBackgroundImage(for: source, extent: extent, preferences: preferences)
                 image = source.applyingFilter(
                     "CIBlendWithMask",
                     parameters: [
@@ -55,7 +64,7 @@ public final class CameraFrameProcessor: @unchecked Sendable {
     }
 
     private func fallbackBlendedImage(for source: CIImage, extent: CGRect, preferences: RecordingPreferences) -> CIImage {
-        let background = backgroundImage(for: source, extent: extent, preferences: preferences)
+        let background = resolvedBackgroundImage(for: source, extent: extent, preferences: preferences)
         let foregroundAlpha = source.applyingFilter(
             "CIColorMatrix",
             parameters: [
@@ -65,6 +74,53 @@ public final class CameraFrameProcessor: @unchecked Sendable {
         return foregroundAlpha
             .applyingFilter("CISourceOverCompositing", parameters: [kCIInputBackgroundImageKey: background])
             .cropped(to: extent)
+    }
+
+    /// The background for the current preferences, reusing a pre-rendered bitmap
+    /// when the style does not depend on the live camera frame.
+    private func resolvedBackgroundImage(for source: CIImage, extent: CGRect, preferences: RecordingPreferences) -> CIImage {
+        staticBackground(for: source, extent: extent, preferences: preferences)
+            ?? backgroundImage(for: source, extent: extent, preferences: preferences)
+    }
+
+    /// Gradients, built-in scenes and the custom picture are static per (style,
+    /// blur, image, size), but as lazy CIImage recipes their gradient and
+    /// Gaussian-blur chain was re-executed on the GPU for every camera frame.
+    /// Render the recipe once into a bitmap and reuse it. `.original` (and a
+    /// missing custom picture, which falls back to blurring the live feed) stays
+    /// dynamic and returns nil.
+    private func staticBackground(for source: CIImage, extent: CGRect, preferences: RecordingPreferences) -> CIImage? {
+        let style = preferences.cameraBackgroundStyle
+        guard style != .original else { return nil }
+        if style == .custom {
+            guard let path = preferences.cameraBackgroundImagePath, !path.isEmpty,
+                  cachedCustomBackground(path: path) != nil else {
+                return nil
+            }
+        }
+
+        let key = StaticBackgroundKey(
+            style: style,
+            blur: preferences.cameraBackgroundBlur,
+            customImagePath: style == .custom ? preferences.cameraBackgroundImagePath : nil,
+            extent: extent
+        )
+        if key == staticBackgroundKey, let cached = staticBackgroundImage {
+            return cached
+        }
+
+        // None of the styles left at this point reads `source` (guarded above), so
+        // the recipe is frame-independent and safe to freeze into a bitmap.
+        let recipe = backgroundImage(for: source, extent: extent, preferences: preferences)
+        guard let rendered = ciContext.createCGImage(recipe, from: extent, format: .BGRA8, colorSpace: colorSpace) else {
+            return recipe
+        }
+        let image = CIImage(cgImage: rendered)
+            .transformed(by: CGAffineTransform(translationX: extent.minX, y: extent.minY))
+            .cropped(to: extent)
+        staticBackgroundKey = key
+        staticBackgroundImage = image
+        return image
     }
 
     private func backgroundImage(
