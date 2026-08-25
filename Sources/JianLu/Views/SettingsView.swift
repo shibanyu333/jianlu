@@ -122,6 +122,22 @@ private struct RecordingSettingsTab: View {
                     )
                 )
             }
+
+            Section {
+                Toggle(
+                    tr("录制结束后打开主窗口", "Open the main window when recording stops"),
+                    isOn: $appState.preferences.openMainWindowAfterRecording
+                )
+            } header: {
+                SettingsSectionHeader(tr("窗口", "Window"), systemImage: "macwindow")
+            } footer: {
+                SettingsFootnote(
+                    tr(
+                        "默认关闭：录制结束后简录留在后台，不会抢走你正在用的窗口。随时点菜单栏图标 →「显示主窗口」即可剪辑导出。",
+                        "Off by default: when a recording stops JianLu stays in the background instead of stealing focus. Use the menu bar icon › Show main window whenever you want to edit and export."
+                    )
+                )
+            }
         }
         .formStyle(.grouped)
     }

@@ -76,6 +76,7 @@ enum CaptureRegionSelectionPhase {
 }
 
 enum ScreenshotEditingTool: CaseIterable, Hashable {
+    case select
     case pen
     case highlight
     case line
@@ -84,6 +85,12 @@ enum ScreenshotEditingTool: CaseIterable, Hashable {
     case ellipse
     case text
     case mosaic
+
+    /// Whether picking this tool draws something new. `.select` only picks up and
+    /// adjusts markup that is already on the screenshot.
+    var isDrawingTool: Bool {
+        self != .select
+    }
 
     var annotationTool: AnnotationTool? {
         switch self {
@@ -99,13 +106,15 @@ enum ScreenshotEditingTool: CaseIterable, Hashable {
             .rectangle
         case .ellipse:
             .ellipse
-        case .text, .mosaic:
+        case .select, .text, .mosaic:
             nil
         }
     }
 
     var title: String {
         switch self {
+        case .select:
+            tr("选择", "Select")
         case .pen:
             tr("画笔", "Pen")
         case .highlight:
@@ -127,6 +136,8 @@ enum ScreenshotEditingTool: CaseIterable, Hashable {
 
     var symbol: String {
         switch self {
+        case .select:
+            "cursorarrow"
         case .pen:
             "pencil"
         case .highlight:
@@ -158,12 +169,25 @@ final class CaptureRegionSelectionModel: ObservableObject {
     @Published var selectionRect: CGRect
     @Published var phase: CaptureRegionSelectionPhase = .selecting
     @Published var capturedImage: CGImage?
-    @Published var selectedScreenshotTool: ScreenshotEditingTool? = .pen
+    @Published var selectedScreenshotTool: ScreenshotEditingTool = .pen
     @Published var markups: [ScreenshotMarkup] = []
     @Published var currentStrokePoints: [StrokePoint] = []
     @Published var currentMosaicRect: NormalizedRect?
     @Published var pendingTextAnchor: NormalizedPoint?
     @Published var pendingText = ""
+    /// The markup the grips are attached to. Every finished markup becomes the
+    /// selection so it can be dragged into place right after it is drawn.
+    @Published var selectedMarkupID: UUID?
+
+    /// Whole-list snapshots taken before every edit, so undo also walks back moves,
+    /// resizes and deletions — not just the last thing drawn.
+    private var markupUndoStack: [[ScreenshotMarkup]] = []
+    /// The selected markup as it was when the current drag started; every drag frame
+    /// is applied to this, never to the already-moved copy, so nothing accumulates.
+    private var draggedMarkupOriginal: ScreenshotMarkup?
+    /// Which markup the current run of arrow-key nudges belongs to.
+    private var lastNudgedMarkupID: UUID?
+    private static let markupUndoLimit = 60
 
     let displayID: UInt32
     let screenSize: CGSize
@@ -301,6 +325,9 @@ final class CaptureRegionSelectionModel: ObservableObject {
         currentMosaicRect = nil
         pendingTextAnchor = nil
         pendingText = ""
+        selectedMarkupID = nil
+        markupUndoStack = []
+        draggedMarkupOriginal = nil
         selectedScreenshotTool = .pen
         phase = .editing
     }
@@ -323,11 +350,13 @@ final class CaptureRegionSelectionModel: ObservableObject {
 
     func selectScreenshotTool(_ tool: ScreenshotEditingTool) {
         commitPendingText()
-        selectedScreenshotTool = selectedScreenshotTool == tool ? nil : tool
+        // Tapping the active tool again falls back to select/move instead of a mode
+        // where clicking does nothing at all.
+        selectedScreenshotTool = selectedScreenshotTool == tool ? .select : tool
     }
 
     func beginStroke(at point: NormalizedPoint) {
-        guard let tool = selectedScreenshotTool?.annotationTool else { return }
+        guard let tool = selectedScreenshotTool.annotationTool else { return }
         currentStrokePoints = [StrokePoint(time: 0, point: point)]
         if tool.isShapeTool {
             currentStrokePoints.append(StrokePoint(time: 0, point: point))
@@ -335,9 +364,9 @@ final class CaptureRegionSelectionModel: ObservableObject {
     }
 
     func appendStrokePoint(_ point: NormalizedPoint) {
-        guard selectedScreenshotTool?.annotationTool != nil else { return }
+        guard let tool = selectedScreenshotTool.annotationTool else { return }
         let strokePoint = StrokePoint(time: 0, point: point)
-        if selectedScreenshotTool?.annotationTool?.isShapeTool == true, currentStrokePoints.count >= 2 {
+        if tool.isShapeTool, currentStrokePoints.count >= 2 {
             currentStrokePoints[currentStrokePoints.count - 1] = strokePoint
         } else {
             currentStrokePoints.append(strokePoint)
@@ -345,21 +374,20 @@ final class CaptureRegionSelectionModel: ObservableObject {
     }
 
     func finishStroke() {
-        guard let tool = selectedScreenshotTool?.annotationTool, currentStrokePoints.count > 1 else {
+        guard let tool = selectedScreenshotTool.annotationTool, currentStrokePoints.count > 1 else {
             currentStrokePoints = []
             return
         }
-        markups.append(
-            .stroke(
-                AnnotationEvent(
-                    time: 0,
-                    tool: tool,
-                    points: currentStrokePoints,
-                    colorHex: tool == .highlight ? "#FFD43B" : "#FF3B30",
-                    lineWidth: tool == .highlight ? 18 : 5
-                )
-            )
+        let annotation = AnnotationEvent(
+            time: 0,
+            tool: tool,
+            points: currentStrokePoints,
+            colorHex: tool == .highlight ? AnnotationStyle.highlightColorHex : AnnotationStyle.penColorHex,
+            lineWidth: tool == .highlight ? 18 : 5
         )
+        pushMarkupUndoSnapshot()
+        markups.append(.stroke(annotation))
+        selectedMarkupID = annotation.id
         currentStrokePoints = []
     }
 
@@ -378,7 +406,10 @@ final class CaptureRegionSelectionModel: ObservableObject {
             currentMosaicRect = nil
             return
         }
-        markups.append(.mosaic(ScreenshotMosaicMarkup(rect: rect)))
+        let mosaic = ScreenshotMosaicMarkup(rect: rect)
+        pushMarkupUndoSnapshot()
+        markups.append(.mosaic(mosaic))
+        selectedMarkupID = mosaic.id
         currentMosaicRect = nil
     }
 
@@ -392,12 +423,17 @@ final class CaptureRegionSelectionModel: ObservableObject {
         guard let anchor = pendingTextAnchor else { return }
         let text = pendingText.trimmingCharacters(in: .whitespacesAndNewlines)
         if !text.isEmpty {
-            markups.append(.text(ScreenshotTextMarkup(text: text, anchor: anchor)))
+            let markup = ScreenshotTextMarkup(text: text, anchor: anchor)
+            pushMarkupUndoSnapshot()
+            markups.append(.text(markup))
+            selectedMarkupID = markup.id
         }
         pendingTextAnchor = nil
         pendingText = ""
     }
 
+    /// Walks back one whole edit — a stroke, but also a move, a resize, a delete or
+    /// a clear, because every mutation snapshots the list first.
     func undoLastMarkup() {
         if pendingTextAnchor != nil {
             pendingTextAnchor = nil
@@ -412,16 +448,115 @@ final class CaptureRegionSelectionModel: ObservableObject {
             currentMosaicRect = nil
             return
         }
-        guard !markups.isEmpty else { return }
-        markups.removeLast()
+        guard let previous = markupUndoStack.popLast() else { return }
+        markups = previous
+        if let selectedMarkupID, !markups.contains(where: { $0.id == selectedMarkupID }) {
+            self.selectedMarkupID = nil
+        }
     }
 
     func clearMarkups() {
+        if !markups.isEmpty {
+            pushMarkupUndoSnapshot()
+        }
         markups = []
         currentStrokePoints = []
         currentMosaicRect = nil
         pendingTextAnchor = nil
         pendingText = ""
+        selectedMarkupID = nil
+    }
+
+    // MARK: - Adjusting markup that is already on the screenshot
+
+    var selectedMarkup: ScreenshotMarkup? {
+        guard let selectedMarkupID else { return nil }
+        return markups.first { $0.id == selectedMarkupID }
+    }
+
+    var canUndoMarkup: Bool {
+        !markupUndoStack.isEmpty || hasUnfinishedMarkup
+    }
+
+    var canClearMarkup: Bool {
+        !markups.isEmpty || hasUnfinishedMarkup
+    }
+
+    func selectMarkup(id: UUID?) {
+        commitPendingText()
+        guard selectedMarkupID != id else { return }
+        selectedMarkupID = id
+    }
+
+    /// Snapshots the list once at the start of a drag so the whole gesture — not
+    /// every intermediate frame — is a single undo step.
+    func beginMarkupDrag() {
+        guard let selectedMarkup else { return }
+        draggedMarkupOriginal = selectedMarkup
+        pushMarkupUndoSnapshot()
+    }
+
+    /// `translation` is normalized to the screenshot, and is always applied to the
+    /// markup as it was when the drag started.
+    func dragSelectedMarkup(translation: CGSize) {
+        guard let original = draggedMarkupOriginal, let index = selectedMarkupIndex else { return }
+        markups[index] = original.moved(by: translation)
+    }
+
+    func resizeSelectedMarkup(handle: ScreenshotMarkupHandle, to point: NormalizedPoint) {
+        guard let original = draggedMarkupOriginal, let index = selectedMarkupIndex else { return }
+        markups[index] = original.resized(handle: handle, to: point)
+    }
+
+    func endMarkupDrag() {
+        draggedMarkupOriginal = nil
+    }
+
+    /// Arrow-key nudge, in editor points. A run of nudges collapses into one undo
+    /// step so key repeat cannot bury the rest of the history.
+    func nudgeSelectedMarkup(dx: CGFloat, dy: CGFloat) {
+        guard pendingTextAnchor == nil, let markup = selectedMarkup, let index = selectedMarkupIndex else { return }
+        if lastNudgedMarkupID != selectedMarkupID {
+            pushMarkupUndoSnapshot()
+            lastNudgedMarkupID = selectedMarkupID
+        }
+        markups[index] = markup.moved(
+            by: CGSize(width: dx / max(1, selectionRect.width), height: dy / max(1, selectionRect.height))
+        )
+    }
+
+    func deleteSelectedMarkup() {
+        guard pendingTextAnchor == nil, let index = selectedMarkupIndex else { return }
+        pushMarkupUndoSnapshot()
+        markups.remove(at: index)
+        selectedMarkupID = nil
+    }
+
+    /// Escape drops the selection first, so a stray Escape while adjusting a box
+    /// cannot throw the whole screenshot away.
+    func dismissSelectionOrCancel() {
+        if isEditing, selectedMarkupID != nil {
+            selectedMarkupID = nil
+            return
+        }
+        cancel()
+    }
+
+    private var hasUnfinishedMarkup: Bool {
+        pendingTextAnchor != nil || !currentStrokePoints.isEmpty || currentMosaicRect != nil
+    }
+
+    private var selectedMarkupIndex: Int? {
+        guard let selectedMarkupID else { return nil }
+        return markups.firstIndex { $0.id == selectedMarkupID }
+    }
+
+    private func pushMarkupUndoSnapshot() {
+        markupUndoStack.append(markups)
+        if markupUndoStack.count > Self.markupUndoLimit {
+            markupUndoStack.removeFirst()
+        }
+        lastNudgedMarkupID = nil
     }
 
     func saveEditingImage() {
@@ -653,9 +788,10 @@ struct CaptureRegionSelectionView: View {
         let horizontalPadding: CGFloat = 24
         let halfToolbarWidth = min(390, max(160, size.width / 2 - horizontalPadding))
         let x = min(max(rect.midX, halfToolbarWidth + horizontalPadding), max(halfToolbarWidth + horizontalPadding, size.width - halfToolbarWidth - horizontalPadding))
-        let belowY = rect.maxY + 40
-        let aboveY = rect.minY - 40
-        let y = belowY + 42 < size.height ? belowY : max(44, aboveY)
+        let belowY = rect.maxY + 44
+        let aboveY = rect.minY - 44
+        // The editing toolbar carries a hint line, so it needs more room than the bare row.
+        let y = belowY + 56 < size.height ? belowY : max(52, aboveY)
         return CGPoint(x: x, y: y)
     }
 }
@@ -664,6 +800,19 @@ private struct ScreenshotInlineToolbar: View {
     @ObservedObject var model: CaptureRegionSelectionModel
 
     var body: some View {
+        VStack(spacing: 6) {
+            toolbarRow
+            Text(tr(
+                "拖动标注可移动，拖角点改大小，Delete 删除，方向键微调",
+                "Drag a markup to move it, drag a grip to resize, Delete removes, arrow keys nudge"
+            ))
+            .font(.caption)
+            .foregroundStyle(.white.opacity(0.86))
+            .shadow(radius: 4)
+        }
+    }
+
+    private var toolbarRow: some View {
         HStack(spacing: 7) {
             ForEach(ScreenshotEditingTool.allCases, id: \.self) { tool in
                 Button {
@@ -681,12 +830,21 @@ private struct ScreenshotInlineToolbar: View {
                 .frame(height: 22)
 
             Button {
+                model.deleteSelectedMarkup()
+            } label: {
+                Label(tr("删除所选", "Delete selected"), systemImage: "trash")
+            }
+            .labelStyle(.iconOnly)
+            .disabled(model.selectedMarkupID == nil)
+            .help(tr("删除所选标注（Delete）", "Delete the selected markup (Delete)"))
+
+            Button {
                 model.undoLastMarkup()
             } label: {
                 Label(tr("撤销", "Undo"), systemImage: "arrow.uturn.backward")
             }
             .labelStyle(.iconOnly)
-            .disabled(model.markups.isEmpty && model.currentStrokePoints.isEmpty && model.currentMosaicRect == nil && model.pendingTextAnchor == nil)
+            .disabled(!model.canUndoMarkup)
             .help(tr("撤销", "Undo"))
 
             Button {
@@ -695,7 +853,7 @@ private struct ScreenshotInlineToolbar: View {
                 Label(tr("清空", "Clear"), systemImage: "trash.slash")
             }
             .labelStyle(.iconOnly)
-            .disabled(model.markups.isEmpty && model.currentStrokePoints.isEmpty && model.currentMosaicRect == nil && model.pendingTextAnchor == nil)
+            .disabled(!model.canClearMarkup)
             .help(tr("清空", "Clear"))
 
             Divider()
@@ -761,9 +919,20 @@ private struct PendingScreenshotTextField: View {
 }
 
 private struct ScreenshotInlineMarkupLayer: View {
+    /// What the current drag is doing. Decided once, on the drag's first event, from
+    /// whatever sits under the pointer where it started.
+    private enum MarkupDragMode: Equatable {
+        case draw
+        case move
+        case resize(ScreenshotMarkupHandle)
+        /// A drag that neither draws nor grabs anything — select mode on bare pixels.
+        case idle
+    }
+
     @ObservedObject var model: CaptureRegionSelectionModel
     let imageRect: CGRect
     @State private var activeTextStart: CGPoint?
+    @State private var dragMode: MarkupDragMode?
 
     var body: some View {
         Canvas { context, _ in
@@ -772,51 +941,120 @@ private struct ScreenshotInlineMarkupLayer: View {
             }
             drawCurrentStroke(in: &context)
             drawCurrentMosaic(in: &context)
+            drawSelectionChrome(in: &context)
         }
         .contentShape(Rectangle())
-        .allowsHitTesting(model.selectedScreenshotTool != nil)
         .gesture(markupGesture)
     }
 
     private var markupGesture: some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
-                guard imageRect.contains(value.location), let tool = model.selectedScreenshotTool else { return }
-                let point = normalizedPoint(value.location)
-                switch tool {
-                case .text:
-                    if activeTextStart == nil {
-                        activeTextStart = value.startLocation
-                    }
-                case .mosaic:
-                    model.updateMosaic(from: normalizedPoint(value.startLocation), to: point)
-                case .pen, .highlight, .line, .arrow, .rectangle, .ellipse:
-                    if model.currentStrokePoints.isEmpty {
-                        model.beginStroke(at: point)
-                    } else {
-                        model.appendStrokePoint(point)
-                    }
+                let mode = dragMode ?? beginDrag(at: value.startLocation)
+                dragMode = mode
+                switch mode {
+                case .resize(let handle):
+                    model.resizeSelectedMarkup(handle: handle, to: normalizedPoint(value.location))
+                case .move:
+                    model.dragSelectedMarkup(
+                        translation: ScreenshotMarkupGeometry.normalizedTranslation(value.translation, in: imageRect)
+                    )
+                case .draw:
+                    continueDrawing(value)
+                case .idle:
+                    break
                 }
             }
             .onEnded { value in
-                guard imageRect.contains(value.location), let tool = model.selectedScreenshotTool else {
-                    activeTextStart = nil
-                    model.finishStroke()
-                    model.finishMosaic()
-                    return
+                switch dragMode {
+                case .move, .resize:
+                    model.endMarkupDrag()
+                case .draw:
+                    finishDrawing(value)
+                case .idle, .none:
+                    break
                 }
-                switch tool {
-                case .text:
-                    if distance(from: activeTextStart ?? value.startLocation, to: value.location) < 8 {
-                        model.beginText(at: normalizedPoint(value.location))
-                    }
-                    activeTextStart = nil
-                case .mosaic:
-                    model.finishMosaic()
-                case .pen, .highlight, .line, .arrow, .rectangle, .ellipse:
-                    model.finishStroke()
-                }
+                dragMode = nil
             }
+    }
+
+    /// Grips first, then a grabbable markup, then drawing — so a finished markup can
+    /// always be picked back up, while a press on bare screenshot still starts a new one.
+    private func beginDrag(at location: CGPoint) -> MarkupDragMode {
+        if let selected = model.selectedMarkup,
+           let handle = ScreenshotMarkupGeometry.handle(for: selected, at: location, in: imageRect) {
+            model.beginMarkupDrag()
+            return .resize(handle)
+        }
+        if let grabbed = grabbableMarkup(at: location) {
+            model.selectMarkup(id: grabbed.id)
+            model.beginMarkupDrag()
+            return .move
+        }
+        model.selectMarkup(id: nil)
+        guard model.selectedScreenshotTool.isDrawingTool, imageRect.contains(location) else { return .idle }
+        return .draw
+    }
+
+    /// In select mode any markup can be picked up. While a drawing tool is active only
+    /// the current selection is grabbable, so pressing inside an existing shape draws a
+    /// new one instead of dragging the old one away.
+    private func grabbableMarkup(at location: CGPoint) -> ScreenshotMarkup? {
+        guard model.selectedScreenshotTool.isDrawingTool else {
+            // Topmost first, and a filled hit inside closed shapes — in select mode
+            // nothing is being drawn, so grabbing a box by its middle is what you want.
+            return model.markups.reversed().first {
+                ScreenshotMarkupGeometry.hitTest($0, at: location, in: imageRect, includingInterior: true)
+            }
+        }
+        guard let selected = model.selectedMarkup,
+              ScreenshotMarkupGeometry.hitTest(selected, at: location, in: imageRect) else {
+            return nil
+        }
+        return selected
+    }
+
+    private func continueDrawing(_ value: DragGesture.Value) {
+        guard imageRect.contains(value.location) else { return }
+        let point = normalizedPoint(value.location)
+        switch model.selectedScreenshotTool {
+        case .select:
+            break
+        case .text:
+            if activeTextStart == nil {
+                activeTextStart = value.startLocation
+            }
+        case .mosaic:
+            model.updateMosaic(from: normalizedPoint(value.startLocation), to: point)
+        case .pen, .highlight, .line, .arrow, .rectangle, .ellipse:
+            if model.currentStrokePoints.isEmpty {
+                model.beginStroke(at: point)
+            } else {
+                model.appendStrokePoint(point)
+            }
+        }
+    }
+
+    private func finishDrawing(_ value: DragGesture.Value) {
+        guard imageRect.contains(value.location) else {
+            activeTextStart = nil
+            model.finishStroke()
+            model.finishMosaic()
+            return
+        }
+        switch model.selectedScreenshotTool {
+        case .select:
+            break
+        case .text:
+            if distance(from: activeTextStart ?? value.startLocation, to: value.location) < 8 {
+                model.beginText(at: normalizedPoint(value.location))
+            }
+            activeTextStart = nil
+        case .mosaic:
+            model.finishMosaic()
+        case .pen, .highlight, .line, .arrow, .rectangle, .ellipse:
+            model.finishStroke()
+        }
     }
 
     private func draw(_ markup: ScreenshotMarkup, in context: inout GraphicsContext) {
@@ -831,13 +1069,13 @@ private struct ScreenshotInlineMarkupLayer: View {
     }
 
     private func drawCurrentStroke(in context: inout GraphicsContext) {
-        guard let tool = model.selectedScreenshotTool?.annotationTool, model.currentStrokePoints.count > 1 else { return }
+        guard let tool = model.selectedScreenshotTool.annotationTool, model.currentStrokePoints.count > 1 else { return }
         draw(
             AnnotationEvent(
                 time: 0,
                 tool: tool,
                 points: model.currentStrokePoints,
-                colorHex: tool == .highlight ? "#FFD43B" : "#FF3B30",
+                colorHex: tool == .highlight ? AnnotationStyle.highlightColorHex : AnnotationStyle.penColorHex,
                 lineWidth: tool == .highlight ? 18 : 5
             ),
             in: &context
@@ -849,41 +1087,37 @@ private struct ScreenshotInlineMarkupLayer: View {
         drawMosaic(rect: rect, in: &context)
     }
 
-    private func draw(_ annotation: AnnotationEvent, in context: inout GraphicsContext) {
-        let points = annotation.points.map { point in
-            CGPoint(
-                x: imageRect.minX + point.point.x * imageRect.width,
-                y: imageRect.minY + point.point.y * imageRect.height
-            )
-        }
-        guard let first = points.first else { return }
+    /// The dashed box and grips around the selected markup. They live only in this
+    /// preview layer — the exported PNG is rendered from `markups` alone.
+    private func drawSelectionChrome(in context: inout GraphicsContext) {
+        guard let markup = model.selectedMarkup else { return }
 
-        var path = Path()
-        switch annotation.tool {
-        case .rectangle, .ellipse:
-            guard let last = points.last else { return }
-            let rect = CGRect(
-                x: min(first.x, last.x),
-                y: min(first.y, last.y),
-                width: abs(last.x - first.x),
-                height: abs(last.y - first.y)
-            )
-            if annotation.tool == .ellipse {
-                path.addEllipse(in: rect)
-            } else {
-                path.addRoundedRect(in: rect, cornerSize: CGSize(width: 4, height: 4))
-            }
-        case .line, .arrow:
-            path.move(to: first)
-            if let last = points.last {
-                path.addLine(to: last)
-            }
-        case .pen, .highlight:
-            path.move(to: first)
-            for point in points.dropFirst() {
-                path.addLine(to: point)
-            }
+        let bounds = ScreenshotMarkupGeometry.boundingRect(for: markup, in: imageRect).insetBy(dx: -6, dy: -6)
+        if bounds.width > 0, bounds.height > 0 {
+            let outline = Path(roundedRect: bounds, cornerRadius: 5)
+            context.stroke(outline, with: .color(.black.opacity(0.38)), style: StrokeStyle(lineWidth: 2.5))
+            context.stroke(outline, with: .color(.white.opacity(0.95)), style: StrokeStyle(lineWidth: 1.2, dash: [5, 4]))
         }
+
+        let radius = ScreenshotMarkupGeometry.handleRadius
+        for spec in ScreenshotMarkupGeometry.handles(for: markup, in: imageRect) {
+            let circle = Path(
+                ellipseIn: CGRect(
+                    x: spec.position.x - radius,
+                    y: spec.position.y - radius,
+                    width: radius * 2,
+                    height: radius * 2
+                )
+            )
+            context.fill(circle, with: .color(.white))
+            context.stroke(circle, with: .color(.accentColor), lineWidth: 2)
+        }
+    }
+
+    private func draw(_ annotation: AnnotationEvent, in context: inout GraphicsContext) {
+        // Same path the hit-testing uses, so a stroke is grabbable exactly where it shows.
+        let path = ScreenshotMarkupGeometry.path(for: annotation, in: imageRect)
+        guard !path.isEmpty else { return }
 
         let color = Color(annotationHex: annotation.colorHex, tool: annotation.tool)
         context.stroke(
@@ -892,16 +1126,13 @@ private struct ScreenshotInlineMarkupLayer: View {
             style: StrokeStyle(lineWidth: annotation.lineWidth, lineCap: .round, lineJoin: .round)
         )
 
-        if annotation.tool == .arrow, points.count >= 2, let end = points.last {
-            drawArrowHead(context: &context, from: points[points.count - 2], to: end, color: color)
-        }
+        guard annotation.tool == .arrow, annotation.points.count >= 2 else { return }
+        let points = annotation.points.map { ScreenshotMarkupGeometry.viewPoint($0.point, in: imageRect) }
+        drawArrowHead(context: &context, from: points[points.count - 2], to: points[points.count - 1], color: color)
     }
 
     private func draw(_ text: ScreenshotTextMarkup, in context: inout GraphicsContext) {
-        let point = CGPoint(
-            x: imageRect.minX + text.anchor.x * imageRect.width,
-            y: imageRect.minY + text.anchor.y * imageRect.height
-        )
+        let point = ScreenshotMarkupGeometry.viewPoint(text.anchor, in: imageRect)
         context.draw(
             Text(text.text)
                 .font(.system(size: text.fontSize, weight: .semibold))
@@ -912,12 +1143,7 @@ private struct ScreenshotInlineMarkupLayer: View {
     }
 
     private func drawMosaic(rect: NormalizedRect, in context: inout GraphicsContext) {
-        let displayRect = CGRect(
-            x: imageRect.minX + rect.x * imageRect.width,
-            y: imageRect.minY + rect.y * imageRect.height,
-            width: rect.width * imageRect.width,
-            height: rect.height * imageRect.height
-        )
+        let displayRect = ScreenshotMarkupGeometry.viewRect(rect, in: imageRect)
         let path = Path(roundedRect: displayRect, cornerRadius: 3)
         context.fill(path, with: .color(.gray.opacity(0.46)))
         context.stroke(path, with: .color(.white.opacity(0.72)), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
@@ -957,10 +1183,7 @@ private struct ScreenshotInlineMarkupLayer: View {
     }
 
     private func normalizedPoint(_ point: CGPoint) -> NormalizedPoint {
-        NormalizedPoint(
-            x: min(max(0, (point.x - imageRect.minX) / max(1, imageRect.width)), 1),
-            y: min(max(0, (point.y - imageRect.minY) / max(1, imageRect.height)), 1)
-        )
+        ScreenshotMarkupGeometry.normalizedPoint(point, in: imageRect)
     }
 
     private func distance(from start: CGPoint, to end: CGPoint) -> CGFloat {

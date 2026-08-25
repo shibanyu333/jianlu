@@ -19,61 +19,83 @@ struct RecordingControlBarView: View {
             Divider()
                 .frame(height: 24)
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ControlBarButton(title: overlay.isPaused ? tr("继续", "Resume") : tr("暂停", "Pause"), symbol: overlay.isPaused ? "play.fill" : "pause.fill", isActive: overlay.isPaused) {
-                        overlay.requestTogglePause()
-                    }
-                    ControlBarButton(title: tr("结束", "Stop"), symbol: "stop.fill", isActive: true, tint: .red) {
-                        overlay.requestStop()
-                    }
-
-                    Divider()
-                        .frame(height: 24)
-
-                    ControlBarButton(title: overlay.zoomClickModeEnabled ? tr("鼠标放大已开", "Zoom on") : tr("鼠标放大", "Mouse zoom"), symbol: "plus.magnifyingglass", isActive: overlay.zoomClickModeEnabled) {
-                        overlay.requestToggleClickZoomMode()
-                    }
-
-                    Divider()
-                        .frame(height: 24)
-
-                    ControlBarButton(title: tr("画笔", "Pen"), symbol: "pencil", isActive: overlay.selectedTool == .pen) {
-                        overlay.selectTool(.pen)
-                    }
-                    ControlBarButton(title: tr("箭头", "Arrow"), symbol: "arrow.up.right", isActive: overlay.selectedTool == .arrow) {
-                        overlay.selectTool(.arrow)
-                    }
-                    ControlBarButton(title: tr("圆形", "Ellipse"), symbol: "circle", isActive: overlay.selectedTool == .ellipse) {
-                        overlay.selectTool(.ellipse)
-                    }
-                    ControlBarButton(title: tr("清除", "Clear"), symbol: "trash.slash", isActive: false, isDisabled: overlay.isPaused) {
-                        overlay.clearAllAnnotations()
-                    }
-
-                    MoreControlMenu(overlay: overlay)
-
-                    if overlay.isTransientZoomActive {
-                        Text(tr("缩放中 ", "Zoom ") + "\(String(format: "%.1f", overlay.zoomMagnification))x")
-                            .font(.callout.weight(.semibold))
-                            .foregroundStyle(.blue)
-                            .padding(.horizontal, 6)
-                    }
-
-                    if overlay.isPaused {
-                        Text(tr("已暂停", "Paused"))
-                            .font(.callout.weight(.semibold))
-                            .foregroundStyle(.orange)
-                            .padding(.horizontal, 8)
-                    }
-                }
-                .fixedSize(horizontal: true, vertical: false)
+            if overlay.isFinishing {
+                finishingIndicator
+            } else {
+                controlRow
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(8)
         .background(.regularMaterial, in: Capsule())
         .shadow(radius: 10)
+    }
+
+    /// Stopping finalizes the movie, which can take several seconds. Saying so on the
+    /// bar is the difference between "it's working" and "the button is broken".
+    private var finishingIndicator: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+            Text(tr("正在结束录制，请稍候…", "Finishing the recording…"))
+                .font(.callout.weight(.medium))
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 4)
+    }
+
+    private var controlRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ControlBarButton(title: overlay.isPaused ? tr("继续", "Resume") : tr("暂停", "Pause"), symbol: overlay.isPaused ? "play.fill" : "pause.fill", isActive: overlay.isPaused) {
+                    overlay.requestTogglePause()
+                }
+                ControlBarButton(title: tr("结束", "Stop"), symbol: "stop.fill", isActive: true, tint: .red) {
+                    overlay.requestStop()
+                }
+
+                Divider()
+                    .frame(height: 24)
+
+                ControlBarButton(title: overlay.zoomClickModeEnabled ? tr("鼠标放大已开", "Zoom on") : tr("鼠标放大", "Mouse zoom"), symbol: "plus.magnifyingglass", isActive: overlay.zoomClickModeEnabled) {
+                    overlay.requestToggleClickZoomMode()
+                }
+
+                Divider()
+                    .frame(height: 24)
+
+                ControlBarButton(title: tr("画笔", "Pen"), symbol: "pencil", isActive: overlay.selectedTool == .pen) {
+                    overlay.selectTool(.pen)
+                }
+                ControlBarButton(title: tr("箭头", "Arrow"), symbol: "arrow.up.right", isActive: overlay.selectedTool == .arrow) {
+                    overlay.selectTool(.arrow)
+                }
+                ControlBarButton(title: tr("圆形", "Ellipse"), symbol: "circle", isActive: overlay.selectedTool == .ellipse) {
+                    overlay.selectTool(.ellipse)
+                }
+                ControlBarButton(title: tr("清除", "Clear"), symbol: "trash.slash", isActive: false, isDisabled: overlay.isPaused) {
+                    overlay.clearAllAnnotations()
+                }
+
+                MoreControlMenu(overlay: overlay)
+
+                if overlay.isTransientZoomActive {
+                    Text(tr("缩放中 ", "Zoom ") + "\(String(format: "%.1f", overlay.zoomMagnification))x")
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(.blue)
+                        .padding(.horizontal, 6)
+                }
+
+                if overlay.isPaused {
+                    Text(tr("已暂停", "Paused"))
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(.orange)
+                        .padding(.horizontal, 8)
+                }
+            }
+            .fixedSize(horizontal: true, vertical: false)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var dragGesture: some Gesture {

@@ -52,7 +52,13 @@ final class CaptureRegionSelectionWindowController {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.sharingType = .none
         panel.onCancel = { [weak model] in
-            model?.cancel()
+            model?.dismissSelectionOrCancel()
+        }
+        panel.onDelete = { [weak model] in
+            model?.deleteSelectedMarkup()
+        }
+        panel.onNudge = { [weak model] dx, dy in
+            model?.nudgeSelectedMarkup(dx: dx, dy: dy)
         }
         panel.onConfirm = { [weak model] in
             model?.confirmDefaultAction()
@@ -165,6 +171,9 @@ private final class KeyablePanel: NSPanel {
     var onCancel: (() -> Void)?
     var onConfirm: (() -> Void)?
     var onMouseMoved: ((CGPoint) -> Void)?
+    var onDelete: (() -> Void)?
+    /// Arrow-key nudge of the selected markup, in editor points.
+    var onNudge: ((CGFloat, CGFloat) -> Void)?
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
@@ -181,11 +190,24 @@ private final class KeyablePanel: NSPanel {
     }
 
     override func keyDown(with event: NSEvent) {
+        // These only reach the panel when nothing else wants them, so typing into the
+        // inline text field still gets its own Delete and arrow keys.
+        let step: CGFloat = event.modifierFlags.contains(.shift) ? 10 : 1
         switch event.keyCode {
         case 53:
             onCancel?()
         case 36, 76:
             onConfirm?()
+        case 51, 117:
+            onDelete?()
+        case 123:
+            onNudge?(-step, 0)
+        case 124:
+            onNudge?(step, 0)
+        case 125:
+            onNudge?(0, step)
+        case 126:
+            onNudge?(0, -step)
         default:
             super.keyDown(with: event)
         }

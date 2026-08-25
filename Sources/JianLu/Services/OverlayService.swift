@@ -29,6 +29,10 @@ final class OverlayService: ObservableObject {
     @Published var annotations: [AnnotationEvent] = []
     @Published var currentStrokePoints: [StrokePoint] = []
     @Published var isPaused = false
+    /// Set the moment a stop is requested and cleared when the recording is really
+    /// over. Finalizing the movie can take seconds, so without this the control bar
+    /// looks frozen and the stop button reads as broken.
+    @Published private(set) var isFinishing = false
     @Published var recordingRegion: RecordingRegion?
 
     private(set) var events: [EffectEvent] = []
@@ -73,6 +77,7 @@ final class OverlayService: ObservableObject {
         recordingStartedAt = Date()
         cameraVisible = cameraEnabled
         isPaused = false
+        isFinishing = false
         selectedTool = nil
         zoomMagnification = max(1.2, zoomMagnification)
         zoomClickModeEnabled = false
@@ -102,6 +107,7 @@ final class OverlayService: ObservableObject {
     func endRecording() {
         recordingStartedAt = nil
         isPaused = false
+        isFinishing = false
         zoomClickModeEnabled = false
         zoomFollowModeEnabled = false
         zoomShortcutActive = false
@@ -206,11 +212,20 @@ final class OverlayService: ObservableObject {
         self.isPaused = isPaused
     }
 
+    /// Marks the bar as finishing straight away, so the press is visible before the
+    /// (potentially several second) finalization gets anywhere.
+    func setFinishing(_ value: Bool) {
+        isFinishing = value
+    }
+
     func requestStop() {
+        guard !isFinishing else { return }
+        setFinishing(true)
         onStop?()
     }
 
     func requestTogglePause() {
+        guard !isFinishing else { return }
         onTogglePause?()
     }
 

@@ -204,11 +204,14 @@ let controlBarViewURL = projectRoot.appendingPathComponent("Sources/JianLu/Views
 let controlBarViewSource = (try? String(contentsOf: controlBarViewURL, encoding: .utf8)) ?? ""
 let settingsViewURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/SettingsView.swift")
 let settingsViewSource = (try? String(contentsOf: settingsViewURL, encoding: .utf8)) ?? ""
+expect(settingsViewSource.contains("$appState.preferences.openMainWindowAfterRecording"), "settings can turn the post-recording main window back on")
 expect(controlBarSource.contains(".nonactivatingPanel"), "recording control bar does not activate JianLu while recording")
 expect(controlBarSource.contains("panel.orderFrontRegardless()"), "recording control bar is shown without becoming key")
 expect(controlBarSource.contains("controlBarFrame(in:"), "recording control bar uses a reusable bounded layout helper")
 expect(controlBarSource.contains("screenFrame.width - horizontalInset * 2"), "recording control bar width is bounded by the screen")
 expect(!controlBarSource.contains("max(560"), "recording control bar avoids a hard minimum width that can exceed small screens")
+expect(controlBarViewSource.contains("overlay.isFinishing"), "the control bar shows that a stop is in progress instead of looking frozen")
+expect(controlBarViewSource.contains("正在结束录制，请稍候…"), "the control bar names what it is waiting on while the movie is finalized")
 expect(controlBarViewSource.contains("ScrollView(.horizontal, showsIndicators: false)"), "recording control bar keeps all named controls reachable on narrow screens")
 expect(controlBarViewSource.contains("fixedSize(horizontal: true, vertical: false)"), "recording control bar does not squeeze button labels until they disappear")
 expect(controlBarViewSource.contains("鼠标放大已开"), "main zoom toolbar button names the enabled mouse zoom mode")
@@ -285,6 +288,32 @@ expect(regionSelectionSource.contains("SelectionCornerHandles"), "region selecti
 expect(regionSelectionSource.contains("Return 开始录制，Esc 取消，⌃⌥⌘R 也可确认当前区域"), "region selection shows the actual available keyboard actions")
 expect(!regionSelectionSource.contains("再次按主录制快捷键"), "region selection avoids vague shortcut wording")
 
+expect(regionSelectionSource.contains("case select"), "inline screenshot editing has a select/move tool alongside the drawing tools")
+expect(regionSelectionSource.contains("@Published var selectedMarkupID: UUID?"), "inline screenshot editing tracks which markup the grips belong to")
+expect(regionSelectionSource.contains("selectedMarkupID = annotation.id"), "a freshly drawn stroke is selected so it can be nudged into place immediately")
+expect(regionSelectionSource.contains("func dragSelectedMarkup(translation: CGSize)"), "finished markup can be dragged to a new position instead of only undone")
+expect(regionSelectionSource.contains("func resizeSelectedMarkup(handle: ScreenshotMarkupHandle, to point: NormalizedPoint)"), "finished shapes can be resized by their grips")
+expect(regionSelectionSource.contains("func deleteSelectedMarkup()"), "one markup can be deleted without clearing the whole screenshot")
+expect(regionSelectionSource.contains("markupUndoStack"), "screenshot undo walks back moves, resizes and deletions, not just the last stroke")
+expect(regionSelectionSource.contains("ScreenshotMarkupGeometry.path(for: annotation, in: imageRect)"), "the editor strokes the same path it hit-tests against")
+expect(
+    !regionSelectionSource.contains("allowsHitTesting(model.selectedScreenshotTool != nil)"),
+    "the markup layer keeps receiving clicks so finished markup stays selectable"
+)
+
+let markupGeometryURL = projectRoot.appendingPathComponent("Sources/JianLu/Views/ScreenshotMarkupGeometry.swift")
+let markupGeometrySource = (try? String(contentsOf: markupGeometryURL, encoding: .utf8)) ?? ""
+expect(markupGeometrySource.contains("enum ScreenshotMarkupGeometry"), "screenshot markup geometry is a single source of truth for the editor")
+expect(markupGeometrySource.contains("static func hitTest"), "markup geometry can tell what the pointer grabbed")
+expect(markupGeometrySource.contains("static func handles"), "markup geometry publishes the resize grips")
+
+let markupEditingURL = projectRoot.appendingPathComponent("Sources/JianLuCore/Models/ScreenshotMarkupEditing.swift")
+let markupEditingSource = (try? String(contentsOf: markupEditingURL, encoding: .utf8)) ?? ""
+expect(markupEditingSource.contains("func moved(by translation: CGSize)"), "moving placed markup is core logic the checks can cover")
+expect(markupEditingSource.contains("func resized(handle: ScreenshotMarkupHandle, to point: NormalizedPoint)"), "resizing placed markup is core logic the checks can cover")
+expect(regionSelectionSource.contains("original.moved(by: translation)"), "the editor drags markup through the shared core maths")
+expect(regionSelectionSource.contains("original.resized(handle: handle, to: point)"), "the editor resizes markup through the shared core maths")
+
 let regionSelectionControllerURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/CaptureRegionSelectionWindowController.swift")
 let regionSelectionController = (try? String(contentsOf: regionSelectionControllerURL, encoding: .utf8)) ?? ""
 expect(regionSelectionController.contains("NSEvent.mouseLocation"), "region selection opens on the display under the pointer")
@@ -299,6 +328,9 @@ expect(regionSelectionController.contains("preferredFullScreenRegion"), "full-sc
 expect(regionSelectionController.contains("windowCandidates(for:"), "screenshot selection collects on-screen windows for auto selection")
 expect(regionSelectionController.contains("CGWindowListCopyWindowInfo"), "screenshot window auto-selection uses the system window list")
 expect(regionSelectionController.contains("acceptsMouseMovedEvents = true"), "screenshot selection receives hover updates without dragging")
+expect(regionSelectionController.contains("case 51, 117"), "Delete removes the selected markup in the screenshot editor")
+expect(regionSelectionController.contains("onNudge"), "arrow keys nudge the selected markup")
+expect(regionSelectionController.contains("model?.dismissSelectionOrCancel()"), "Escape drops the markup selection before it throws the screenshot away")
 
 let overlayWindowSourceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/OverlayWindowController.swift")
 let overlayWindowSource = (try? String(contentsOf: overlayWindowSourceURL, encoding: .utf8)) ?? ""
@@ -478,6 +510,9 @@ expect(
     "ending live zoom keeps the last preview frame for instant next-press feedback"
 )
 
+expect(overlayServiceSource.contains("@Published private(set) var isFinishing"), "the overlay owns a finishing state the control bar can show")
+expect(overlayServiceSource.contains("guard !isFinishing else { return }"), "a second stop press is ignored rather than queued while finishing")
+
 let hotkeyServiceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/HotkeyService.swift")
 let hotkeyServiceSource = (try? String(contentsOf: hotkeyServiceURL, encoding: .utf8)) ?? ""
 expect(hotkeyServiceSource.contains("startShortcutPolling()"), "zoom hotkeys have a keyboard-state polling fallback")
@@ -510,6 +545,8 @@ expect(screenshotMarkupSource.contains("public enum ScreenshotMarkup"), "screens
 expect(screenshotMarkupSource.contains("case stroke(AnnotationEvent)"), "screenshot markup reuses existing stroke annotations")
 expect(screenshotMarkupSource.contains("ScreenshotTextMarkup"), "screenshot markup supports text")
 expect(screenshotMarkupSource.contains("ScreenshotMosaicMarkup"), "screenshot markup supports mosaic regions")
+expect(screenshotMarkupSource.contains("public var anchor: NormalizedPoint"), "text markup can be repositioned after it is placed")
+expect(screenshotMarkupSource.contains("public var rect: NormalizedRect"), "mosaic markup can be moved and resized after it is placed")
 
 let screenshotMarkupRendererURL = projectRoot.appendingPathComponent("Sources/JianLuCore/Export/ScreenshotMarkupRenderer.swift")
 let screenshotMarkupRendererSource = (try? String(contentsOf: screenshotMarkupRendererURL, encoding: .utf8)) ?? ""
@@ -676,6 +713,15 @@ expect(
     !screenshotCaptureAppStateSource.contains("AppWindowUtility.restoreMainWindows()"),
     "screenshot capture stays in the inline editor instead of restoring every main window"
 )
+let stopRecordingAppStateSource = sourceSlice(
+    in: appStateSource,
+    from: "private func stopRecording() async",
+    to: "func togglePauseIntent()"
+)
+expect(
+    stopRecordingAppStateSource.contains("if preferences.openMainWindowAfterRecording {"),
+    "a finished recording only reopens the main window when the user asked for it"
+)
 expect(appStateSource.contains("try screenshotCaptureService.writePNG(image, to: url)"), "app state saves annotated screenshots through PNG writer")
 expect(appStateSource.contains("NSPasteboard.general"), "app state copies annotated screenshots to the clipboard")
 expect(appStateSource.contains("syncCameraProcessingPreferences(preferences)"), "preference changes immediately sync camera processing")
@@ -695,6 +741,18 @@ expectOrder(
     in: appStateSource,
     "camera avatar layout is synced before the recording overlay is shown"
 )
+expect(appStateSource.contains("stopRequestedDuringStartup = true"), "a stop pressed while the recording is still starting is remembered, not dropped")
+expect(
+    appStateSource.contains(
+"""
+            if stopRequestedDuringStartup {
+                stopRequestedDuringStartup = false
+                await stopRecording()
+            }
+"""),
+    "a stop remembered during startup runs as soon as the recording is up"
+)
+expect(stopRecordingAppStateSource.contains("overlayService.setFinishing(true)"), "every stop path marks the control bar as finishing")
 expect(appStateSource.contains("guard !isStartingRecording else"), "recording intent ignores duplicate actions while startup is in progress")
 expect(appStateSource.contains("isStartingRecording = true"), "recording startup state is set before devices and overlay are started")
 expect(appStateSource.contains("isStartingRecording = false"), "recording startup state is cleared after success or failure")
@@ -937,6 +995,7 @@ expect(!editorViewSource.contains("删除末段"), "editor no longer advertises 
 let statusBarControllerURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/StatusBarController.swift")
 let statusBarControllerSource = (try? String(contentsOf: statusBarControllerURL, encoding: .utf8)) ?? ""
 expect(statusBarControllerSource.contains("AppWindowUtility.restoreOrCreateMainWindow()"), "status bar can recreate a missing main window")
+expect(statusBarControllerSource.contains("currentStatusLine"), "the status bar menu reports the last result now that recordings do not reopen the window")
 
 let microphoneCaptureServiceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/MicrophoneCaptureService.swift")
 let microphoneCaptureServiceSource = (try? String(contentsOf: microphoneCaptureServiceURL, encoding: .utf8)) ?? ""

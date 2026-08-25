@@ -79,6 +79,8 @@ final class AppState: ObservableObject {
     /// on it and the final image is cropped out of it. Nil when the freeze preference is
     /// off or the grab failed, in which case the live screen is captured on confirm.
     private var frozenScreenshotImage: CGImage?
+    /// A stop pressed before the recording finished starting; honoured once it is up.
+    private var stopRequestedDuringStartup = false
     private var recordingStartedAt: Date?
     private var pauseStartedAt: TimeInterval?
     private var pausedRanges: [(start: TimeInterval, end: TimeInterval)] = []
@@ -168,9 +170,15 @@ final class AppState: ObservableObject {
             return
         }
         guard !isStartingRecording else {
-            statusMessage = tr("正在启动录制，请稍候", "Starting the recording…")
+            // The control bar is already on screen while ScreenCaptureKit spins up, so
+            // this press used to land on a dead button. Remember it and stop as soon as
+            // the recording is actually running.
+            stopRequestedDuringStartup = true
+            overlayService.setFinishing(true)
+            statusMessage = tr("正在启动录制，启动完成后会立即结束", "Starting the recording — it will stop as soon as it is up")
             return
         }
+        overlayService.setFinishing(false)
         guard !isPreparingRegionSelection else {
             statusMessage = tr("正在准备选择区域，请稍候", "Preparing the area picker…")
             return
@@ -646,6 +654,7 @@ final class AppState: ObservableObject {
         regionSelectionController.hide()
         isSelectingRegion = false
         isStartingRecording = true
+        stopRequestedDuringStartup = false
         statusMessage = tr("正在启动录制...", "Starting the recording…")
         preferences.lastSelectedRegion = region
         let recordingPreferences = preferences
@@ -753,6 +762,10 @@ final class AppState: ObservableObject {
             overlayService.prewarmZoomPreview()
             lastErrorMessage = startupWarnings.isEmpty ? nil : startupWarnings.joined(separator: "\n")
             statusMessage = startupWarnings.isEmpty ? tr("录制中：顶部快捷栏可暂停或结束录制", "Recording — use the floating bar to pause or stop") : tr("录制中：部分设备已自动降级", "Recording — some devices were skipped")
+            if stopRequestedDuringStartup {
+                stopRequestedDuringStartup = false
+                await stopRecording()
+            }
         } catch {
             if captureService.isRecording {
                 try? await captureService.stopDisplayRecording()
@@ -777,6 +790,7 @@ final class AppState: ObservableObject {
             pausedRanges = []
             isPaused = false
             isStartingRecording = false
+            stopRequestedDuringStartup = false
             lastErrorMessage = error.localizedDescription
             statusMessage = tr("启动录制失败：", "Could not start recording: ") + error.localizedDescription
             isRecording = false
@@ -787,6 +801,9 @@ final class AppState: ObservableObject {
         guard !isStoppingRecording else { return }
 
         isStoppingRecording = true
+        // Finalizing the movie can take seconds; the bar has to say so, or the stop
+        // button reads as broken and gets pressed again.
+        overlayService.setFinishing(true)
         statusMessage = tr("正在停止录制...", "Stopping the recording…")
         defer {
             isStoppingRecording = false
@@ -864,7 +881,14 @@ final class AppState: ObservableObject {
             } else {
                 statusMessage = stopWarnings.isEmpty ? tr("录制已停止，可以进入剪辑和导出", "Recording stopped — ready to edit and export") : tr("录制已停止，部分附加轨道已跳过", "Recording stopped — some extra tracks were skipped")
             }
-            AppWindowUtility.restoreMainWindows()
+            // The main window was minimized when recording started. Popping it back up
+            // would yank focus away from whatever the user moved on to, so it stays put
+            // unless they asked for it; the menu bar icon reopens it and shows the
+            // result. Failure paths below still restore it, because there the user has
+            // an error to read.
+            if preferences.openMainWindowAfterRecording {
+                AppWindowUtility.restoreMainWindows()
+            }
         } catch {
             if cameraCaptureService.hasActiveRecording {
                 try? await cameraCaptureService.stopRecording()

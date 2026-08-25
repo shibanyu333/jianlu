@@ -264,6 +264,10 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
     /// the region on that still frame, so the capture is exactly what the user saw
     /// when they pressed the key. Off = select over the live screen (macOS behavior).
     public var screenshotFreezesScreen: Bool
+    /// Bring the main window back when a recording stops. Off by default: the window
+    /// is minimized while recording, and restoring it would pull focus away from
+    /// whatever the user moved on to. The menu bar icon reopens it on demand.
+    public var openMainWindowAfterRecording: Bool
     /// UI language; `.system` follows the Mac's preferred languages.
     public var language: AppLanguage
     public var recordingDirectoryPath: String?
@@ -285,6 +289,7 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
         case captureShortcutPreset
         case screenshotAutoCopyOnFinish
         case screenshotFreezesScreen
+        case openMainWindowAfterRecording
         case language
         case recordingDirectoryPath
         case lastSelectedRegion
@@ -311,6 +316,7 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
         captureShortcutPreset: CaptureShortcutPreset = .jianLuDefault,
         screenshotAutoCopyOnFinish: Bool = true,
         screenshotFreezesScreen: Bool = true,
+        openMainWindowAfterRecording: Bool = false,
         language: AppLanguage = .system,
         recordingDirectoryPath: String? = nil,
         lastSelectedRegion: RecordingRegion? = nil
@@ -330,6 +336,7 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
         self.captureShortcutPreset = captureShortcutPreset
         self.screenshotAutoCopyOnFinish = screenshotAutoCopyOnFinish
         self.screenshotFreezesScreen = screenshotFreezesScreen
+        self.openMainWindowAfterRecording = openMainWindowAfterRecording
         self.language = language
         self.recordingDirectoryPath = recordingDirectoryPath
         self.lastSelectedRegion = lastSelectedRegion
@@ -360,6 +367,7 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
         captureShortcutPreset = (try? container.decodeIfPresent(CaptureShortcutPreset.self, forKey: .captureShortcutPreset)) ?? .jianLuDefault
         screenshotAutoCopyOnFinish = try container.decodeIfPresent(Bool.self, forKey: .screenshotAutoCopyOnFinish) ?? true
         screenshotFreezesScreen = try container.decodeIfPresent(Bool.self, forKey: .screenshotFreezesScreen) ?? true
+        openMainWindowAfterRecording = try container.decodeIfPresent(Bool.self, forKey: .openMainWindowAfterRecording) ?? false
         language = (try? container.decodeIfPresent(AppLanguage.self, forKey: .language)) ?? .system
         recordingDirectoryPath = try container.decodeIfPresent(String.self, forKey: .recordingDirectoryPath)
         lastSelectedRegion = try container.decodeIfPresent(RecordingRegion.self, forKey: .lastSelectedRegion)
@@ -379,7 +387,8 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
         zoomMouseButton: .middle,
         captureShortcutPreset: .jianLuDefault,
         screenshotAutoCopyOnFinish: true,
-        screenshotFreezesScreen: true
+        screenshotFreezesScreen: true,
+        openMainWindowAfterRecording: false
     )
 }
 

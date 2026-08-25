@@ -30,6 +30,7 @@ struct JianLuCoreChecks {
         runBeautyPipelineChecks()
         runAnnotationImageRendererChecks()
         runScreenshotMarkupRendererChecks()
+        runScreenshotMarkupEditingChecks()
 
         do {
             try await runVideoCompositorChecks()
@@ -741,6 +742,133 @@ private func runAnnotationImageRendererChecks() {
     let bottomPixel = pixelColor(in: topRendered, x: 40, y: 72)
     expect(topPixel.r > 180 && topPixel.g < 120 && topPixel.b < 120, "screenshot annotations use top-origin normalized coordinates")
     expect(bottomPixel.r > 230 && bottomPixel.g > 230 && bottomPixel.b > 230, "screenshot annotations are not vertically flipped when saved")
+}
+
+private func runScreenshotMarkupEditingChecks() {
+    func corners(_ markup: ScreenshotMarkup, _ message: String) -> (minX: Double, minY: Double, maxX: Double, maxY: Double) {
+        guard case .stroke(let annotation) = markup,
+              let first = annotation.points.first?.point,
+              let last = annotation.points.last?.point else {
+            expect(false, message)
+            return (0, 0, 0, 0)
+        }
+        return (min(first.x, last.x), min(first.y, last.y), max(first.x, last.x), max(first.y, last.y))
+    }
+
+    let rectangle = ScreenshotMarkup.stroke(
+        AnnotationEvent(
+            time: 0,
+            tool: .rectangle,
+            points: [
+                StrokePoint(time: 0, point: NormalizedPoint(x: 0.1, y: 0.1)),
+                StrokePoint(time: 0, point: NormalizedPoint(x: 0.3, y: 0.3))
+            ],
+            colorHex: AnnotationStyle.penColorHex,
+            lineWidth: 5
+        )
+    )
+
+    let moved = rectangle.moved(by: CGSize(width: 0.5, height: 0.2))
+    let movedCorners = corners(moved, "a moved rectangle is still a stroke")
+    expectClose(movedCorners.minX, 0.6, "moving a rectangle shifts its left edge")
+    expectClose(movedCorners.minY, 0.3, "moving a rectangle shifts its top edge")
+    expectClose(movedCorners.maxX, 0.8, "moving a rectangle keeps its width")
+    expectClose(movedCorners.maxY, 0.5, "moving a rectangle keeps its height")
+    expect(moved.id == rectangle.id, "moved markup keeps its identity so a drag never loses hold of it")
+
+    // Dragged off the edge, the shape slides along it instead of collapsing.
+    let pushed = corners(rectangle.moved(by: CGSize(width: 5, height: -5)), "a clamped rectangle is still a stroke")
+    expectClose(pushed.minX, 0.8, "a rectangle dragged past the right edge stops there")
+    expectClose(pushed.maxX, 1.0, "a rectangle dragged past the right edge keeps its width")
+    expectClose(pushed.minY, 0.0, "a rectangle dragged past the top edge stops there")
+    expectClose(pushed.maxY, 0.2, "a rectangle dragged past the top edge keeps its height")
+
+    let resized = corners(
+        rectangle.resized(handle: .bottomRight, to: NormalizedPoint(x: 0.5, y: 0.62)),
+        "a resized rectangle is still a stroke"
+    )
+    expectClose(resized.minX, 0.1, "the bottom-right grip pins the left edge")
+    expectClose(resized.minY, 0.1, "the bottom-right grip pins the top edge")
+    expectClose(resized.maxX, 0.5, "the bottom-right grip moves the right edge")
+    expectClose(resized.maxY, 0.62, "the bottom-right grip moves the bottom edge")
+
+    let flipped = corners(
+        rectangle.resized(handle: .topLeft, to: NormalizedPoint(x: 0.5, y: 0.5)),
+        "a flipped rectangle is still a stroke"
+    )
+    expectClose(flipped.minX, 0.3, "a grip dragged past the far corner flips the box instead of inverting it")
+    expectClose(flipped.maxX, 0.5, "a flipped box keeps positive width")
+
+    let arrow = ScreenshotMarkup.stroke(
+        AnnotationEvent(
+            time: 0,
+            tool: .arrow,
+            points: [
+                StrokePoint(time: 0, point: NormalizedPoint(x: 0.2, y: 0.2)),
+                StrokePoint(time: 0, point: NormalizedPoint(x: 0.8, y: 0.8))
+            ],
+            colorHex: AnnotationStyle.penColorHex,
+            lineWidth: 5
+        )
+    )
+    guard case .stroke(let repointed) = arrow.resized(handle: .end, to: NormalizedPoint(x: 0.4, y: 0.9)) else {
+        expect(false, "a repointed arrow is still a stroke")
+        return
+    }
+    expectClose(repointed.points[0].point.x, 0.2, "moving an arrow's tip leaves its tail alone")
+    expectClose(repointed.points[1].point.x, 0.4, "an arrow's tip follows its grip")
+    expectClose(repointed.points[1].point.y, 0.9, "an arrow's tip follows its grip vertically")
+
+    let text = ScreenshotMarkup.text(ScreenshotTextMarkup(text: "Hi", anchor: NormalizedPoint(x: 0.3, y: 0.3)))
+    guard case .text(let movedText) = text.moved(by: CGSize(width: 0.1, height: -0.1)) else {
+        expect(false, "moved text is still text")
+        return
+    }
+    expectClose(movedText.anchor.x, 0.4, "text follows a drag horizontally")
+    expectClose(movedText.anchor.y, 0.2, "text follows a drag vertically")
+
+    let freehand = ScreenshotMarkup.stroke(
+        AnnotationEvent(
+            time: 0,
+            tool: .pen,
+            points: (0..<5).map { StrokePoint(time: 0, point: NormalizedPoint(x: 0.1 + Double($0) * 0.05, y: 0.4)) },
+            colorHex: AnnotationStyle.penColorHex,
+            lineWidth: 5
+        )
+    )
+    expect(
+        freehand.resized(handle: .bottomRight, to: NormalizedPoint(x: 0.9, y: 0.9)) == freehand,
+        "freehand strokes have no grips and are left alone by a resize"
+    )
+
+    // A moved mosaic must actually hide a different part of the picture, not just
+    // report new numbers: the editing maths and the renderer have to agree.
+    guard let baseImage = makeGradientImage(width: 96, height: 96) else {
+        expect(false, "screenshot markup editing test creates a base image")
+        return
+    }
+    let mosaic = ScreenshotMarkup.mosaic(
+        ScreenshotMosaicMarkup(rect: NormalizedRect(x: 0, y: 0, width: 0.5, height: 0.5), blockSize: 8)
+    )
+    guard let rendered = ScreenshotMarkupRenderer.render(
+        baseImage: baseImage,
+        markups: [mosaic.moved(by: CGSize(width: 0.5, height: 0.5))]
+    ) else {
+        expect(false, "screenshot markup renderer handles a moved mosaic")
+        return
+    }
+    let vacatedA = pixelColor(in: rendered, x: 2, y: 2)
+    let vacatedB = pixelColor(in: rendered, x: 6, y: 6)
+    expect(
+        vacatedA.r != vacatedB.r || vacatedA.g != vacatedB.g,
+        "the area a mosaic was dragged away from is sharp again"
+    )
+    let coveredA = pixelColor(in: rendered, x: 50, y: 50)
+    let coveredB = pixelColor(in: rendered, x: 54, y: 54)
+    expect(
+        coveredA.r == coveredB.r && coveredA.g == coveredB.g && coveredA.b == coveredB.b,
+        "the area a mosaic was dragged onto is pixelated"
+    )
 }
 
 private func runScreenshotMarkupRendererChecks() {

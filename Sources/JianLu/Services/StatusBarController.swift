@@ -26,6 +26,15 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private func rebuildMenu() {
         menu.removeAllItems()
 
+        // Recordings no longer pop the main window open, so this line is where the
+        // "recording stopped" result actually reaches the user.
+        if let status = currentStatusLine {
+            let statusLineItem = NSMenuItem(title: status, action: nil, keyEquivalent: "")
+            statusLineItem.isEnabled = false
+            menu.addItem(statusLineItem)
+            menu.addItem(.separator())
+        }
+
         let recordingTitle = appState?.isRecording == true ? tr("停止录制", "Stop recording") : tr("选择区域", "Select area")
         menu.addItem(NSMenuItem(title: recordingTitle, action: #selector(toggleRecording), keyEquivalent: ""))
 
@@ -43,6 +52,14 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         for item in menu.items {
             item.target = self
         }
+    }
+
+    /// The current status message, trimmed to one short line for the menu.
+    private var currentStatusLine: String? {
+        guard let message = appState?.statusMessage.split(separator: "\n").first.map(String.init) else { return nil }
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed.count > 42 ? String(trimmed.prefix(42)) + "…" : trimmed
     }
 
     @objc private func toggleRecording() {
