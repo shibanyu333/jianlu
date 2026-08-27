@@ -51,6 +51,8 @@ final class CaptureRegionSelectionWindowController {
         panel.acceptsMouseMovedEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.sharingType = .none
+        // The controller owns the panel's lifetime; closing it must not also release it.
+        panel.isReleasedWhenClosed = false
         panel.onCancel = { [weak model] in
             model?.dismissSelectionOrCancel()
         }
@@ -111,9 +113,21 @@ final class CaptureRegionSelectionWindowController {
     }
 
     func hide() {
-        panel?.orderOut(nil)
-        panel = nil
+        // Ordering out alone leaves the panel inside `NSApp.windows`, where AppKit is
+        // free to put it back on screen the next time 简录 is activated — a full-screen
+        // overlay from a finished screenshot reappearing out of nowhere. Close it for
+        // good, and let the current event finish before it is deallocated: `hide()`
+        // runs from the editor's own buttons.
+        guard let panel else {
+            model = nil
+            return
+        }
+        self.panel = nil
         model = nil
+        panel.close()
+        DispatchQueue.main.async {
+            withExtendedLifetime(panel) {}
+        }
     }
 
     private func preferredScreen() -> NSScreen? {

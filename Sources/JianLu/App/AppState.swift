@@ -419,6 +419,9 @@ final class AppState: ObservableObject {
         statusMessage = frozenScreenshotImage == nil
             ? tr("拖拽选择截图区域，或单击自动框选的窗口", "Drag to select an area, or click a highlighted window")
             : tr("画面已冻结：拖拽选择截图区域，或单击自动框选的窗口", "Screen frozen — drag to select an area, or click a highlighted window")
+        // Remember where the focus came from before the panel activates 简录, so the
+        // screen goes back to the app the user was in once the screenshot is done.
+        AppWindowUtility.beginCaptureSession()
         showScreenshotSelectionPanel(initialRegion: nil)
     }
 
@@ -442,6 +445,7 @@ final class AppState: ObservableObject {
     }
 
     private func cancelScreenshotSelection() {
+        AppWindowUtility.endCaptureSession()
         regionSelectionController.hide()
         frozenScreenshotImage = nil
         isSelectingScreenshot = false
@@ -473,6 +477,7 @@ final class AppState: ObservableObject {
         isSelectingScreenshot = true
         lastErrorMessage = nil
         statusMessage = tr("正在截取全屏...", "Capturing the full screen…")
+        AppWindowUtility.beginCaptureSession()
         showScreenshotSelectionPanel(initialRegion: fullScreenRegion)
         regionSelectionController.beginCapturePhase()
         await captureScreenshot(region: fullScreenRegion, rememberRegion: false)
@@ -543,6 +548,7 @@ final class AppState: ObservableObject {
             statusMessage = tr("截图已就绪，可标注、涂鸦、添加文字或马赛克", "Screenshot ready — annotate, add text or mosaic")
             lastErrorMessage = nil
         } catch {
+            AppWindowUtility.endCaptureSession(showingMainWindow: true)
             regionSelectionController.hide()
             isSelectingScreenshot = false
             lastErrorMessage = error.localizedDescription
@@ -566,6 +572,10 @@ final class AppState: ObservableObject {
     }
 
     private func closeScreenshotEditing() {
+        // Focus goes back first: once the overlay is gone AppKit would pick the next
+        // active app itself, and 简录 winning that lottery is exactly the main window
+        // popping up in the user's face after every screenshot.
+        AppWindowUtility.endCaptureSession()
         regionSelectionController.hide()
         frozenScreenshotImage = nil
         isSelectingScreenshot = false

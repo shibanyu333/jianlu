@@ -49,6 +49,46 @@ enum AppWindowUtility {
         return hasVisibleMainWindow
     }
 
+    // MARK: - Capture sessions
+
+    /// The app that was frontmost when the current capture session started. A capture
+    /// panel has to activate 简录 to receive key events, and the moment that panel goes
+    /// away AppKit picks the next active app on its own — often 简录 itself, which
+    /// throws the main window in front of whatever the user was actually doing.
+    /// Remembering where the focus came from lets us hand it straight back.
+    private static var appBeforeCaptureSession: NSRunningApplication?
+    private static var isCaptureSessionActive = false
+
+    /// Call while 简录 is still in the background, before the capture panel activates
+    /// it, so the app we remember is the one the user was really working in.
+    static func beginCaptureSession() {
+        guard !isCaptureSessionActive else { return }
+        isCaptureSessionActive = true
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        // Started from 简录's own window: there is nothing to hand focus back to.
+        appBeforeCaptureSession = frontmost?.processIdentifier == getpid() ? nil : frontmost
+        let name = appBeforeCaptureSession?.localizedName ?? "JianLu"
+        logger.info("Capture session began; focus came from \(name, privacy: .public)")
+    }
+
+    /// Call *before* the capture panel is ordered out, so AppKit never gets to choose a
+    /// next active app by itself. `showingMainWindow` is for failures only, where the
+    /// user has an error message waiting in the window.
+    static func endCaptureSession(showingMainWindow: Bool = false) {
+        guard isCaptureSessionActive else { return }
+        isCaptureSessionActive = false
+        let previousApp = appBeforeCaptureSession
+        appBeforeCaptureSession = nil
+
+        if showingMainWindow {
+            restoreMainWindows()
+            return
+        }
+        guard let previousApp, !previousApp.isTerminated else { return }
+        logger.info("Capture session ended; handing focus back")
+        previousApp.activate()
+    }
+
     private static func isMainAppWindow(_ window: NSWindow) -> Bool {
         guard !(window is NSPanel), window.canBecomeKey else { return false }
         return window.identifier == mainWindowIdentifier || window.title == "简录"

@@ -197,6 +197,19 @@ expect(
     appWindowUtilitySource.contains("let hasVisibleMainWindow = window.isVisible"),
     "main window restoration only succeeds when a visible main window exists"
 )
+expect(
+    appWindowUtilitySource.contains("static func beginCaptureSession()")
+        && appWindowUtilitySource.contains("static func endCaptureSession(showingMainWindow: Bool = false)"),
+    "capture sessions remember and hand back the focus they took"
+)
+expect(
+    appWindowUtilitySource.contains("appBeforeCaptureSession = frontmost?.processIdentifier == getpid() ? nil : frontmost"),
+    "a capture started from JianLu's own window has no other app to hand focus back to"
+)
+expect(
+    appWindowUtilitySource.contains("previousApp.activate()"),
+    "ending a capture session activates the app the user came from instead of leaving JianLu in front"
+)
 
 let controlBarSourceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/RecordingControlBarWindowController.swift")
 let controlBarSource = (try? String(contentsOf: controlBarSourceURL, encoding: .utf8)) ?? ""
@@ -325,6 +338,11 @@ expect(regionSelectionController.contains("model?.confirmDefaultAction()"), "Ret
 expect(regionSelectionController.contains("hideForCapture"), "region selection can hide itself before ScreenCaptureKit captures")
 expect(regionSelectionController.contains("beginEditing(image: CGImage)"), "region selection controller can show captured images inline")
 expect(regionSelectionController.contains("preferredFullScreenRegion"), "full-screen screenshots use the pointer display region")
+expect(
+    regionSelectionController.contains("panel.isReleasedWhenClosed = false")
+        && regionSelectionController.contains("panel.close()"),
+    "the capture panel is closed, not just ordered out, so AppKit cannot show it again on the next activation"
+)
 expect(regionSelectionController.contains("windowCandidates(for:"), "screenshot selection collects on-screen windows for auto selection")
 expect(regionSelectionController.contains("CGWindowListCopyWindowInfo"), "screenshot window auto-selection uses the system window list")
 expect(regionSelectionController.contains("acceptsMouseMovedEvents = true"), "screenshot selection receives hover updates without dragging")
@@ -712,6 +730,37 @@ expect(screenshotCaptureAppStateSource.contains("Task.sleep(nanoseconds: 120_000
 expect(
     !screenshotCaptureAppStateSource.contains("AppWindowUtility.restoreMainWindows()"),
     "screenshot capture stays in the inline editor instead of restoring every main window"
+)
+expectOrder(
+    "AppWindowUtility.beginCaptureSession()",
+    before: "showScreenshotSelectionPanel(initialRegion: nil)",
+    in: appStateSource,
+    "the screenshot session remembers the frontmost app before its panel activates JianLu"
+)
+expect(
+    appStateSource.contains(
+"""
+    private func closeScreenshotEditing() {
+        // Focus goes back first: once the overlay is gone AppKit would pick the next
+        // active app itself, and 简录 winning that lottery is exactly the main window
+        // popping up in the user's face after every screenshot.
+        AppWindowUtility.endCaptureSession()
+        regionSelectionController.hide()
+"""),
+    "a finished screenshot hands focus back before its overlay is closed"
+)
+expect(
+    appStateSource.contains(
+"""
+    private func cancelScreenshotSelection() {
+        AppWindowUtility.endCaptureSession()
+        regionSelectionController.hide()
+"""),
+    "a cancelled screenshot hands focus back too"
+)
+expect(
+    screenshotCaptureAppStateSource.contains("AppWindowUtility.endCaptureSession(showingMainWindow: true)"),
+    "only a failed screenshot brings the main window forward, because it has an error to show"
 )
 let stopRecordingAppStateSource = sourceSlice(
     in: appStateSource,
