@@ -210,6 +210,18 @@ expect(
     appWindowUtilitySource.contains("previousApp.activate()"),
     "ending a capture session activates the app the user came from instead of leaving JianLu in front"
 )
+expect(
+    appWindowUtilitySource.contains("windowsStashedForCaptureSession = NSApp.windows.filter(isStashableDuringCapture)"),
+    "a capture session takes JianLu's own windows off screen, so an activation it loses the race for has nothing to surface"
+)
+expect(
+    appWindowUtilitySource.contains("window.order(.below, relativeTo: 0)"),
+    "stashed windows come back at the bottom of the stack, not in front of the app the user returned to"
+)
+expect(
+    !appWindowUtilitySource.contains("static func isStashableDuringCapture(_ window: NSWindow) -> Bool {\n        guard window.canBecomeMain"),
+    "capture stashing skips panels, which run the capture itself"
+)
 
 let controlBarSourceURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/RecordingControlBarWindowController.swift")
 let controlBarSource = (try? String(contentsOf: controlBarSourceURL, encoding: .utf8)) ?? ""

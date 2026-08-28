@@ -57,6 +57,7 @@ enum AppWindowUtility {
     /// throws the main window in front of whatever the user was actually doing.
     /// Remembering where the focus came from lets us hand it straight back.
     private static var appBeforeCaptureSession: NSRunningApplication?
+    private static var windowsStashedForCaptureSession: [NSWindow] = []
     private static var isCaptureSessionActive = false
 
     /// Call while 简录 is still in the background, before the capture panel activates
@@ -67,8 +68,17 @@ enum AppWindowUtility {
         let frontmost = NSWorkspace.shared.frontmostApplication
         // Started from 简录's own window: there is nothing to hand focus back to.
         appBeforeCaptureSession = frontmost?.processIdentifier == getpid() ? nil : frontmost
+        // Handing focus back is not enough on its own: the click that finishes a
+        // screenshot is still being processed when we ask, and AppKit can re-activate
+        // 简录 on its way out. So take our ordinary windows off screen for the length
+        // of the session — an activation 简录 wins then has nothing to surface. The
+        // full-screen capture panel is covering them anyway.
+        windowsStashedForCaptureSession = NSApp.windows.filter(isStashableDuringCapture)
+        for window in windowsStashedForCaptureSession {
+            window.orderOut(nil)
+        }
         let name = appBeforeCaptureSession?.localizedName ?? "JianLu"
-        logger.info("Capture session began; focus came from \(name, privacy: .public)")
+        logger.info("Capture session began; focus came from \(name, privacy: .public), windows stashed: \(windowsStashedForCaptureSession.count)")
     }
 
     /// Call *before* the capture panel is ordered out, so AppKit never gets to choose a
@@ -78,15 +88,43 @@ enum AppWindowUtility {
         guard isCaptureSessionActive else { return }
         isCaptureSessionActive = false
         let previousApp = appBeforeCaptureSession
+        let stashedWindows = windowsStashedForCaptureSession
         appBeforeCaptureSession = nil
+        windowsStashedForCaptureSession = []
 
-        if showingMainWindow {
-            restoreMainWindows()
+        guard !showingMainWindow, let previousApp, !previousApp.isTerminated else {
+            // Either the screenshot failed and its error needs reading, or it was
+            // started from 简录 itself — both want the window back where it was.
+            for window in stashedWindows {
+                window.makeKeyAndOrderFront(nil)
+            }
+            if showingMainWindow {
+                restoreMainWindows()
+            }
             return
         }
-        guard let previousApp, !previousApp.isTerminated else { return }
+
         logger.info("Capture session ended; handing focus back")
         previousApp.activate()
+        // Ask once more after the finishing click has been fully processed, then put
+        // our windows back at the very bottom of the stack — visible again where they
+        // were, never in front of the app the user actually went back to.
+        DispatchQueue.main.async {
+            if NSApp.isActive, !previousApp.isTerminated {
+                previousApp.activate()
+            }
+            for window in stashedWindows {
+                window.order(.below, relativeTo: 0)
+            }
+        }
+    }
+
+    /// The plain app windows a capture session hides: the main window, the fallback
+    /// window and the settings window. Panels (the capture overlay, the recording
+    /// control bar) run the capture itself and must stay.
+    private static func isStashableDuringCapture(_ window: NSWindow) -> Bool {
+        guard !(window is NSPanel), window.canBecomeMain else { return false }
+        return window.isVisible && !window.isMiniaturized
     }
 
     private static func isMainAppWindow(_ window: NSWindow) -> Bool {
