@@ -248,6 +248,15 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
     public var cameraEnabled: Bool
     public var microphoneEnabled: Bool
     public var microphoneNoiseReductionEnabled: Bool
+    /// AVFoundation `uniqueID` of the camera to record with; `nil` follows whatever
+    /// macOS reports as the default camera. Stored as an ID rather than an index so a
+    /// remembered choice survives unplugging and replugging other devices.
+    public var cameraDeviceID: String?
+    /// AVFoundation `uniqueID` of the microphone to record with; `nil` follows the
+    /// system default input. The same string drives both capture paths — it is handed
+    /// to `SCStreamConfiguration.microphoneCaptureDeviceID` for the plain path and
+    /// translated to a CoreAudio device for the noise-reduced `AVAudioEngine` path.
+    public var microphoneDeviceID: String?
     public var cameraBackgroundStyle: CameraBackgroundStyle
     public var cameraBackgroundBlur: CameraBackgroundBlur
     /// Absolute path of the user's own background image, used when
@@ -278,6 +287,8 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
         case cameraEnabled
         case microphoneEnabled
         case microphoneNoiseReductionEnabled
+        case cameraDeviceID
+        case microphoneDeviceID
         case cameraBackgroundStyle
         case cameraBackgroundBlur
         case cameraBackgroundImagePath
@@ -305,6 +316,8 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
         cameraEnabled: Bool = true,
         microphoneEnabled: Bool = true,
         microphoneNoiseReductionEnabled: Bool = false,
+        cameraDeviceID: String? = nil,
+        microphoneDeviceID: String? = nil,
         cameraBackgroundStyle: CameraBackgroundStyle,
         cameraBackgroundBlur: CameraBackgroundBlur,
         cameraBackgroundImagePath: String? = nil,
@@ -325,6 +338,8 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
         self.cameraEnabled = cameraEnabled
         self.microphoneEnabled = microphoneEnabled
         self.microphoneNoiseReductionEnabled = microphoneNoiseReductionEnabled
+        self.cameraDeviceID = cameraDeviceID
+        self.microphoneDeviceID = microphoneDeviceID
         self.cameraBackgroundStyle = cameraBackgroundStyle
         self.cameraBackgroundBlur = cameraBackgroundBlur
         self.cameraBackgroundImagePath = cameraBackgroundImagePath
@@ -348,6 +363,8 @@ public struct RecordingPreferences: Codable, Equatable, Sendable {
         cameraEnabled = try container.decodeIfPresent(Bool.self, forKey: .cameraEnabled) ?? true
         microphoneEnabled = try container.decodeIfPresent(Bool.self, forKey: .microphoneEnabled) ?? true
         microphoneNoiseReductionEnabled = try container.decodeIfPresent(Bool.self, forKey: .microphoneNoiseReductionEnabled) ?? false
+        cameraDeviceID = try container.decodeIfPresent(String.self, forKey: .cameraDeviceID)
+        microphoneDeviceID = try container.decodeIfPresent(String.self, forKey: .microphoneDeviceID)
         cameraBackgroundStyle = (try? container.decodeIfPresent(CameraBackgroundStyle.self, forKey: .cameraBackgroundStyle)) ?? .original
         cameraBackgroundBlur = (try? container.decodeIfPresent(CameraBackgroundBlur.self, forKey: .cameraBackgroundBlur)) ?? .light
         cameraBackgroundImagePath = try container.decodeIfPresent(String.self, forKey: .cameraBackgroundImagePath)

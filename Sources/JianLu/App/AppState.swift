@@ -274,6 +274,14 @@ final class AppState: ObservableObject {
         statusMessage = nextVisibility ? tr("摄像头头像框已显示", "Camera bubble shown") : tr("摄像头头像框已隐藏", "Camera bubble hidden")
     }
 
+    /// Whether the camera/microphone pickers have to sit still. Both writers lock onto
+    /// the current device's format when a take starts — the camera's frame size comes
+    /// from its first frame — so a mid-take swap would silently damage the recording
+    /// rather than change it.
+    var isDeviceSelectionLocked: Bool {
+        isRecording || isStartingRecording || isStoppingRecording
+    }
+
     private func updateDefaultCameraLayout(frame: NormalizedRect, shape: CameraFrameShape) {
         guard preferences.cameraFrame != frame || preferences.cameraShape != shape else { return }
         preferences.cameraFrame = frame
@@ -293,6 +301,7 @@ final class AppState: ObservableObject {
 
     private func syncCameraProcessingPreferences(_ preferences: RecordingPreferences) {
         cameraCaptureService.updatePreviewPreferences(preferences)
+        cameraCaptureService.selectDevice(preferences.cameraDeviceID)
         guard cameraCaptureService.hasActiveRecording else { return }
 
         cameraCaptureService.updateRecordingPreferences(preferences)
@@ -689,6 +698,9 @@ final class AppState: ObservableObject {
             // than a thrown error, so guard on the snapshot and degrade cleanly.
             let cameraAuthorized = permissionSnapshot.cameraGranted
             if cameraEnabled && cameraAuthorized {
+                if !MediaDeviceCatalog.isAvailable(preferredID: recordingPreferences.cameraDeviceID, mediaType: .video) {
+                    startupWarnings.append(tr("所选摄像头已断开，本次改用系统默认摄像头。", "The selected camera is disconnected — recording with the system default camera instead."))
+                }
                 do {
                     activeCameraRecordingURL = try await cameraCaptureService.startRecording(preferences: recordingPreferences)
                     cameraRecordingStartedAt = Date()
@@ -712,17 +724,26 @@ final class AppState: ObservableObject {
                 startupWarnings.append(tr("麦克风未授权，本次不录制讲解声音。可在系统设置 → 隐私与安全性 → 麦克风 授权后重新录制。", "Microphone access denied — no narration in this recording. Grant it in System Settings › Privacy & Security › Microphone."))
             }
 
+            // The noise-reduced path reports its own device fallback from inside the
+            // audio engine; this covers the ScreenCaptureKit path, which silently
+            // accepts a nil device ID and records the system default instead.
+            if recordingPreferences.microphoneEnabled
+                && microphoneAuthorized
+                && !recordingPreferences.microphoneNoiseReductionEnabled
+                && !MediaDeviceCatalog.isAvailable(preferredID: recordingPreferences.microphoneDeviceID, mediaType: .audio) {
+                startupWarnings.append(tr("所选麦克风已断开，本次改用系统默认麦克风。", "The selected microphone is disconnected — recording with the system default microphone instead."))
+            }
+
             if recordingPreferences.microphoneEnabled && microphoneAuthorized && recordingPreferences.microphoneNoiseReductionEnabled {
                 do {
                     activeMicrophoneRecordingURL = try microphoneCaptureService.startRecording(preferences: recordingPreferences)
                     microphoneRecordingStartedAt = Date()
-                    if let microphoneWarning = microphoneCaptureService.lastErrorMessage {
-                        startupWarnings.append(microphoneWarning)
-                    }
+                    startupWarnings.append(contentsOf: microphoneCaptureService.startupWarnings)
                 } catch {
                     activeMicrophoneRecordingURL = nil
                     microphoneNoiseReductionEnabledForRecording = false
                     actualRecordingPreferences.microphoneNoiseReductionEnabled = false
+                    startupWarnings.append(contentsOf: microphoneCaptureService.startupWarnings)
                     startupWarnings.append(tr("麦克风降噪不可用，已改用普通麦克风录制：", "Noise reduction unavailable — recording with the plain microphone: ") + error.localizedDescription)
                 }
             }
@@ -754,6 +775,7 @@ final class AppState: ObservableObject {
                 includeAppWindows: recordingPreferences.includeAppInterface,
                 microphoneEnabled: recordingPreferences.microphoneEnabled && permissionSnapshot.microphoneGranted,
                 microphoneNoiseReductionEnabled: microphoneNoiseReductionEnabledForRecording,
+                microphoneDeviceID: recordingPreferences.microphoneDeviceID,
                 region: region,
                 directoryPath: recordingPreferences.recordingDirectoryPath
             )

@@ -46,6 +46,7 @@ final class CaptureService: NSObject, ObservableObject {
         includeAppWindows: Bool,
         microphoneEnabled: Bool,
         microphoneNoiseReductionEnabled: Bool,
+        microphoneDeviceID: String?,
         region: RecordingRegion?,
         directoryPath: String?
     ) async throws -> URL {
@@ -77,7 +78,9 @@ final class CaptureService: NSObject, ObservableObject {
             configuration.excludesCurrentProcessAudio = false
             let captureMicrophoneInScreenRecording = microphoneEnabled && !microphoneNoiseReductionEnabled
             configuration.captureMicrophone = captureMicrophoneInScreenRecording
-            configuration.microphoneCaptureDeviceID = captureMicrophoneInScreenRecording ? AVCaptureDevice.default(for: .audio)?.uniqueID : nil
+            configuration.microphoneCaptureDeviceID = captureMicrophoneInScreenRecording
+                ? MediaDeviceCatalog.microphone(preferredID: microphoneDeviceID)?.uniqueID
+                : nil
 
             let recordingConfiguration = SCRecordingOutputConfiguration()
             recordingConfiguration.outputURL = outputURL

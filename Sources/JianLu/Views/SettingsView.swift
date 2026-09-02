@@ -104,6 +104,7 @@ private struct GeneralSettingsTab: View {
 
 private struct RecordingSettingsTab: View {
     @EnvironmentObject private var appState: AppState
+    @ObservedObject private var deviceCatalog = MediaDeviceCatalog.shared
 
     var body: some View {
         Form {
@@ -124,6 +125,27 @@ private struct RecordingSettingsTab: View {
             }
 
             Section {
+                MediaDevicePicker(
+                    title: tr("麦克风", "Microphone"),
+                    devices: deviceCatalog.microphones,
+                    selection: $appState.preferences.microphoneDeviceID,
+                    isLocked: appState.isDeviceSelectionLocked
+                )
+                .disabled(!appState.preferences.microphoneEnabled)
+
+                Button {
+                    deviceCatalog.refresh()
+                } label: {
+                    Label(tr("重新扫描设备", "Rescan devices"), systemImage: "arrow.clockwise")
+                }
+                .controlSize(.small)
+            } header: {
+                SettingsSectionHeader(tr("麦克风设备", "Microphone device"), systemImage: "mic")
+            } footer: {
+                SettingsFootnote(deviceFootnote)
+            }
+
+            Section {
                 Toggle(
                     tr("录制结束后打开主窗口", "Open the main window when recording stops"),
                     isOn: $appState.preferences.openMainWindowAfterRecording
@@ -140,6 +162,24 @@ private struct RecordingSettingsTab: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear {
+            // Plug/unplug notifications cover hardware changes, but a default-input
+            // swap in System Settings posts nothing — rescan whenever the pane opens.
+            deviceCatalog.refresh()
+        }
+    }
+
+    private var deviceFootnote: String {
+        if appState.isDeviceSelectionLocked {
+            return tr(
+                "录制过程中不能换麦克风，结束这次录制后即可切换。",
+                "The microphone cannot be changed mid-recording; stop this take first."
+            )
+        }
+        return tr(
+            "「跟随系统默认」会用系统设置里当前的输入设备。选定某个设备后，即使系统默认变了，简录依然录它；设备拔掉时自动退回系统默认，并在录制开始时提示。系统降噪只有系统默认麦克风、以及本身也是输出设备的麦克风支持，用别的设备时会自动改成不带降噪的录音（录的还是你选的那只麦克风）。",
+            "Follow system default uses whatever System Settings currently selects. Pick a specific device and JianLu keeps using it even if the system default changes; if it is unplugged JianLu falls back to the default and says so when recording starts. System noise reduction only works on the default microphone and on microphones that are output devices too — with any other device JianLu records that same microphone without noise reduction."
+        )
     }
 }
 
@@ -147,9 +187,30 @@ private struct RecordingSettingsTab: View {
 
 private struct CameraSettingsTab: View {
     @EnvironmentObject private var appState: AppState
+    @ObservedObject private var deviceCatalog = MediaDeviceCatalog.shared
 
     var body: some View {
         Form {
+            Section {
+                MediaDevicePicker(
+                    title: tr("摄像头", "Camera"),
+                    devices: deviceCatalog.cameras,
+                    selection: $appState.preferences.cameraDeviceID,
+                    isLocked: appState.isDeviceSelectionLocked
+                )
+
+                Button {
+                    deviceCatalog.refresh()
+                } label: {
+                    Label(tr("重新扫描设备", "Rescan devices"), systemImage: "arrow.clockwise")
+                }
+                .controlSize(.small)
+            } header: {
+                SettingsSectionHeader(tr("摄像头设备", "Camera device"), systemImage: "camera")
+            } footer: {
+                SettingsFootnote(deviceFootnote)
+            }
+
             Section {
                 CameraAvatarPreview(
                     frame: appState.preferences.cameraFrame,
@@ -267,6 +328,19 @@ private struct CameraSettingsTab: View {
         Binding(
             get: { appState.preferences.cameraFrame.width },
             set: { appState.updateDefaultCameraSize($0) }
+        )
+    }
+
+    private var deviceFootnote: String {
+        if appState.isDeviceSelectionLocked {
+            return tr(
+                "录制过程中不能换摄像头：成片画幅在第一帧就定死了，中途换镜头会把后半段裁歪。结束这次录制后即可切换。",
+                "The camera cannot be changed mid-recording: the take's frame size is fixed by the first frame, so a swap would crop the rest of it. Stop this take first."
+            )
+        }
+        return tr(
+            "包括内建摄像头、外接 USB 摄像头和「连续互通相机」的 iPhone。切换后立即生效，下次录制沿用这里的选择。",
+            "Lists the built-in camera, external USB cameras and a Continuity Camera iPhone. Switching applies immediately and the next recording uses it."
         )
     }
 }
@@ -466,6 +540,37 @@ private struct SettingsSectionHeader: View {
         Label(title, systemImage: systemImage)
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(.secondary)
+    }
+}
+
+/// Device chooser shared by the camera and microphone panes.
+///
+/// A remembered device that is currently unplugged still gets a row of its own, so the
+/// picker shows "disconnected" instead of silently sliding back to 跟随系统默认 and
+/// making the user think their choice was never saved.
+private struct MediaDevicePicker: View {
+    let title: String
+    let devices: [MediaDevice]
+    @Binding var selection: String?
+    let isLocked: Bool
+
+    var body: some View {
+        Picker(title, selection: $selection) {
+            Text(tr("跟随系统默认", "Follow system default")).tag(String?.none)
+            ForEach(devices) { device in
+                Text(device.name).tag(String?.some(device.id))
+            }
+            if let disconnectedID {
+                Text(tr("上次选择的设备（已断开）", "Previously selected device (disconnected)"))
+                    .tag(String?.some(disconnectedID))
+            }
+        }
+        .disabled(isLocked)
+    }
+
+    private var disconnectedID: String? {
+        guard let selection, !selection.isEmpty, !devices.contains(where: { $0.id == selection }) else { return nil }
+        return selection
     }
 }
 

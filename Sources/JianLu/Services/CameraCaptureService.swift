@@ -35,6 +35,9 @@ final class CameraCaptureService: NSObject, ObservableObject {
     @Published private(set) var isRecording = false
     @Published private(set) var lastErrorMessage: String?
     @Published private(set) var processedPreviewImage: CGImage?
+    /// `uniqueID` of the camera the session is actually feeding on, which is not always
+    /// the one that was asked for — an unplugged pick falls back to the system default.
+    @Published private(set) var activeDeviceID: String?
 
     private let session = AVCaptureSession()
     private let videoOutput = AVCaptureVideoDataOutput()
@@ -43,6 +46,8 @@ final class CameraCaptureService: NSObject, ObservableObject {
     private let sessionQueue = DispatchQueue(label: "com.local.JianLu.camera-session")
     private let videoQueue = DispatchQueue(label: "com.local.JianLu.camera-video")
     private var configured = false
+    private var videoInput: AVCaptureDeviceInput?
+    private var preferredDeviceID: String?
     private var sampleWriter: CameraSampleWriter?
     private(set) var currentOutputURL: URL?
 
@@ -74,13 +79,28 @@ final class CameraCaptureService: NSObject, ObservableObject {
         sampleCoordinator.updateRecordingPreferences(preferences)
     }
 
+    /// Remembers which camera to use and, when the session is already live, swaps the
+    /// input under it so the bubble changes immediately.
+    ///
+    /// Refuses to swap mid-recording on purpose: the writer fixes its dimensions from
+    /// the first frame, so a camera with a different resolution would spend the rest of
+    /// the take cropped into that frame. `AppState` disables the picker for the same
+    /// reason; this guard is what makes it true rather than merely displayed.
+    func selectDevice(_ deviceID: String?) {
+        let normalized = (deviceID?.isEmpty ?? true) ? nil : deviceID
+        guard preferredDeviceID != normalized else { return }
+        preferredDeviceID = normalized
+        guard configured, !hasActiveRecording else { return }
+        applyPreferredDevice()
+    }
+
     func configureIfNeeded() throws {
         guard !configured else { return }
 
         session.beginConfiguration()
         session.sessionPreset = .high
 
-        guard let camera = AVCaptureDevice.default(for: .video) else {
+        guard let camera = MediaDeviceCatalog.camera(preferredID: preferredDeviceID) else {
             session.commitConfiguration()
             throw CameraCaptureError.noCamera
         }
@@ -91,6 +111,8 @@ final class CameraCaptureService: NSObject, ObservableObject {
             throw CameraCaptureError.cannotAddInput
         }
         session.addInput(input)
+        videoInput = input
+        activeDeviceID = camera.uniqueID
 
         videoOutput.videoSettings = [
             kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)
@@ -104,12 +126,56 @@ final class CameraCaptureService: NSObject, ObservableObject {
         }
         session.addOutput(videoOutput)
 
-        if let connection = videoOutput.connection(with: .video), connection.isVideoMirroringSupported {
-            connection.isVideoMirrored = true
-        }
+        applyMirroring()
 
         session.commitConfiguration()
         configured = true
+    }
+
+    /// Swaps the running session's input to whatever `preferredDeviceID` now resolves
+    /// to. Keeps the old input when the new one cannot be opened, so a bad pick leaves
+    /// a working camera rather than a black bubble.
+    private func applyPreferredDevice() {
+        guard let camera = MediaDeviceCatalog.camera(preferredID: preferredDeviceID) else {
+            lastErrorMessage = CameraCaptureError.noCamera.errorDescription
+            return
+        }
+        guard camera.uniqueID != activeDeviceID else { return }
+
+        let previousInput = videoInput
+        session.beginConfiguration()
+        if let previousInput {
+            session.removeInput(previousInput)
+        }
+        do {
+            let input = try AVCaptureDeviceInput(device: camera)
+            guard session.canAddInput(input) else {
+                throw CameraCaptureError.cannotAddInput
+            }
+            session.addInput(input)
+            videoInput = input
+            activeDeviceID = camera.uniqueID
+            lastErrorMessage = nil
+        } catch {
+            if let previousInput, session.canAddInput(previousInput) {
+                session.addInput(previousInput)
+            }
+            lastErrorMessage = error.localizedDescription
+        }
+        session.commitConfiguration()
+
+        // The connection is rebuilt with the new input, so the explicit mirroring the
+        // export pipeline assumes has to be reapplied every swap.
+        applyMirroring()
+        // The previous device's last processed frame would otherwise stay on screen
+        // until the new camera delivers one.
+        processedPreviewImage = nil
+    }
+
+    private func applyMirroring() {
+        guard let connection = videoOutput.connection(with: .video), connection.isVideoMirroringSupported else { return }
+        connection.automaticallyAdjustsVideoMirroring = false
+        connection.isVideoMirrored = true
     }
 
     func startPreviewIfNeeded() {
@@ -128,6 +194,7 @@ final class CameraCaptureService: NSObject, ObservableObject {
     func startRecording(preferences: RecordingPreferences) async throws -> URL {
         var outputURL: URL?
         do {
+            selectDevice(preferences.cameraDeviceID)
             try configureIfNeeded()
             await startSessionIfNeeded()
             try await Task.sleep(nanoseconds: 300_000_000)

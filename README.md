@@ -30,6 +30,7 @@ JianLu turns *record → annotate → zoom → trim → export* into one flow, b
 |---|---|---|
 | 🎥 | 区域/全屏录制，Retina 分辨率 | Region or full-screen capture at native Retina resolution |
 | 🔍 | 单击鼠标中键放大光标区域，按键可配置 | Middle-click to magnify the cursor area; button is configurable |
+| 🎚️ | 自选摄像头与麦克风：内建、外接 USB、连续互通相机 | Pick the camera and microphone: built-in, external USB, Continuity Camera |
 | 👤 | 摄像头头像框：圆形/椭圆/方形/圆角，可拖动缩放 | Camera bubble: circle, oval, square or rounded — drag and resize |
 | 🖼️ | 虚拟背景：内置场景 + 自定义图片 | Virtual backgrounds: built-in scenes plus your own image |
 | ✨ | 美颜分三档：磨皮 / 美白 / 瘦脸 | Retouch split into smoothing, whitening and face slimming |

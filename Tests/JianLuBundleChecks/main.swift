@@ -1129,4 +1129,88 @@ expect(
 )
 expect(appStateSource.contains("launchAtLoginState = LaunchAtLoginService.state"), "the login item state is refreshed from the system")
 
+// Camera and microphone device selection. One persisted `uniqueID` per device has to
+// reach all three capture paths, or a user who picks a microphone gets it in one kind
+// of recording and the system default in another.
+let mediaDeviceCatalogURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/MediaDeviceCatalog.swift")
+let mediaDeviceCatalogSource = (try? String(contentsOf: mediaDeviceCatalogURL, encoding: .utf8)) ?? ""
+expect(mediaDeviceCatalogSource.contains("static func camera(preferredID: String?)"), "one place resolves the camera a recording should use")
+expect(mediaDeviceCatalogSource.contains("static func microphone(preferredID: String?)"), "one place resolves the microphone a recording should use")
+expect(
+    mediaDeviceCatalogSource.contains("?? AVCaptureDevice.default(for: .video)")
+        && mediaDeviceCatalogSource.contains("?? AVCaptureDevice.default(for: .audio)"),
+    "an unplugged device pick falls back to the system default instead of failing the recording"
+)
+expect(mediaDeviceCatalogSource.contains("kAudioHardwarePropertyTranslateUIDToDevice"), "an audio uniqueID can be translated to the CoreAudio device the audio engine needs")
+expect(mediaDeviceCatalogSource.contains("AVCaptureDevice.wasConnectedNotification"), "the device list follows hardware being plugged in")
+expect(mediaDeviceCatalogSource.contains("AVCaptureDevice.wasDisconnectedNotification"), "the device list follows hardware being unplugged")
+expect(mediaDeviceCatalogSource.contains("device.isConnected"), "only connected devices are offered for selection")
+
+let recordingProjectURL = projectRoot.appendingPathComponent("Sources/JianLuCore/Models/RecordingProject.swift")
+let recordingProjectSource = (try? String(contentsOf: recordingProjectURL, encoding: .utf8)) ?? ""
+expect(recordingProjectSource.contains("public var cameraDeviceID: String?"), "the chosen camera is persisted with the other recording preferences")
+expect(recordingProjectSource.contains("public var microphoneDeviceID: String?"), "the chosen microphone is persisted with the other recording preferences")
+expect(
+    recordingProjectSource.contains("cameraDeviceID = try container.decodeIfPresent(String.self, forKey: .cameraDeviceID)")
+        && recordingProjectSource.contains("microphoneDeviceID = try container.decodeIfPresent(String.self, forKey: .microphoneDeviceID)"),
+    "preferences written before device selection existed still decode"
+)
+
+expect(cameraCaptureServiceSource.contains("func selectDevice(_ deviceID: String?)"), "the camera can be switched without restarting the app")
+expect(cameraCaptureServiceSource.contains("MediaDeviceCatalog.camera(preferredID: preferredDeviceID)"), "the camera session opens the selected device rather than always the system default")
+expect(cameraCaptureServiceSource.contains("guard configured, !hasActiveRecording else { return }"), "a camera swap is refused mid-take, where the writer's frame size is already fixed")
+expect(cameraCaptureServiceSource.contains("private func applyMirroring()"), "mirroring is reapplied after an input swap rebuilds the connection")
+expect(
+    occurrenceCount(of: "applyMirroring()", in: cameraCaptureServiceSource) >= 3,
+    "mirroring is applied on first configuration and on every device swap"
+)
+expect(cameraCaptureServiceSource.contains("selectDevice(preferences.cameraDeviceID)"), "starting a recording honours the camera stored in the frozen preferences")
+
+expect(microphoneCaptureServiceSource.contains("private func selectInputDevice(_ deviceID: String?) throws"), "the noise-reduced path can point the audio engine at a chosen microphone")
+expect(microphoneCaptureServiceSource.contains("try engine.inputNode.auAudioUnit.setDeviceID(audioDeviceID)"), "the audio engine's input device is set explicitly")
+expect(
+    microphoneCaptureServiceSource.contains("guard resolved.uniqueID != MediaDeviceCatalog.systemDefaultMicrophoneID() else { return }"),
+    "picking the device that is already the system default leaves the engine's default input/output pairing alone, which is the only arrangement in which a plain microphone keeps noise reduction"
+)
+expect(
+    mediaDeviceCatalogSource.contains("static func canBackVoiceProcessing(_ deviceID: AudioDeviceID)"),
+    "a microphone that cannot drive the duplex voice-processing unit is detected before the engine fails on it"
+)
+expect(
+    microphoneCaptureServiceSource.contains("throw MicrophoneCaptureError.deviceCannotDoNoiseReduction(resolved.localizedName)"),
+    "a microphone the voice-processing unit cannot drive falls back to plain capture with a reason instead of an OSStatus"
+)
+expect(
+    microphoneCaptureServiceSource.contains("private var engine = AVAudioEngine()")
+        && microphoneCaptureServiceSource.contains("engine = AVAudioEngine()\n        let input = engine.inputNode"),
+    "each take gets a fresh engine so a previous take's device cannot linger"
+)
+expectOrder(
+    "try selectInputDevice(preferences.microphoneDeviceID",
+    before: "let format = input.outputFormat(forBus: 0)",
+    in: microphoneCaptureServiceSource,
+    "the microphone device is chosen before its format is read"
+)
+expect(microphoneCaptureServiceSource.contains("private(set) var startupWarnings: [String] = []"), "every microphone startup fallback is reported, not just the last one")
+
+expect(captureServiceSource.contains("microphoneDeviceID: String?"), "screen capture takes the chosen microphone")
+expect(
+    captureServiceSource.contains("MediaDeviceCatalog.microphone(preferredID: microphoneDeviceID)?.uniqueID"),
+    "the ScreenCaptureKit microphone track uses the chosen device instead of always the system default"
+)
+expect(appStateSource.contains("microphoneDeviceID: recordingPreferences.microphoneDeviceID"), "screen capture receives the microphone from the frozen recording preferences")
+expect(appStateSource.contains("cameraCaptureService.selectDevice(preferences.cameraDeviceID)"), "changing the camera preference reaches the live capture session")
+expect(appStateSource.contains("var isDeviceSelectionLocked: Bool"), "the app knows when device pickers must sit still")
+expect(
+    appStateSource.contains("MediaDeviceCatalog.isAvailable(preferredID: recordingPreferences.cameraDeviceID, mediaType: .video)"),
+    "a recording that silently fell back to the default camera says so"
+)
+expect(
+    appStateSource.contains("MediaDeviceCatalog.isAvailable(preferredID: recordingPreferences.microphoneDeviceID, mediaType: .audio)"),
+    "a recording that silently fell back to the default microphone says so"
+)
+expect(settingsViewSource.contains("MediaDevicePicker"), "camera and microphone can be chosen from settings")
+expect(settingsViewSource.contains("isLocked: appState.isDeviceSelectionLocked"), "the device pickers are locked while a recording is running")
+expect(settingsViewSource.contains("deviceCatalog.refresh()"), "the settings panes rescan devices instead of trusting a stale list")
+
 print("JianLuBundleChecks passed")
