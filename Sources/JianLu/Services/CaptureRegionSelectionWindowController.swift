@@ -96,15 +96,18 @@ final class CaptureRegionSelectionWindowController {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    /// Ask where the screenshot goes, without leaving the editor.
+    /// Ask where the screenshot goes. Returns nil when the user cancels, and the editor
+    /// is then back exactly as it was, markups and all.
     ///
-    /// Both obvious ways to show this panel fail against the capture overlay, which is
-    /// a borderless, fully transparent, full-screen window at `.screenSaver` level: an
-    /// ordinary modal opens *behind* it and is never seen, and a sheet on it draws
-    /// without its own background — bare fields floating over the screenshot. Its own
-    /// window, one level above the overlay, is the combination that both paints
-    /// normally and stays on top. Returns nil when the user cancels, and the editor
-    /// then has to stay exactly as it was, markups and all.
+    /// The overlay is a borderless, transparent, full-screen window at `.screenSaver`
+    /// level, and every attempt to show a panel *over* it has failed: a sheet on it
+    /// draws without its own background, and raising the panel's own level does not
+    /// survive — AppKit resets it when the panel runs modal (measured: the save panel
+    /// lands on level 8 while the overlay sits at level 1000). A dialog hidden behind a
+    /// full-screen window while still app-modal is the worst outcome of all: it
+    /// swallows every click in 简录, so 完成 and 取消 stop working too and the only way
+    /// out is force-quitting. So don't compete with the overlay — take it off screen
+    /// for as long as the dialog is up.
     func presentSavePanel(suggestedName: String, directory: URL?) -> URL? {
         guard let panel else { return nil }
 
@@ -119,8 +122,17 @@ final class CaptureRegionSelectionWindowController {
         if let directory {
             savePanel.directoryURL = directory
         }
-        savePanel.level = NSWindow.Level(rawValue: panel.level.rawValue + 1)
-        return savePanel.runModal() == .OK ? savePanel.url : nil
+
+        panel.orderOut(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        let url = savePanel.runModal() == .OK ? savePanel.url : nil
+        if url == nil {
+            // Cancelled: the editor comes straight back. On a save it stays off screen,
+            // because the caller closes the whole session anyway.
+            panel.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        return url
     }
 
     /// The point size of the display a region belongs to — needed to crop the frozen

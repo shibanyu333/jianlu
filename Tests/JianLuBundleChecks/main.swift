@@ -825,13 +825,25 @@ let regionSelectionControllerSource = (try? String(
     contentsOf: projectRoot.appendingPathComponent("Sources/JianLu/Services/CaptureRegionSelectionWindowController.swift"),
     encoding: .utf8
 )) ?? ""
+// Measured: AppKit resets a save panel's level when it runs modal, so it lands on
+// level 8 behind the overlay's level 1000 — and an app-modal dialog nobody can see
+// swallows every click in 简录, 完成 included. The overlay goes off screen instead.
+expectOrder(
+    ["panel.orderOut(nil)", "savePanel.runModal()"],
+    in: regionSelectionControllerSource,
+    "the capture overlay leaves the screen before the save panel runs, so the dialog cannot hide behind it"
+)
 expect(
-    regionSelectionControllerSource.contains("savePanel.level = NSWindow.Level(rawValue: panel.level.rawValue + 1)"),
-    "the save panel outranks the capture overlay, so it cannot open behind it"
+    !regionSelectionControllerSource.contains("savePanel.level"),
+    "the save panel does not try to out-rank the overlay, because that level does not survive runModal"
 )
 expect(
     !regionSelectionControllerSource.contains("beginSheetModal"),
     "the save panel is not a sheet on the overlay, where it would draw without its own background"
+)
+expect(
+    regionSelectionControllerSource.contains("panel.makeKeyAndOrderFront(nil)\n            NSApp.activate(ignoringOtherApps: true)\n        }\n        return url"),
+    "cancelling the save panel puts the editor back on screen"
 )
 expect(
     appStateSource.contains("private func announceCopyResult(_ copied: Bool?)"),
