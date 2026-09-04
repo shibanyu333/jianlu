@@ -1,6 +1,7 @@
 import AppKit
 import JianLuCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 @MainActor
 final class CaptureRegionSelectionWindowController {
@@ -93,6 +94,33 @@ final class CaptureRegionSelectionWindowController {
         model?.beginEditing(image: image)
         panel?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Ask where the screenshot goes, without leaving the editor.
+    ///
+    /// Both obvious ways to show this panel fail against the capture overlay, which is
+    /// a borderless, fully transparent, full-screen window at `.screenSaver` level: an
+    /// ordinary modal opens *behind* it and is never seen, and a sheet on it draws
+    /// without its own background — bare fields floating over the screenshot. Its own
+    /// window, one level above the overlay, is the combination that both paints
+    /// normally and stays on top. Returns nil when the user cancels, and the editor
+    /// then has to stay exactly as it was, markups and all.
+    func presentSavePanel(suggestedName: String, directory: URL?) -> URL? {
+        guard let panel else { return nil }
+
+        let savePanel = NSSavePanel()
+        savePanel.title = tr("保存截图", "Save screenshot")
+        savePanel.prompt = tr("保存", "Save")
+        savePanel.nameFieldLabel = tr("文件名：", "Save As:")
+        savePanel.nameFieldStringValue = suggestedName
+        savePanel.allowedContentTypes = [.png]
+        savePanel.canCreateDirectories = true
+        savePanel.isExtensionHidden = false
+        if let directory {
+            savePanel.directoryURL = directory
+        }
+        savePanel.level = NSWindow.Level(rawValue: panel.level.rawValue + 1)
+        return savePanel.runModal() == .OK ? savePanel.url : nil
     }
 
     /// The point size of the display a region belongs to — needed to crop the frozen

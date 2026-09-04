@@ -65,6 +65,7 @@ final class AppState: ObservableObject {
     private let previewExportService = ExportService()
     private let hotkeyService = HotkeyService()
     private let regionSelectionController = CaptureRegionSelectionWindowController()
+    private let captureToast = CaptureToastWindowController()
     private var statusBarController: StatusBarController?
     private static let preferencesKey = "com.local.JianLu.recordingPreferences"
     private static let recentProjectLimit = 20
@@ -566,25 +567,26 @@ final class AppState: ObservableObject {
     }
 
     private func finishScreenshotEditing(_ image: CGImage) {
-        if preferences.screenshotAutoCopyOnFinish {
-            copyScreenshot(image)
-        } else {
+        let copied = preferences.screenshotAutoCopyOnFinish ? copyScreenshot(image) : nil
+        if copied == nil {
             statusMessage = tr("截图已完成", "Screenshot done")
             lastErrorMessage = nil
         }
         closeScreenshotEditing()
+        announceCopyResult(copied)
     }
 
     private func copyScreenshotAndClose(_ image: CGImage) {
-        copyScreenshot(image)
+        let copied = copyScreenshot(image)
         closeScreenshotEditing()
+        announceCopyResult(copied)
     }
 
-    private func closeScreenshotEditing() {
+    private func closeScreenshotEditing(showingMainWindow: Bool = false) {
         // Focus goes back first: once the overlay is gone AppKit would pick the next
         // active app itself, and 简录 winning that lottery is exactly the main window
         // popping up in the user's face after every screenshot.
-        AppWindowUtility.endCaptureSession()
+        AppWindowUtility.endCaptureSession(showingMainWindow: showingMainWindow)
         regionSelectionController.hide()
         frozenScreenshotImage = nil
         isSelectingScreenshot = false
@@ -592,32 +594,78 @@ final class AppState: ObservableObject {
     }
 
     private func saveScreenshot(_ image: CGImage) {
+        // The default recordings folder and a fresh screenshot name are only the
+        // starting point — the panel is where the user picks the real destination.
+        let directory = RecordingFileStore.recordingsDirectory(path: preferences.recordingDirectoryPath)
+        let suggestedName = (try? RecordingFileStore.makeRecordingURL(
+            prefix: "screenshot",
+            extension: "png",
+            directoryPath: preferences.recordingDirectoryPath
+        ))?.lastPathComponent ?? "screenshot.png"
+
+        guard let url = regionSelectionController.presentSavePanel(
+            suggestedName: suggestedName,
+            directory: directory
+        ) else {
+            // Cancelling the panel goes back to the editor with every markup still
+            // there; it must not end the screenshot.
+            statusMessage = tr("已取消保存截图", "Screenshot save cancelled")
+            return
+        }
+        writeScreenshot(image, to: url)
+    }
+
+    private func writeScreenshot(_ image: CGImage, to url: URL) {
         do {
-            let url = try RecordingFileStore.makeRecordingURL(
-                prefix: "screenshot",
-                extension: "png",
-                directoryPath: preferences.recordingDirectoryPath
-            )
             try screenshotCaptureService.writePNG(image, to: url)
             statusMessage = tr("截图已保存：", "Screenshot saved: ") + url.lastPathComponent
             lastErrorMessage = nil
+            // Saving finishes the screenshot the same way copying does. It used to leave
+            // the editor open with no visible sign anything had happened — the status
+            // line lives in the main window, which is stashed for the whole capture
+            // session — so the button read as broken and got pressed over and over.
+            closeScreenshotEditing()
+            captureToast.show(
+                title: tr("截图已保存", "Screenshot saved"),
+                detail: url.lastPathComponent,
+                revealing: url
+            )
         } catch {
             lastErrorMessage = error.localizedDescription
             statusMessage = tr("保存截图失败：", "Could not save the screenshot: ") + error.localizedDescription
+            // The only case that wants the window back: the reason nothing was written
+            // is waiting in it.
+            closeScreenshotEditing(showingMainWindow: true)
         }
     }
 
-    private func copyScreenshot(_ image: CGImage) {
+    /// - Returns: whether the image reached the clipboard.
+    private func copyScreenshot(_ image: CGImage) -> Bool {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         let nsImage = NSImage(cgImage: image, size: CGSize(width: image.width, height: image.height))
         if pasteboard.writeObjects([nsImage]) {
             statusMessage = tr("已复制带标注的截图", "Annotated screenshot copied")
             lastErrorMessage = nil
-        } else {
-            statusMessage = tr("复制截图失败", "Could not copy the screenshot")
-            lastErrorMessage = tr("系统剪贴板暂时不可用。", "The system clipboard is unavailable right now.")
+            return true
         }
+        statusMessage = tr("复制截图失败", "Could not copy the screenshot")
+        lastErrorMessage = tr("系统剪贴板暂时不可用。", "The system clipboard is unavailable right now.")
+        return false
+    }
+
+    /// Nil means no copy was attempted, so there is nothing to confirm.
+    private func announceCopyResult(_ copied: Bool?) {
+        guard let copied else { return }
+        captureToast.show(
+            title: copied
+                ? tr("截图已复制", "Screenshot copied")
+                : tr("复制截图失败", "Could not copy the screenshot"),
+            detail: copied
+                ? tr("可直接粘贴到聊天或文档", "Paste it straight into a chat or document")
+                : tr("系统剪贴板暂时不可用", "The clipboard is unavailable right now"),
+            symbol: copied ? "doc.on.doc.fill" : "exclamationmark.triangle.fill"
+        )
     }
 
     private func ensureRecordingPermissions() async -> Bool {

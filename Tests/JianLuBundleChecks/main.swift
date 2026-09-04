@@ -749,16 +749,15 @@ expectOrder(
     in: appStateSource,
     "the screenshot session remembers the frontmost app before its panel activates JianLu"
 )
-expect(
-    appStateSource.contains(
-"""
-    private func closeScreenshotEditing() {
-        // Focus goes back first: once the overlay is gone AppKit would pick the next
-        // active app itself, and 简录 winning that lottery is exactly the main window
-        // popping up in the user's face after every screenshot.
-        AppWindowUtility.endCaptureSession()
-        regionSelectionController.hide()
-"""),
+let closeScreenshotEditingSource = sourceSlice(
+    in: appStateSource,
+    from: "private func closeScreenshotEditing(showingMainWindow: Bool = false)",
+    to: "private func saveScreenshot"
+)
+expectOrder(
+    "AppWindowUtility.endCaptureSession(showingMainWindow: showingMainWindow)",
+    before: "regionSelectionController.hide()",
+    in: closeScreenshotEditingSource,
     "a finished screenshot hands focus back before its overlay is closed"
 )
 expect(
@@ -785,6 +784,73 @@ expect(
 )
 expect(appStateSource.contains("try screenshotCaptureService.writePNG(image, to: url)"), "app state saves annotated screenshots through PNG writer")
 expect(appStateSource.contains("NSPasteboard.general"), "app state copies annotated screenshots to the clipboard")
+
+// 保存 used to write the PNG and leave the editor open with no visible sign of it: the
+// status line lives in the main window, which is stashed for the whole capture session.
+// The button read as dead and got pressed over and over, one file per press.
+let saveScreenshotAppStateSource = sourceSlice(
+    in: appStateSource,
+    from: "private func saveScreenshot(_ image: CGImage)",
+    to: "private func writeScreenshot(_ image: CGImage, to url: URL)"
+)
+expect(
+    saveScreenshotAppStateSource.contains("regionSelectionController.presentSavePanel("),
+    "saving asks the user where the screenshot goes"
+)
+expect(
+    !saveScreenshotAppStateSource.contains("closeScreenshotEditing()"),
+    "cancelling the save panel returns to the editor with its markups instead of ending the screenshot"
+)
+let writeScreenshotAppStateSource = sourceSlice(
+    in: appStateSource,
+    from: "private func writeScreenshot(_ image: CGImage, to url: URL)",
+    to: "/// - Returns: whether the image reached the clipboard."
+)
+expectOrder(
+    [
+        "try screenshotCaptureService.writePNG(image, to: url)",
+        "closeScreenshotEditing()",
+        "captureToast.show("
+    ],
+    in: writeScreenshotAppStateSource,
+    "a saved screenshot closes the editor and confirms on screen, so the save button cannot read as dead"
+)
+expect(
+    writeScreenshotAppStateSource.contains("closeScreenshotEditing(showingMainWindow: true)"),
+    "a failed save brings the main window back, because the reason is only readable there"
+)
+// The capture overlay is a full-screen `.screenSaver` panel: a free-floating save panel
+// opens behind it, which is the same "nothing happened" bug in a new costume.
+let regionSelectionControllerSource = (try? String(
+    contentsOf: projectRoot.appendingPathComponent("Sources/JianLu/Services/CaptureRegionSelectionWindowController.swift"),
+    encoding: .utf8
+)) ?? ""
+expect(
+    regionSelectionControllerSource.contains("savePanel.level = NSWindow.Level(rawValue: panel.level.rawValue + 1)"),
+    "the save panel outranks the capture overlay, so it cannot open behind it"
+)
+expect(
+    !regionSelectionControllerSource.contains("beginSheetModal"),
+    "the save panel is not a sheet on the overlay, where it would draw without its own background"
+)
+expect(
+    appStateSource.contains("private func announceCopyResult(_ copied: Bool?)"),
+    "copying a screenshot confirms on screen too, for the same reason saving does"
+)
+let captureToastURL = projectRoot.appendingPathComponent("Sources/JianLu/Services/CaptureToastWindowController.swift")
+let captureToastSource = (try? String(contentsOf: captureToastURL, encoding: .utf8)) ?? ""
+expect(
+    captureToastSource.contains(".nonactivatingPanel"),
+    "the capture confirmation never takes focus back from the app the capture session just returned it to"
+)
+expect(
+    captureToastSource.contains("panel.sharingType = .none"),
+    "the capture confirmation never lands inside the next recording or screenshot"
+)
+expect(
+    captureToastSource.contains("panel.hidesOnDeactivate = false"),
+    "the capture confirmation stays visible while another app is frontmost"
+)
 expect(appStateSource.contains("syncCameraProcessingPreferences(preferences)"), "preference changes immediately sync camera processing")
 expect(appStateSource.contains("cameraCaptureService.updatePreviewPreferences(preferences)"), "camera background settings update live preview preferences")
 expect(appStateSource.contains("cameraCaptureService.updateRecordingPreferences(preferences)"), "camera background settings update the active recording writer")
